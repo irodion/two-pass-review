@@ -16,7 +16,12 @@ was forked, what changed, and what was read but not copied.
 .agents/skills/atomic-review/
 ├── SKILL.md          the orchestrator: scope → two passes → merge → render
 ├── references/       the two forked rubrics
-└── scripts/          scope.py, validate.py, render.py — stdlib python3, no dependencies
+└── scripts/          stdlib python3, no dependencies
+    ├── scope.py            pins the diff both passes read
+    ├── validate.py         gates rendering; nothing invalid becomes a page
+    ├── markdown_subset.py  the permitted markdown, and only it
+    ├── page.py             builds the report
+    └── render.py           validates, writes, opens, prints
 ```
 
 No dependencies, no network, no build step. The report is one file with no JavaScript in it, which is why

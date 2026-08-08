@@ -24,6 +24,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -58,6 +59,34 @@ def repo_slug(root):
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-").lower() or "repo"
     digest = hashlib.sha256(os.path.abspath(root).encode("utf-8")).hexdigest()[:8]
     return "{}-{}".format(slug, digest)
+
+
+def make_private_dir(path):
+    """Create the report root readable only by its owner, or explain why not.
+
+    `gettempdir()` is a per-user directory on macOS but plain `/tmp` on Linux,
+    where the path is also predictable -- it is derived from the repository's
+    absolute path. Everything written under here is the diff under review and a
+    written-up list of its weaknesses, so it is worth two checks: never write
+    through a symlink somebody else planted, and never trust a directory this
+    user does not own. `makedirs` honours the umask and will not tighten a
+    directory that already exists, so the mode is set explicitly either way.
+    """
+    parent = os.path.dirname(path)
+    if parent and not os.path.isdir(parent):
+        os.makedirs(parent, exist_ok=True)
+    if os.path.lexists(path):
+        info = os.lstat(path)
+        if stat.S_ISLNK(info.st_mode):
+            return "{} is a symlink; refusing to write reports through it".format(path)
+        if not stat.S_ISDIR(info.st_mode):
+            return "{} exists and is not a directory".format(path)
+        if info.st_uid != os.getuid():
+            return "{} is owned by another user; refusing to write reports into it".format(path)
+    else:
+        os.makedirs(path, mode=0o700)
+    os.chmod(path, 0o700)
+    return None
 
 
 def build_diff(repo, mode, base, head):
@@ -135,8 +164,14 @@ def main(argv):
         return 3
 
     report_dir = os.path.join(tempfile.gettempdir(), "atomic-review", repo_slug(root))
-    run_dir = os.path.join(report_dir, datetime.utcnow().strftime("%Y%m%d-%H%M%S"))
-    os.makedirs(run_dir, exist_ok=True)
+    error = make_private_dir(report_dir)
+    if error:
+        return fail(error)
+
+    # mkdtemp creates the directory 0700 and guarantees it is new, so two runs
+    # starting in the same second cannot share one and overwrite the diff the
+    # other pinned.
+    run_dir = tempfile.mkdtemp(prefix=datetime.utcnow().strftime("%Y%m%d-%H%M%S-"), dir=report_dir)
 
     context = os.path.join(run_dir, "context.diff")
     with open(context, "w", encoding="utf-8") as handle:

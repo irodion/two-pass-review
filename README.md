@@ -50,13 +50,18 @@ broken for everyone who clones afterwards, and since git stores the path as the 
 about the repository looks wrong in the meantime. The user-level links below are absolute instead, which is
 not an inconsistency: nothing commits them, and they point outside any repository.
 
-**For yourself, everywhere** — one line per agent you use:
+**For yourself, everywhere** — two links cover all three agents:
 
 ```sh
-mkdir -p ~/.claude/skills ~/.cursor/skills
+mkdir -p ~/.agents/skills ~/.claude/skills
+ln -s /path/to/two-pass-review/.agents/skills/two-pass-review ~/.agents/skills/two-pass-review
 ln -s /path/to/two-pass-review/.agents/skills/two-pass-review ~/.claude/skills/two-pass-review
-ln -s /path/to/two-pass-review/.agents/skills/two-pass-review ~/.cursor/skills/two-pass-review
 ```
+
+`~/.agents/skills/` is the user-level location Cursor and Codex both read; `~/.claude/skills/` is Claude
+Code's. Codex also reads `~/.codex/skills/`, and Cursor reads it for compatibility, but Codex's own source
+marks that path deprecated and kept only for backward compatibility — so it is not what a new install
+should write to.
 
 A user-level install changes one documented thing: the re-render command becomes
 `python3 ~/.claude/skills/two-pass-review/scripts/render.py <findings.json>` rather than the repo-relative

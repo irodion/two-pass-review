@@ -27,7 +27,12 @@ it works over `file://` and still works after you email it to someone.
 
 ## Installing it somewhere else
 
-There is no installer, because there is nothing an installer would do that these commands do not.
+There is no installer, because there is nothing an installer would do that these commands do not. Both
+recipes below copy from a clone, which is what `/path/to/two-pass-review` means:
+
+```sh
+git clone https://github.com/irodion/two-pass-review
+```
 
 **Into a project** — the skill travels with the repository, and everyone who clones it has the review:
 
@@ -40,6 +45,11 @@ ln -s ../../.agents/skills/two-pass-review <your-repo>/.claude/skills/two-pass-r
 One real directory and one relative symlink. Cursor and Codex read `.agents/skills/`; Claude Code reads
 `.claude/skills/` and follows symlinks, de-duplicating by target. Commit both.
 
+**The committed symlink has to stay relative.** An absolute one works on the machine that wrote it and is
+broken for everyone who clones afterwards, and since git stores the path as the file's contents, nothing
+about the repository looks wrong in the meantime. The user-level links below are absolute instead, which is
+not an inconsistency: nothing commits them, and they point outside any repository.
+
 **For yourself, everywhere** — one line per agent you use:
 
 ```sh
@@ -51,6 +61,16 @@ ln -s /path/to/two-pass-review/.agents/skills/two-pass-review ~/.cursor/skills/t
 A user-level install changes one documented thing: the re-render command becomes
 `python3 ~/.claude/skills/two-pass-review/scripts/render.py <findings.json>` rather than the repo-relative
 path, because the skill no longer lives inside the repository being reviewed.
+
+**Handing it to your agent** — if you would rather ask than type, paste this:
+
+> Install the skill from `https://github.com/irodion/two-pass-review` into this repository, following the
+> "Into a project" commands in its README. The symlink must stay relative. Do not run the review
+> afterwards.
+
+That last sentence is worth keeping. The skill sets `disable-model-invocation: true`, so nothing invokes it
+but you — and an agent that has just installed something has an obvious urge to prove it works, which on a
+real branch is a full two-pass review you did not ask for.
 
 ## Using it
 

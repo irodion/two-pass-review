@@ -24,11 +24,10 @@ import hashlib
 import json
 import os
 import re
-import stat
 import subprocess
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 
 LARGE_BYTES = 500_000
 LARGE_FILES = 150
@@ -62,7 +61,7 @@ def repo_slug(root):
 
 
 def make_private_dir(path):
-    """Create one directory readable only by its owner, or explain why not.
+    """Create one directory readable only by its owner. Returns an exit status.
 
     Call it on each component the tool creates, outermost first: the security of
     a path is the security of every component, and a private directory under a
@@ -70,23 +69,43 @@ def make_private_dir(path):
 
     This is modest housekeeping rather than a defence against a determined
     attacker -- anyone with a shell on the machine has easier targets than a
-    code review. It matters on a shared build host, where `gettempdir()` is the
-    common `/tmp` and this path is derived from the repository's location and so
-    is guessable. `makedirs` honours the umask and will not tighten a directory
-    that already exists, so the mode is set explicitly either way.
+    code review. It earns its lines on a shared build host, where `gettempdir()`
+    is the common `/tmp` and this path is derived from the repository's location
+    and so is guessable.
+
+    Every check runs against an open descriptor rather than the name, so what is
+    inspected is what was opened. `O_NOFOLLOW` makes a planted symlink an error
+    rather than something to detect and then act on separately.
     """
-    if os.path.lexists(path):
-        info = os.lstat(path)
-        if stat.S_ISLNK(info.st_mode):
-            return "{} is a symlink; refusing to write reports through it".format(path)
-        if not stat.S_ISDIR(info.st_mode):
-            return "{} exists and is not a directory".format(path)
+    created = False
+    try:
+        os.mkdir(path, 0o700)
+        created = True
+    except FileExistsError:
+        pass
+    except OSError as error:
+        return fail("cannot create {}: {}".format(path, error))
+
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY)
+    except OSError:
+        return fail("{} is a symlink or not a directory; refusing to write reports through it".format(path))
+    try:
+        info = os.fstat(descriptor)
         if info.st_uid != os.getuid():
-            return "{} is owned by another user; refusing to write reports into it".format(path)
-    else:
-        os.makedirs(path, mode=0o700)
-    os.chmod(path, 0o700)
-    return None
+            return fail("{} is owned by another user; refusing to write reports into it".format(path))
+        if created:
+            # mkdir's mode is masked by the umask, so set it on the descriptor.
+            os.fchmod(descriptor, 0o700)
+        elif info.st_mode & 0o077:
+            # Somebody chose this mode. Say so rather than silently undoing it.
+            return fail(
+                "{} is readable by other users. Reports are written here, so either "
+                "`chmod 700` it or remove it and let this run recreate it".format(path)
+            )
+    finally:
+        os.close(descriptor)
+    return 0
 
 
 def build_diff(repo, mode, base, head):
@@ -95,17 +114,23 @@ def build_diff(repo, mode, base, head):
         selector = ["{}..{}".format(base, head)]
     else:
         # Working tree against the base, which covers staged and unstaged alike.
-        # Untracked files are absent -- git has nothing to diff them against, and
-        # the worked example does not reach for one either.
         selector = [base]
     code, diff, error = git(repo, "diff", *selector)
     if code != 0:
-        return None, None, error
+        return None, None, None, error
     code, names, error = git(repo, "diff", "--name-only", *selector)
     if code != 0:
-        return None, None, error
+        return None, None, None, error
     files = [line for line in names.splitlines() if line.strip()]
-    return diff, files, None
+
+    # Files git has never been told about cannot appear in any diff. Reviewing
+    # them is out of scope; counting them is not, because a review that skips
+    # new code without saying so is the one thing a review must not do.
+    untracked = None
+    if mode == "local-patch":
+        code, others, _ = git(repo, "ls-files", "--others", "--exclude-standard")
+        untracked = len([line for line in others.splitlines() if line.strip()]) if code == 0 else None
+    return diff, files, untracked, None
 
 
 def main(argv):
@@ -142,14 +167,16 @@ def main(argv):
         if head is None:
             return fail("{!r} does not name a commit in this repository".format(args.head))
 
-    diff, files, error = build_diff(root, args.mode, base, head)
+    diff, files, untracked, error = build_diff(root, args.mode, base, head)
     if diff is None:
         return fail(error or "git could not produce the diff")
     if not files:
         if args.mode == "local-patch":
             return fail(
-                "the working tree matches {} -- there is nothing to review. Files that have never "
-                "been added are invisible to git diff; stage or commit them to bring them in".format(args.base)
+                "the working tree matches {} -- there is nothing to review. The {} untracked file(s) "
+                "here are invisible to git diff; stage or commit them to bring them in".format(
+                    args.base, untracked if untracked is not None else 0
+                )
             )
         return fail("that range is empty -- there is nothing to review")
 
@@ -166,14 +193,15 @@ def main(argv):
     temp_root = os.path.join(tempfile.gettempdir(), "atomic-review")
     report_dir = os.path.join(temp_root, repo_slug(root))
     for directory in (temp_root, report_dir):
-        error = make_private_dir(directory)
-        if error:
-            return fail(error)
+        status = make_private_dir(directory)
+        if status:
+            return status
 
     # mkdtemp creates the directory 0700 and guarantees it is new, so two runs
     # starting in the same second cannot share one and overwrite the diff the
     # other pinned.
-    run_dir = tempfile.mkdtemp(prefix=datetime.utcnow().strftime("%Y%m%d-%H%M%S-"), dir=report_dir)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-")
+    run_dir = tempfile.mkdtemp(prefix=stamp, dir=report_dir)
 
     context = os.path.join(run_dir, "context.diff")
     with open(context, "w", encoding="utf-8") as handle:
@@ -187,6 +215,8 @@ def main(argv):
         "files_changed": len(files),
         "diff_bytes": diff_bytes,
     }
+    if untracked is not None:
+        scope["untracked"] = untracked
     with open(os.path.join(run_dir, "scope.json"), "w", encoding="utf-8") as handle:
         json.dump(scope, handle, indent=2)
 

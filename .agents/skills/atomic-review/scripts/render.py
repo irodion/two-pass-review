@@ -13,6 +13,7 @@ Internal flags (not user-facing surface):
     --latest PATH    also refresh a stable copy of the report at PATH
 """
 
+import argparse
 import json
 import os
 import platform
@@ -55,17 +56,16 @@ def open_in_browser(path):
 
 
 def main(argv):
-    args = [a for a in argv[1:] if not a.startswith("--")]
-    flags = [a for a in argv[1:] if a.startswith("--")]
-    latest = None
-    if "--latest" in argv:
-        latest = argv[argv.index("--latest") + 1]
-        args = [a for a in args if a != latest]
-    if len(args) != 1:
-        sys.stderr.write(__doc__.split("\n\n", 1)[1])
+    parser = argparse.ArgumentParser(add_help=True)
+    parser.add_argument("findings", metavar="FINDINGS_JSON")
+    parser.add_argument("--no-open", action="store_true")
+    parser.add_argument("--latest")
+    try:
+        args = parser.parse_args(argv[1:])
+    except SystemExit:
         return 2
 
-    source = os.path.abspath(args[0])
+    source = os.path.abspath(args.findings)
     problems = validate.validate_paths([source])
     if problems:
         sys.stderr.write("Refusing to render an invalid artifact:\n\n")
@@ -81,10 +81,10 @@ def main(argv):
     with open(target, "w", encoding="utf-8") as handle:
         handle.write(render_page(merged))
 
-    if latest:
-        shutil.copyfile(target, os.path.abspath(latest))
+    if args.latest:
+        shutil.copyfile(target, os.path.abspath(args.latest))
 
-    if "--no-open" not in flags:
+    if not args.no_open:
         open_in_browser(target)
 
     sys.stdout.write("{}\n".format(target))

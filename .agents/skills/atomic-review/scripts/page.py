@@ -6,12 +6,13 @@ up, and nothing here parses markdown -- that is `markdown_subset`.
 """
 
 import html
-import os
-import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import validate  # noqa: E402  (sibling script, same directory)
-from markdown_subset import Markdown  # noqa: E402
+# Imported by render.py, which is the only file here run directly and the only
+# one that puts this directory on sys.path. A library module that mutates global
+# import state as a side effect changes how every later import in the process
+# resolves, so it does not do that.
+import validate
+from markdown_subset import Markdown
 
 
 DISPOSITION_ORDER = ("blocking", "follow-up", "note")
@@ -218,6 +219,12 @@ def render_scope(run):
         "The passes reviewed this diff and read the repository around it, so a finding may cite a file "
         "the diff never touched &mdash; or one a remedy proposes and nothing has written yet."
     )
+    untracked = ""
+    if scope.get("untracked"):
+        untracked = (
+            '<p class="warn">{} file(s) in this working tree are untracked and were '
+            "not reviewed. Git can only diff what it has been told about.</p>".format(scope["untracked"])
+        )
     sequential = ""
     if run["mode"] == "sequential":
         sequential = (
@@ -226,7 +233,7 @@ def render_scope(run):
         )
     return (
         '<section id="scope" class="scope"><h2>Scope</h2><dl class="kvs">{}</dl>'
-        '<p class="muted">{}</p>{}</section>'.format(body, note, sequential)
+        '<p class="muted">{}</p>{}{}</section>'.format(body, note, untracked, sequential)
     )
 
 

@@ -73,7 +73,7 @@ PASS_FIELDS = frozenset(
 EMBEDDED_PASS_FIELDS = PASS_FIELDS - frozenset(["schema_version", "kind"])
 MERGED_FIELDS = frozenset(["schema_version", "kind", "run", "verdict", "passes", "findings"])
 RUN_FIELDS = frozenset(["mode", "generated_at", "scope"])
-SCOPE_FIELDS = frozenset(["repo", "mode", "base", "head", "files_changed", "diff_bytes"])
+SCOPE_FIELDS = frozenset(["repo", "mode", "base", "head", "files_changed", "diff_bytes", "untracked"])
 
 
 class Report(object):
@@ -462,6 +462,14 @@ def check_run(report, where, run):
     elif scope_mode == "revisions":
         if not isinstance(head, str) or not head.strip():
             report.add(at, "'head' must be a resolved revision under scope mode 'revisions'")
+
+    # Untracked files exist only as a concept for a working patch; a revision
+    # range has none by construction, so the count would be meaningless there.
+    if "untracked" in scope:
+        if scope_mode != "local-patch":
+            report.add(at, "'untracked' belongs only to scope mode 'local-patch'")
+        else:
+            _int(report, at, scope, "untracked")
 
 
 def check_corroboration(report, where, findings, by_id):

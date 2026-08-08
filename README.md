@@ -12,17 +12,15 @@ was forked, what changed, and what was read but not copied.
 
 ## What it is
 
-```
-.agents/skills/atomic-review/
-├── SKILL.md          the orchestrator: scope → two passes → merge → render
-├── references/       the two forked rubrics
-└── scripts/          stdlib python3, no dependencies
-    ├── scope.py            pins the diff both passes read
-    ├── validate.py         gates rendering; nothing invalid becomes a page
-    ├── markdown_subset.py  the permitted markdown, and only it
-    ├── page.py             builds the report
-    └── render.py           validates, writes, opens, prints
-```
+Everything lives under `.agents/skills/atomic-review/`. `SKILL.md` is the orchestrator; `references/`
+holds the two forked rubrics; `scripts/` holds the pipeline.
+
+The pipeline is three steps, and each one refuses to paper over the step before it. **Scope** pins one
+diff to disk, so both passes read an identical input and corroboration has something to compare across.
+The **validator** stands between the passes and the page: it checks the rules that would let the artifact
+lie — chiefly that the verdict agrees with the list beneath it — and nothing invalid is ever rendered.
+The **renderer** turns the merged artifact into the page, and calls the validator itself rather than
+trusting whoever invoked it.
 
 No dependencies, no network, no build step. The report is one file with no JavaScript in it, which is why
 it works over `file://` and still works after you email it to someone.

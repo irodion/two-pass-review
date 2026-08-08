@@ -80,6 +80,27 @@ None of this is a test corpus: there are no fixtures and no expected output, onl
 it substitutes for (1) and (2). CI cannot tell you the report is wrong — it can only tell you the scripts
 still start.
 
+## Landing a change
+
+`main` takes no direct pushes and no merge commits. Everything arrives as a pull request, rebased, and
+**Rebase and merge** is the only button GitHub offers here — squash and merge commits are both turned off.
+Both halves are enforced by a ruleset, so this is not a convention you can quietly decline; a merge commit
+is rejected at push time with *"This branch must not contain merge commits."*
+
+The history is therefore linear, and it is meant to stay readable commit by commit. That is not decoration
+here: `git log` is one of the two surviving records of why anything is the way it is, which is the subject
+of the next section. Squashing a branch into one commit would throw away the argument and keep only the
+result.
+
+So rebase onto `main` rather than merging it in, and keep each commit a change you would want someone to
+read on its own.
+
+Two things worth knowing. GitHub's **Rebase and merge** is not a true fast-forward — it rewrites committer
+information and mints new SHAs even when the branch is already current, so the commits on `main` are not
+byte-identical to the ones you pushed. And required approvals are set to **0**, not because review does not
+matter but because GitHub forbids approving your own pull request: on a repository with one maintainer, any
+other number blocks every change. Raise it the moment there is a second person who can review.
+
 ## The reasoning behind the design is not in this repository
 
 Every decision here was argued out before any code existed, in a planning record that is **deliberately

@@ -62,19 +62,19 @@ def repo_slug(root):
 
 
 def make_private_dir(path):
-    """Create the report root readable only by its owner, or explain why not.
+    """Create one directory readable only by its owner, or explain why not.
 
-    `gettempdir()` is a per-user directory on macOS but plain `/tmp` on Linux,
-    where the path is also predictable -- it is derived from the repository's
-    absolute path. Everything written under here is the diff under review and a
-    written-up list of its weaknesses, so it is worth two checks: never write
-    through a symlink somebody else planted, and never trust a directory this
-    user does not own. `makedirs` honours the umask and will not tighten a
-    directory that already exists, so the mode is set explicitly either way.
+    Call it on each component the tool creates, outermost first: the security of
+    a path is the security of every component, and a private directory under a
+    parent nobody checked is not private.
+
+    This is modest housekeeping rather than a defence against a determined
+    attacker -- anyone with a shell on the machine has easier targets than a
+    code review. It matters on a shared build host, where `gettempdir()` is the
+    common `/tmp` and this path is derived from the repository's location and so
+    is guessable. `makedirs` honours the umask and will not tighten a directory
+    that already exists, so the mode is set explicitly either way.
     """
-    parent = os.path.dirname(path)
-    if parent and not os.path.isdir(parent):
-        os.makedirs(parent, exist_ok=True)
     if os.path.lexists(path):
         info = os.lstat(path)
         if stat.S_ISLNK(info.st_mode):
@@ -163,10 +163,12 @@ def main(argv):
         )
         return 3
 
-    report_dir = os.path.join(tempfile.gettempdir(), "atomic-review", repo_slug(root))
-    error = make_private_dir(report_dir)
-    if error:
-        return fail(error)
+    temp_root = os.path.join(tempfile.gettempdir(), "atomic-review")
+    report_dir = os.path.join(temp_root, repo_slug(root))
+    for directory in (temp_root, report_dir):
+        error = make_private_dir(directory)
+        if error:
+            return fail(error)
 
     # mkdtemp creates the directory 0700 and guarantees it is new, so two runs
     # starting in the same second cannot share one and overwrite the diff the

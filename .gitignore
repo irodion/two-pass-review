@@ -2,3 +2,8 @@
 # Deliberately untracked: upstream/codex-security/ is licensed `Proprietary`
 # and is read for lessons only — it must never be redistributed from here.
 .scratch/
+
+# Running the scripts writes these next to them, and the skill directory is
+# copied into other people's repositories -- so a stray .pyc travels.
+__pycache__/
+*.pyc

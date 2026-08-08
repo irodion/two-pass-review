@@ -34,13 +34,30 @@ LARGE_FILES = 150
 
 
 def git(repo, *arguments):
+    """Raw bytes out.
+
+    Git's output is not guaranteed to be UTF-8. `git diff` calls a file text on
+    a heuristic, so a Latin-1 comment or a mis-encoded fixture arrives as bytes
+    a strict decoder rejects -- and a strict decode here would kill the whole
+    review in step one, on a repository doing nothing unusual.
+    """
     result = subprocess.run(
         ["git", "-C", repo] + list(arguments),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        universal_newlines=True,
     )
-    return result.returncode, result.stdout, result.stderr.strip()
+    return result.returncode, result.stdout, result.stderr.decode("utf-8", "replace").strip()
+
+
+def git_text(repo, *arguments):
+    """Git output as text, with undecodable bytes replaced rather than fatal.
+
+    The replacement character is the honest answer: it says "this byte was not
+    text" in the one place a reviewer can see it, and it costs one character
+    instead of one review.
+    """
+    code, out, error = git(repo, *arguments)
+    return code, out.decode("utf-8", "replace"), error
 
 
 def fail(message, status=4):
@@ -49,7 +66,7 @@ def fail(message, status=4):
 
 
 def resolve_commit(repo, revision):
-    code, out, _ = git(repo, "rev-parse", "--verify", "--quiet", "{}^{{commit}}".format(revision))
+    code, out, _ = git_text(repo, "rev-parse", "--verify", "--quiet", "{}^{{commit}}".format(revision))
     return out.strip() if code == 0 else None
 
 
@@ -115,22 +132,27 @@ def build_diff(repo, mode, base, head):
     else:
         # Working tree against the base, which covers staged and unstaged alike.
         selector = [base]
-    code, diff, error = git(repo, "diff", *selector)
+    code, raw, error = git(repo, "diff", *selector)
     if code != 0:
-        return None, None, None, error
-    code, names, error = git(repo, "diff", "--name-only", *selector)
-    if code != 0:
-        return None, None, None, error
-    files = [line for line in names.splitlines() if line.strip()]
+        return None, error
+    text = raw.decode("utf-8", "replace")
+
+    # Counted from the patch itself rather than from a second `git diff`. Two
+    # invocations run at different instants against a working tree the user may
+    # still be editing, so a count taken from one and a patch pinned from the
+    # other can disagree -- and a scope line contradicting its own context.diff
+    # is the one thing this number must never do.
+    files = sum(1 for line in text.split("\n") if line.startswith("diff --git "))
 
     # Files git has never been told about cannot appear in any diff. Reviewing
     # them is out of scope; counting them is not, because a review that skips
     # new code without saying so is the one thing a review must not do.
     untracked = None
     if mode == "local-patch":
-        code, others, _ = git(repo, "ls-files", "--others", "--exclude-standard")
+        code, others, _ = git_text(repo, "ls-files", "--others", "--exclude-standard")
         untracked = len([line for line in others.splitlines() if line.strip()]) if code == 0 else None
-    return diff, files, untracked, None
+
+    return {"text": text, "bytes": len(raw), "files": files, "untracked": untracked}, None
 
 
 def main(argv):
@@ -148,7 +170,7 @@ def main(argv):
     repo = os.path.abspath(os.path.expanduser(args.repo))
     if not os.path.isdir(repo):
         return fail("{} is not a directory".format(repo))
-    code, root, _ = git(repo, "rev-parse", "--show-toplevel")
+    code, root, _ = git_text(repo, "rev-parse", "--show-toplevel")
     if code != 0:
         return fail("{} is not inside a git repository".format(repo))
     root = root.strip()
@@ -167,26 +189,25 @@ def main(argv):
         if head is None:
             return fail("{!r} does not name a commit in this repository".format(args.head))
 
-    diff, files, untracked, error = build_diff(root, args.mode, base, head)
-    if diff is None:
+    patch, error = build_diff(root, args.mode, base, head)
+    if patch is None:
         return fail(error or "git could not produce the diff")
-    if not files:
+    if not patch["files"]:
         if args.mode == "local-patch":
             return fail(
                 "the working tree matches {} -- there is nothing to review. The {} untracked file(s) "
                 "here are invisible to git diff; stage or commit them to bring them in".format(
-                    args.base, untracked if untracked is not None else 0
+                    args.base, patch["untracked"] if patch["untracked"] is not None else 0
                 )
             )
         return fail("that range is empty -- there is nothing to review")
 
-    diff_bytes = len(diff.encode("utf-8"))
-    if not args.confirm_large and (diff_bytes > LARGE_BYTES or len(files) > LARGE_FILES):
+    if not args.confirm_large and (patch["bytes"] > LARGE_BYTES or patch["files"] > LARGE_FILES):
         sys.stderr.write(
             "This scope is large: {:,} files and {:,} bytes of diff.\n"
             "Ask the user whether to review it whole, then re-run with --confirm-large.\n"
             "It is never split: both passes must see one identical input or corroboration "
-            "has nothing to compare.\n".format(len(files), diff_bytes)
+            "has nothing to compare.\n".format(patch["files"], patch["bytes"])
         )
         return 3
 
@@ -205,18 +226,18 @@ def main(argv):
 
     context = os.path.join(run_dir, "context.diff")
     with open(context, "w", encoding="utf-8") as handle:
-        handle.write(diff)
+        handle.write(patch["text"])
 
     scope = {
         "repo": os.path.basename(root),
         "mode": args.mode,
         "base": base,
         "head": head,
-        "files_changed": len(files),
-        "diff_bytes": diff_bytes,
+        "files_changed": patch["files"],
+        "diff_bytes": patch["bytes"],
     }
-    if untracked is not None:
-        scope["untracked"] = untracked
+    if patch["untracked"] is not None:
+        scope["untracked"] = patch["untracked"]
     with open(os.path.join(run_dir, "scope.json"), "w", encoding="utf-8") as handle:
         json.dump(scope, handle, indent=2)
 

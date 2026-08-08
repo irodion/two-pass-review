@@ -17,7 +17,7 @@ from markdown_subset import Markdown
 
 DISPOSITION_ORDER = ("blocking", "follow-up", "note")
 DISPOSITION_LABEL = {"blocking": "Blocking", "follow-up": "Follow-up", "note": "Notes"}
-PRODUCER_LABEL = {"security": "Security &amp; correctness", "quality": "Code quality"}
+PRODUCER_LABEL = {"security": "Security & correctness", "quality": "Code quality"}
 SCOPE_MODE_LABEL = {"revisions": "revision range", "local-patch": "local working patch"}
 
 CATEGORY_LABEL = {
@@ -106,6 +106,11 @@ def ordered_units(findings):
 # --- page --------------------------------------------------------------------
 
 
+def producer_label(producer):
+    """Escaped at the point of use, like every other string on the page."""
+    return esc(PRODUCER_LABEL.get(producer, producer))
+
+
 def esc(value):
     return html.escape(str(value), quote=True)
 
@@ -131,9 +136,8 @@ def location_chip(location, primary):
 
 def render_finding(finding, markdown, partners):
     finding_id = finding["id"]
-    classes = ["finding"]
-    bits = ['<article class="{}" id="finding-{}" data-producer="{}" data-disposition="{}">'.format(
-        " ".join(classes), esc(finding_id), esc(finding["producer"]), esc(finding["disposition"])
+    bits = ['<article class="finding" id="finding-{}" data-producer="{}" data-disposition="{}">'.format(
+        esc(finding_id), esc(finding["producer"]), esc(finding["disposition"])
     )]
 
     axis = ""
@@ -158,7 +162,7 @@ def render_finding(finding, markdown, partners):
         "</header>".format(
             fid=esc(finding_id),
             title=markdown.inline(finding["title"], self_id=finding_id),
-            prod=PRODUCER_LABEL.get(finding["producer"], esc(finding["producer"])),
+            prod=producer_label(finding["producer"]),
             axis=axis,
             conf=confidence,
         )
@@ -250,7 +254,7 @@ def render_pass_prose(passes, markdown):
                 "<details open><summary>{label}</summary>{body}</details></section>".format(
                     anchor=anchor,
                     heading=esc(heading),
-                    label=PRODUCER_LABEL.get(producer, esc(producer)),
+                    label=producer_label(producer),
                     body=markdown.render(envelope[key]),
                 )
             )
@@ -258,7 +262,7 @@ def render_pass_prose(passes, markdown):
             out.append(
                 '<section id="prose-{p}-empty" class="prose"><h2>Nothing reported &mdash; {label}</h2>{body}</section>'.format(
                     p=esc(producer),
-                    label=PRODUCER_LABEL.get(producer, esc(producer)),
+                    label=producer_label(producer),
                     body=markdown.render(envelope["empty_reason_md"]),
                 )
             )
@@ -325,13 +329,13 @@ def render_page(merged):
             if envelope.get(key):
                 prose_links.append(
                     '<li><a href="#prose-{p}-{k}">{h} &mdash; {label}</a></li>'.format(
-                        p=esc(producer), k=key.split("_")[0], h=esc(heading), label=PRODUCER_LABEL.get(producer, "")
+                        p=esc(producer), k=key.split("_")[0], h=esc(heading), label=producer_label(producer)
                     )
                 )
         if envelope.get("empty_reason_md"):
             prose_links.append(
                 '<li><a href="#prose-{p}-empty">Nothing reported &mdash; {label}</a></li>'.format(
-                    p=esc(producer), label=PRODUCER_LABEL.get(producer, "")
+                    p=esc(producer), label=producer_label(producer)
                 )
             )
 
@@ -352,7 +356,7 @@ def render_page(merged):
         prose_links="".join(prose_links),
         scope_section=render_scope(merged["run"]),
         groups="\n".join(main),
-        prose="\n".join([render_pass_prose(merged["passes"], markdown)]),
+        prose=render_pass_prose(merged["passes"], markdown),
     )
 
 

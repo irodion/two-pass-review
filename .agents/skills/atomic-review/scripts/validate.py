@@ -21,6 +21,7 @@ import json
 import os
 import re
 import sys
+from collections import Counter
 
 SCHEMA_VERSION = 1
 
@@ -154,18 +155,22 @@ def _prose_or_null(report, where, obj, key):
     return value
 
 
-def _conditional(report, where, obj, key, required_when, reason):
+def _conditional(report, where, obj, key, required_when, condition, advice=None):
     """A field required under a condition and forbidden outside it.
 
     The two axes are conditional rather than optional so that absence is fully
     determined: a reader can always tell "this rubric has no such axis" from
     "the pass forgot".
+
+    `condition` names where the field belongs, once -- "on a quality finding" --
+    and both sentences are written here. Callers state the rule; the grammar
+    stays with the code that emits it.
     """
     present = key in obj and obj[key] is not None
     if required_when and not present:
-        report.add(where, "{!r} is required {}".format(key, reason))
+        report.add(where, "{!r} is required {}{}".format(key, condition, " -- " + advice if advice else ""))
     elif present and not required_when:
-        report.add(where, "{!r} is forbidden {}".format(key, reason))
+        report.add(where, "{!r} is forbidden here; it belongs only {}".format(key, condition))
     return present
 
 
@@ -208,30 +213,29 @@ def check_finding(report, where, finding, in_merged):
     # what a severity label would deny.
     wants_severity = producer == "security" and disposition != "note"
     if producer is not None and disposition is not None:
-        reason = (
-            "on a security finding that is not a note"
-            if wants_severity
-            else "here -- severity belongs only to security findings that are not notes"
-        )
-        if _conditional(report, where, finding, "severity", wants_severity, reason):
+        if _conditional(
+            report, where, finding, "severity", wants_severity, "on a security finding that is not a note"
+        ):
             _enum(report, where, finding, "severity", SEVERITIES)
 
     wants_category = producer == "quality"
     if producer is not None:
-        reason = "on a quality finding" if wants_category else "here -- category belongs only to quality findings"
-        if _conditional(report, where, finding, "category", wants_category, reason):
+        if _conditional(report, where, finding, "category", wants_category, "on a quality finding"):
             _enum(report, where, finding, "category", CATEGORIES)
 
     confidence = None
     if finding.get("confidence") is not None:
         confidence = _enum(report, where, finding, "confidence", CONFIDENCES)
     wants_rationale = confidence in ("medium", "low")
-    reason = (
-        "when confidence is medium or low -- name the evidence you could not get"
-        if wants_rationale
-        else "unless confidence is medium or low"
-    )
-    if _conditional(report, where, finding, "confidence_rationale", wants_rationale, reason):
+    if _conditional(
+        report,
+        where,
+        finding,
+        "confidence_rationale",
+        wants_rationale,
+        "when confidence is medium or low",
+        advice="name the evidence you could not get",
+    ):
         _nonempty_str(report, where, finding, "confidence_rationale")
 
     if "corroborated_by" in finding and not in_merged:
@@ -282,22 +286,24 @@ def check_ids_contiguous(report, where, ids_by_producer):
     finding was dropped between emission and here.
     """
     for producer in PRODUCERS:
-        numbers = sorted(ids_by_producer.get(producer, []))
+        numbers = ids_by_producer.get(producer, [])
         if not numbers:
             continue
-        expected = list(range(1, len(numbers) + 1))
-        if numbers != expected:
-            missing = sorted(set(expected) - set(numbers))
-            duplicated = sorted(n for n in set(numbers) if numbers.count(n) > 1)
-            detail = []
-            if missing:
-                detail.append("missing " + ", ".join("{}-{}".format(ID_PREFIX[producer], n) for n in missing))
-            if duplicated:
-                detail.append("duplicated " + ", ".join("{}-{}".format(ID_PREFIX[producer], n) for n in duplicated))
-            report.add(
-                where,
-                "{} ids must run from 1 with no gaps: {}".format(producer, "; ".join(detail) or "out of sequence"),
-            )
+        seen = Counter(numbers)
+        missing = sorted(set(range(1, len(numbers) + 1)) - set(seen))
+        duplicated = sorted(number for number, count in seen.items() if count > 1)
+        if not missing and not duplicated:
+            continue
+
+        def label(number):
+            return "{}-{}".format(ID_PREFIX[producer], number)
+
+        detail = []
+        if missing:
+            detail.append("missing " + ", ".join(label(n) for n in missing))
+        if duplicated:
+            detail.append("duplicated " + ", ".join(label(n) for n in duplicated))
+        report.add(where, "{} ids must run from 1 with no gaps: {}".format(producer, "; ".join(detail)))
 
 
 # --- pass files --------------------------------------------------------------

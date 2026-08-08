@@ -1,0 +1,62 @@
+# The mechanical floor, and nothing above it.
+#
+# None of this checks whether a review is any good. That is settled by running
+# the skill and reading the report, which needs a model and an artifact and so
+# stays out of CI on purpose -- see AGENTS.md. What runs here is the set of
+# constraints a contributor can break silently, where the failure surfaces on
+# someone else's machine long after the change.
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  interpreters:
+    # The floor is 3.9 because macOS /usr/bin/python3 is 3.9.6, and that is the
+    # interpreter a stock Mac runs these with. The modern leg is not redundant:
+    # it catches deprecations written to stderr, which the orchestrator reads as
+    # though the script failed.
+    name: python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: compile every script
+        run: python -m compileall -q .agents/skills/two-pass-review/scripts
+      - name: import cleanly, with warnings fatal
+        working-directory: .agents/skills/two-pass-review/scripts
+        run: |
+          python -W error::DeprecationWarning \
+                 -W error::SyntaxWarning \
+                 -c "import markdown_subset, page, validate, render, scope"
+
+  constraints:
+    name: constraints
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python .github/checks.py
+
+  install:
+    name: readme install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: .github/replay-readme-install.sh

@@ -36,7 +36,8 @@ change has left this repo's remit.
 
 ## How to check a change
 
-There is no CI and no test runner, deliberately. Verification is two things:
+There is no test runner, deliberately, and CI checks only the floor. Verification is two things, and
+neither of them is automated:
 
 1. **Run the skill on this repo and read the report.** `/two-pass-review` on the current branch. This is
    the primary check, and it is not ceremonial: it has found real defects in its own implementation more
@@ -52,6 +53,25 @@ review over a hand-made one.
 
 Negative checks for `validate.py` are written ad-hoc and thrown away. Do the same — a committed test
 corpus is out of scope.
+
+## What CI does, and what it cannot
+
+`.github/workflows/checks.yml` runs three things on every push and pull request, none of which know
+anything about reviewing code:
+
+- **`python 3.9` and `python 3.13`** — every script compiles on both, and imports cleanly on the modern one
+  with `DeprecationWarning` and `SyntaxWarning` fatal. This is the check that enforces the floor above,
+  which until now was a sentence in a document that nothing verified.
+- **`constraints`** — `.github/checks.py`: every import is stdlib, `page.py` emits no script tag or inline
+  handler, the committed `.claude/skills/` symlink is relative and resolves, and every relative link in the
+  docs points at a file a clone has.
+- **`readme install`** — `.github/replay-readme-install.sh` extracts the `sh` blocks from `README.md` and
+  runs them. It does not keep its own copy of the commands, because a copy would have passed every time
+  the real ones were broken, which by then was three commands across two reviews.
+
+None of this is a test corpus: there are no fixtures and no expected output, only invariants. And none of
+it substitutes for (1) and (2). CI cannot tell you the report is wrong — it can only tell you the scripts
+still start.
 
 ## The reasoning behind the design is not in this repository
 

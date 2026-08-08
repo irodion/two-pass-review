@@ -1,0 +1,4 @@
+# Planning provenance and upstream reference copies.
+# Deliberately untracked: upstream/codex-security/ is licensed `Proprietary`
+# and is read for lessons only — it must never be redistributed from here.
+.scratch/

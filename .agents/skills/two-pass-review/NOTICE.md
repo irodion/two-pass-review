@@ -28,6 +28,10 @@ Note that `cursor/plugins` carries no root licence; licensing there is per-plugi
 - **`references/code-quality.md`** — the file-size rule is inverted into a cohesion rule and every line-count
   threshold is removed, decomposition moves out of the presumptive-blocker list while staying on the
   Approval Bar, and clause 7 is reduced to atomicity. Thirteen sites in all. An output contract is appended.
+- **`LICENSE`** — upstream's permission text is retained to the byte; a second copyright line is added above
+  Cursor's, and Cursor's is scoped to `references/`. This directory is copied around as a unit, so it has to
+  carry a notice for the original work in it as well as for the forked rubrics. The hash in the table above
+  is therefore the hash of `thermos/LICENSE` as taken, not of this file as it now stands.
 - Everything else in this directory — `SKILL.md`, `scripts/`, `agents/` — is original work.
 
 ## Prior art that was read and not copied

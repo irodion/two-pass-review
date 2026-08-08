@@ -27,11 +27,12 @@ it works over `file://` and still works after you email it to someone.
 
 ## Installing it somewhere else
 
-There is no installer, because there is nothing an installer would do that these two commands do not.
+There is no installer, because there is nothing an installer would do that these commands do not.
 
 **Into a project** — the skill travels with the repository, and everyone who clones it has the review:
 
 ```sh
+mkdir -p <your-repo>/.agents/skills <your-repo>/.claude/skills
 cp -R /path/to/two-pass-review/.agents/skills/two-pass-review <your-repo>/.agents/skills/
 ln -s ../../.agents/skills/two-pass-review <your-repo>/.claude/skills/two-pass-review
 ```
@@ -42,6 +43,7 @@ One real directory and one relative symlink. Cursor and Codex read `.agents/skil
 **For yourself, everywhere** — one line per agent you use:
 
 ```sh
+mkdir -p ~/.claude/skills ~/.cursor/skills
 ln -s /path/to/two-pass-review/.agents/skills/two-pass-review ~/.claude/skills/two-pass-review
 ln -s /path/to/two-pass-review/.agents/skills/two-pass-review ~/.cursor/skills/two-pass-review
 ```

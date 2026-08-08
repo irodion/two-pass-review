@@ -9,6 +9,19 @@ well-known package of that name for anything else running in the process.
 import html
 import re
 
+# The page promises no JavaScript. An `href` is the one place a URL scheme can
+# break that promise, so links carry an allowlist rather than a blocklist:
+# `javascript:` is the obvious one, `data:text/html` and `vbscript:` are the
+# ones a blocklist forgets. Anything else renders as the text the pass wrote.
+#
+# This is not hypothetical. A pass quotes the code under review, so a hostile
+# repository can get a string of its choosing into `body_md`.
+SAFE_URL_SCHEMES = ("http://", "https://", "mailto:")
+
+
+def is_safe_url(url):
+    return url.lower().startswith(SAFE_URL_SCHEMES)
+
 
 # --- markdown subset ---------------------------------------------------------
 #
@@ -191,11 +204,14 @@ class Markdown(object):
             return "\x00{}\x00".format(len(held) - 1)
 
         text = re.sub(r"`([^`]+)`", lambda m: hold("<code>{}</code>".format(self._link_ids(m.group(1), self_id))), text)
-        text = re.sub(
-            r"\[([^\]\n]+)\]\(([^)\s]+)\)",
-            lambda m: hold('<a href="{}" rel="noreferrer">{}</a>'.format(m.group(2), m.group(1))),
-            text,
-        )
+        def link(match):
+            if not is_safe_url(match.group(2)):
+                # Outside the subset is escaped and passed through, never dropped:
+                # the reader still sees exactly what the pass wrote, inert.
+                return match.group(0)
+            return hold('<a href="{}" rel="noreferrer">{}</a>'.format(match.group(2), match.group(1)))
+
+        text = re.sub(r"\[([^\]\n]+)\]\(([^)\s]+)\)", link, text)
         text = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", text)
         text = re.sub(r"(?<![\w*])\*([^*\n]+)\*(?!\w)", r"<em>\1</em>", text)
         text = re.sub(r"(?<![\w_])_([^_\n]+)_(?!\w)", r"<em>\1</em>", text)

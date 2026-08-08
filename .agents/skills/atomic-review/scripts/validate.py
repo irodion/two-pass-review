@@ -490,6 +490,11 @@ def check_corroboration(report, where, findings, by_id):
         source = finding.get("id")
         for target in finding.get("corroborated_by") or []:
             at = "{} {}".format(where, source)
+            if not isinstance(target, str):
+                # Already reported as a schema violation. Looking it up would
+                # raise on an unhashable value, and this function owes the
+                # repair loop a checklist rather than a traceback.
+                continue
             if target == source:
                 report.add(at, "corroborates itself")
                 continue
@@ -508,6 +513,17 @@ def check_corroboration(report, where, findings, by_id):
                     "corroborates {!r} across dispositions ({} vs {}) -- one of the two is mis-tagged".format(
                         target, finding.get("disposition"), partner.get("disposition")
                     ),
+                )
+            # Corroboration is agreement between the two passes. Two findings
+            # from one pass are one model in one context window, so linking them
+            # promotes a finding on the strength of its own author agreeing with
+            # itself. A three-way unit is still reachable, since union-find
+            # groups through a partner in the other pass.
+            if finding.get("producer") == partner.get("producer"):
+                report.add(
+                    at,
+                    "corroborates {!r} from the same pass; corroboration links a finding to one "
+                    "the other pass argued".format(target),
                 )
 
 

@@ -58,33 +58,42 @@ def stdlib_only(problems):
                 problems.append("{}: imports {!r}, which is not in the stdlib".format(name, top))
 
 
-# Handlers are named one by one rather than matched as on[a-z]+=, because page.py
-# is Python: that pattern also fires on "only =", "once =" and "ongoing=1", and a
-# check that fails on a variable name teaches people to stop reading it. The list
-# is therefore knowingly incomplete -- it is a tripwire on the way an inline
-# handler would actually arrive, not a proof that the page has none. The proof is
-# reading a rendered report, which is what AGENTS.md sends you to do.
-HANDLERS = (
-    "onload", "onerror", "onclick", "onmouseover", "onmouseenter", "onfocus",
-    "onblur", "onsubmit", "onchange", "onkeydown", "onkeyup", "ontoggle",
-    "onanimationstart", "onanimationend", "ontransitionend", "onscroll",
-)
-NO_JS = re.compile(
-    r"<script\b|javascript\s*:|\b(" + "|".join(HANDLERS) + r")\s*=", re.IGNORECASE
-)
+# Any on*= attribute, not a list of the ones someone thought of. Naming handlers
+# meant oninput walked past, and the next omission would have been found the same
+# way -- by someone reporting it.
+#
+# Matching on[a-z]+= across the whole file is what forced the list: page.py is
+# Python, so that pattern also hits "only =" and "ongoing=1". Scanning only the
+# string literals removes the conflict at its root, because identifiers live in
+# code and markup lives in constants. It leaves '@media only screen' alone -- no
+# '=' follows -- and catches ' ONINPUT = "x"' with its spacing and casing.
+HANDLER = re.compile(r"\son[a-z]+\s*=", re.IGNORECASE)
+SCRIPTISH = re.compile(r"<script\b|javascript\s*:", re.IGNORECASE)
 
 
 def no_javascript(problems):
-    """Constraint 2. Only page.py is examined: the '<script' in markdown_subset.py
-    is the sanitiser naming what it strips."""
+    """Constraint 2, read off the source. Only page.py: the '<script' in
+    markdown_subset.py is the sanitiser naming what it strips.
+
+    This examines string literals, so it sees markup that is written down and not
+    markup that is assembled -- '<div {}>'.format(attr) hides whatever attr holds.
+    That residual is why neither this function nor the line it prints claims the
+    page has no JavaScript. It claims the templates do not spell any, which is a
+    smaller thing. The page itself is proved clean by reading a rendered report."""
     path = os.path.join(SCRIPTS, "page.py")
     with open(path, "r", encoding="utf-8") as handle:
-        source = handle.read()
-    found = NO_JS.search(source)
-    if found:
-        problems.append(
-            "page.py: contains {!r}; the page carries no JavaScript".format(found.group(0))
-        )
+        tree = ast.parse(handle.read(), filename=path)
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+            continue
+        for pattern in (SCRIPTISH, HANDLER):
+            found = pattern.search(node.value)
+            if found:
+                problems.append(
+                    "page.py: a template contains {!r}; the page carries no JavaScript".format(
+                        found.group(0).strip()
+                    )
+                )
 
 
 HOSTILE = (
@@ -219,8 +228,12 @@ def main():
     if problems:
         sys.stderr.write("\n{} problem(s).\n".format(len(problems)))
         return 1
+    # Deliberately not "no JavaScript". This ran four checks over source and one
+    # over behaviour; it did not open a report. Saying more than that is how a
+    # green tick starts standing in for the thing it cannot do.
     sys.stdout.write(
-        "stdlib-only, no JavaScript, sanitiser holds, symlink relative, links resolve.\n"
+        "stdlib-only; page.py templates spell no script tag or on*= handler; "
+        "sanitiser rejects unsafe schemes; symlink relative; links resolve.\n"
     )
     return 0
 

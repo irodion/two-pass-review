@@ -60,12 +60,18 @@ corpus is out of scope.
 `.github/workflows/checks.yml` runs three things on every push and pull request, none of which know
 anything about reviewing code:
 
-- **`python 3.9` and `python 3.13`** — every script compiles on both, and imports cleanly on the modern one
-  with `DeprecationWarning` and `SyntaxWarning` fatal. This is the check that enforces the floor above,
-  which until now was a sentence in a document that nothing verified.
-- **`constraints`** — `.github/checks.py`: every import is stdlib, `page.py` emits no script tag or inline
-  handler, the committed `.claude/skills/` symlink is relative and resolves, and every relative link in the
-  docs points at a file a clone has.
+- **`python 3.9` and `python 3.13`** — every script compiles on both, and on the modern one both imports
+  *and runs* with `DeprecationWarning` and `SyntaxWarning` fatal: `scope.py` over a real revision range,
+  `validate.py` and `render.py` down their refusal paths. Importing alone was not enough — a deprecation
+  inside a `main()` is invisible to it, which is how `datetime.utcnow()` would have got through.
+- **`constraints`** — `.github/checks.py`: every import is stdlib; `page.py`'s **string literals** spell no
+  script tag and no `on*=` attribute; `markdown_subset` refuses `javascript:`, `data:` and `vbscript:` when
+  actually run on them; the committed `.claude/skills/` symlink is relative and resolves; every relative
+  link in the docs points at a file a clone has.
+
+  Read that second one narrowly. It inspects literals, so markup that is *assembled* — `"<div {}>".format(attr)`
+  — passes whatever `attr` holds. It is a tripwire on the way a handler would be written, not a proof the
+  page has none, and it prints a line that says so rather than "no JavaScript".
 - **`readme install`** — `.github/replay-readme-install.sh` extracts the `sh` blocks from `README.md` and
   runs them. It does not keep its own copy of the commands, because a copy would have passed every time
   the real ones were broken, which by then was three commands across two reviews.

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Atomic Review"
+  short_description: "Two-pass code review, rendered as an HTML report"
+  default_prompt: "Run an Atomic Review of this branch, PR, or working tree: both
+    rubric passes, merged findings, and the HTML report. Print the report path."
+policy:
+  allow_implicit_invocation: false

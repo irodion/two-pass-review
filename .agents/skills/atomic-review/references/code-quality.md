@@ -243,8 +243,8 @@ You emit no severity. Rank is what the tiers above are for, and the report deriv
 The first finding you argue is `qa-1`, whatever it turns out to be about. Ids are not a ranking and they
 never get tidied up afterwards — the report hangs its anchors off them.
 
-**Cross-reference your own findings by id in prose** — *"the same file as `qa-2`"*, *"this disappears if
-you do `qa-7` first"*. The report turns every one of those into a live link, so a reader lands on the
+**Cross-reference your own findings by id in prose** — *"the same file as qa-2"*, *"this disappears if
+you do qa-7 first"*. The report turns every one of those into a live link, so a reader lands on the
 finding you meant. This is the cheapest thing you can do for the person reading, and it only works if you
 use the ids while you write rather than saying "the finding above".
 

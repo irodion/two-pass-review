@@ -95,8 +95,8 @@ Those are all the fields. Anything else in the schema is written by the merge st
 The first finding you argue is `sec-1`, whatever it turns out to be about. Ids are not a ranking and
 they never get tidied up afterwards — the report hangs its anchors off them.
 
-**Cross-reference your own findings by id in prose** — *"same root cause as `sec-2`"*, *"merge after
-fixing `sec-1`"*. The report turns every one of those into a live link, so a reader lands on the finding
+**Cross-reference your own findings by id in prose** — *"same root cause as sec-2"*, *"merge after
+fixing sec-1"*. The report turns every one of those into a live link, so a reader lands on the finding
 you meant. This is the cheapest thing you can do for the person reading, and it only works if you use the
 ids while you write rather than saying "the finding above".
 

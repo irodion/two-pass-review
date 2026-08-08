@@ -87,6 +87,65 @@ def no_javascript(problems):
         )
 
 
+HOSTILE = (
+    "[x](javascript:alert(1))",
+    "[x](JaVaScRiPt:alert(1))",
+    "[x](data:text/html,<script>alert(1)</script>)",
+    "[x](vbscript:msgbox)",
+    "<script>alert(1)</script>",
+    "<img src=x onerror=alert(1)>",
+    "<IMG SRC=x ONERROR=alert(1)>",
+)
+HREF = re.compile(r'href="([^"]*)"', re.IGNORECASE)
+
+# Restated here rather than imported from markdown_subset. Judging the output
+# with the module's own is_safe_url makes the oracle regress along with the
+# thing it is judging: flip that function to `return True` and every assertion
+# below still passes, which is exactly the regression this exists to catch.
+SAFE_PREFIXES = ("http://", "https://", "mailto:")
+
+
+def sanitiser_holds(problems):
+    """Constraint 2 again, from the other end -- and the only check here that runs
+    the code rather than reading it.
+
+    The static scan above looks at page.py, so a regression in the URL sanitiser
+    would walk straight past it: markdown_subset.py is where a scheme becomes an
+    href, and that is the one place a link in a finding can turn into script. So
+    the sanitiser is exercised on input written to get through it.
+
+    Escaped text is not a finding. '&lt;img src=x onerror=alert(1)&gt;' in the
+    output is the sanitiser working, which is why this asserts on tags and href
+    values rather than grepping for 'onerror'."""
+    sys.path.insert(0, SCRIPTS)
+    try:
+        from markdown_subset import Markdown
+    except ImportError as error:  # pragma: no cover - a broken import is the floor job's problem
+        problems.append("cannot import markdown_subset: {}".format(error))
+        return
+
+    renderer = Markdown(known_ids=set())
+    for source in HOSTILE:
+        rendered = renderer.render(source)
+        lowered = rendered.lower()
+        for tag in ("<script", "<img", "<iframe", "<svg"):
+            if tag in lowered:
+                problems.append(
+                    "markdown_subset: {!r} survived {!r} unescaped".format(tag, source)
+                )
+        for url in HREF.findall(rendered):
+            if not url.lower().startswith(SAFE_PREFIXES):
+                problems.append(
+                    "markdown_subset: emitted href={!r} from {!r}".format(url, source)
+                )
+
+    # The opposite failure -- a sanitiser that strips everything -- would satisfy
+    # every assertion above while making the report's cross-references dead text.
+    safe = renderer.render("[ok](https://example.com)")
+    if 'href="https://example.com"' not in safe:
+        problems.append("markdown_subset: a safe https link no longer renders as a link")
+
+
 def committed_symlink(problems):
     """The trap that is invisible locally: an absolute symlink works for whoever
     wrote it and is broken for everyone who clones, and git shows nothing wrong
@@ -153,14 +212,16 @@ def _markdown_targets(text):
 
 def main():
     problems = []
-    for check in (stdlib_only, no_javascript, committed_symlink, links_resolve):
+    for check in (stdlib_only, no_javascript, sanitiser_holds, committed_symlink, links_resolve):
         check(problems)
     for problem in problems:
         sys.stderr.write("  {}\n".format(problem))
     if problems:
         sys.stderr.write("\n{} problem(s).\n".format(len(problems)))
         return 1
-    sys.stdout.write("stdlib-only, no JavaScript, symlink relative, links resolve.\n")
+    sys.stdout.write(
+        "stdlib-only, no JavaScript, sanitiser holds, symlink relative, links resolve.\n"
+    )
     return 0
 
 

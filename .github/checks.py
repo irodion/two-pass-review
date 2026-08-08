@@ -159,14 +159,36 @@ def sanitiser_holds(problems):
         problems.append("markdown_subset: a safe https link no longer renders as a link")
 
 
+def _git(problems, *args):
+    """Run git, or record why it could not run and return None.
+
+    Both callers read git's output to decide whether something is absent, and at
+    that level empty output and a failed command are indistinguishable. Ignoring
+    the exit status therefore reports success when git is missing, when the tree
+    is not a repository, or when the index is locked -- the check passes loudest
+    exactly when it saw nothing. Returning None makes the caller choose."""
+    result = subprocess.run(
+        ["git"] + list(args), cwd=ROOT, capture_output=True, text=True, check=False
+    )
+    if result.returncode != 0:
+        problems.append(
+            "git {} failed ({}): {}".format(
+                " ".join(args), result.returncode, result.stderr.strip() or "no output"
+            )
+        )
+        return None
+    return result.stdout
+
+
 def committed_symlink(problems):
     """The trap that is invisible locally: an absolute symlink works for whoever
     wrote it and is broken for everyone who clones, and git shows nothing wrong
     because it stores the path as the file's contents."""
     rel = os.path.join(".claude", "skills", "two-pass-review")
-    out = subprocess.run(
-        ["git", "ls-files", "-s", rel], cwd=ROOT, capture_output=True, text=True, check=False
-    ).stdout.strip()
+    listing = _git(problems, "ls-files", "-s", rel)
+    if listing is None:
+        return
+    out = listing.strip()
     if not out:
         problems.append("{} is not tracked".format(rel))
         return
@@ -188,10 +210,17 @@ def no_build_artifacts(problems):
     `git add -A`. The skill directory is copied wholesale into other people's
     repositories, so a stray .pyc does not just sit there -- it travels, stale
     and for the wrong interpreter."""
-    tracked = subprocess.run(
-        ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=False
-    ).stdout.split()
-    for path in tracked:
+    # -z, because git quotes any path it thinks unusual: a tracked 'ünïcode.pyc'
+    # prints as "\303\274n\303\257code.pyc", trailing quote and all, so
+    # endswith('.pyc') is false and the file walks straight through. Confirmed,
+    # not assumed. Null-delimited output is never quoted, and does not split on
+    # the spaces in a path either.
+    listing = _git(problems, "ls-files", "-z")
+    if listing is None:
+        return
+    for path in listing.split("\0"):
+        if not path:
+            continue
         if "__pycache__" in path or path.endswith((".pyc", ".pyo")):
             problems.append("{}: build artifact is tracked".format(path))
 

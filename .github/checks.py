@@ -17,6 +17,7 @@ compile on 3.9, which is a separate job.
 
 import ast
 import os
+import re
 import subprocess
 import sys
 
@@ -57,17 +58,33 @@ def stdlib_only(problems):
                 problems.append("{}: imports {!r}, which is not in the stdlib".format(name, top))
 
 
+# Handlers are named one by one rather than matched as on[a-z]+=, because page.py
+# is Python: that pattern also fires on "only =", "once =" and "ongoing=1", and a
+# check that fails on a variable name teaches people to stop reading it. The list
+# is therefore knowingly incomplete -- it is a tripwire on the way an inline
+# handler would actually arrive, not a proof that the page has none. The proof is
+# reading a rendered report, which is what AGENTS.md sends you to do.
+HANDLERS = (
+    "onload", "onerror", "onclick", "onmouseover", "onmouseenter", "onfocus",
+    "onblur", "onsubmit", "onchange", "onkeydown", "onkeyup", "ontoggle",
+    "onanimationstart", "onanimationend", "ontransitionend", "onscroll",
+)
+NO_JS = re.compile(
+    r"<script\b|javascript\s*:|\b(" + "|".join(HANDLERS) + r")\s*=", re.IGNORECASE
+)
+
+
 def no_javascript(problems):
-    """Constraint 2. Checked on the renderer's own output further down -- here we
-    only assert the templates never carry a literal tag, which is the way one
-    would actually get in. A '<script' inside markdown_subset.py is the sanitiser
-    naming what it strips, so only page.py is examined."""
+    """Constraint 2. Only page.py is examined: the '<script' in markdown_subset.py
+    is the sanitiser naming what it strips."""
     path = os.path.join(SCRIPTS, "page.py")
     with open(path, "r", encoding="utf-8") as handle:
         source = handle.read()
-    for needle in ("<script", "javascript:", "onload=", "onclick="):
-        if needle in source:
-            problems.append("page.py: contains {!r}; the page carries no JavaScript".format(needle))
+    found = NO_JS.search(source)
+    if found:
+        problems.append(
+            "page.py: contains {!r}; the page carries no JavaScript".format(found.group(0))
+        )
 
 
 def committed_symlink(problems):
@@ -108,6 +125,8 @@ def links_resolve(problems):
         for target in _markdown_targets(text):
             if target.startswith(("http://", "https://", "mailto:", "#")):
                 continue
+            # exists(), not isfile(): NOTICE.md links at references/ as a
+            # directory, which GitHub renders as a browsable listing.
             path = os.path.normpath(os.path.join(os.path.dirname(doc), target.split("#")[0]))
             if not os.path.exists(path):
                 problems.append(

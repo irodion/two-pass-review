@@ -36,8 +36,9 @@ change has left this repo's remit.
 
 ## How to check a change
 
-There is no test runner, deliberately, and CI checks only the floor. Verification is two things, and
-neither of them is automated:
+There is no test runner, deliberately. CI checks the floor and nothing above it — what it covers is at the
+bottom of this section, and passing it means only that the scripts still start. The verification that
+decides whether a change is good is two things, and neither automates:
 
 1. **Run the skill on this repo and read the report.** `/two-pass-review` on the current branch. This is
    the primary check, and it is not ceremonial: it has found real defects in its own implementation more

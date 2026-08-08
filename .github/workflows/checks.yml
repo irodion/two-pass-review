@@ -1,0 +1,114 @@
+# The mechanical floor, and nothing above it.
+#
+# None of this checks whether a review is any good. That is settled by running
+# the skill and reading the report, which needs a model and an artifact and so
+# stays out of CI on purpose -- see AGENTS.md. What runs here is the set of
+# constraints a contributor can break silently, where the failure surfaces on
+# someone else's machine long after the change.
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  interpreters:
+    # The floor is 3.9 because macOS /usr/bin/python3 is 3.9.6, and that is the
+    # interpreter a stock Mac runs these with. The modern leg is not redundant:
+    # it catches deprecations written to stderr, which the orchestrator reads as
+    # though the script failed.
+    name: python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # scope.py resolves a real revision range below, so HEAD~1 has to exist.
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: compile every script
+        run: python -m compileall -q .agents/skills/two-pass-review/scripts
+      - name: import cleanly, with warnings fatal
+        working-directory: .agents/skills/two-pass-review/scripts
+        run: |
+          python -W error::DeprecationWarning \
+                 -W error::SyntaxWarning \
+                 -c "import markdown_subset, page, validate, render, scope"
+      - name: run the entry points, with warnings fatal
+        # Importing a module does not execute its main(), so a deprecation inside
+        # one stays invisible to the step above -- datetime.utcnow() in scope.py
+        # would be the classic. These actually run.
+        # The flags are written out at each call rather than held in a variable:
+        # unquoted expansion only word-splits because the shell happens to be
+        # bash, and a check whose teeth depend on that is a check that silently
+        # loses them.
+        run: |
+          set -eux
+          S=.agents/skills/two-pass-review/scripts
+          # The whole of scope: git plumbing, the timestamped run dir, JSON out.
+          python -W error::DeprecationWarning -W error::SyntaxWarning \
+                 "$S/scope.py" --repo . --base HEAD~1 --mode revisions --head HEAD > scope.json
+          python -c "import json,sys; d=json.load(open('scope.json')); sys.exit(0 if d['scope']['files_changed'] else 1)"
+          # Both refuse-and-explain paths, which is where argparse and the error
+          # formatting live.
+          #
+          # Not `! python ...`: negation accepts *any* non-zero status, and a
+          # warning promoted to an exception exits non-zero too. A deprecation
+          # inside main() would print a traceback and be counted as the refusal
+          # working -- which is the whole thing this step exists to notice. So
+          # the status, the text, and the absence of a traceback are all checked.
+          expect_refusal () {
+              phrase=$1; shift
+              set +e
+              output=$("$@" 2>&1 >/dev/null); status=$?
+              set -e
+              printf '%s\n' "$output"
+              test "$status" -eq 1 || { echo "expected exit 1, got $status" >&2; exit 1; }
+              # Before the text check, so a raised exception is reported as one
+              # rather than as a missing phrase -- the traceback replaces the
+              # refusal on stderr, and the vaguer message would send whoever
+              # reads it looking in the wrong place.
+              case $output in
+                  *Traceback*|*Warning*)
+                      echo "raised instead of refusing" >&2; exit 1 ;;
+              esac
+              case $output in
+                  *"$phrase"*) ;;
+                  *) echo "refusal did not say: $phrase" >&2; exit 1 ;;
+              esac
+          }
+          expect_refusal "Validation failed" \
+              python -W error::DeprecationWarning -W error::SyntaxWarning \
+                     "$S/validate.py" does-not-exist.json
+          expect_refusal "Refusing to render an invalid artifact" \
+              python -W error::DeprecationWarning -W error::SyntaxWarning \
+                     "$S/render.py" does-not-exist.json --no-open
+
+  constraints:
+    name: constraints
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python .github/checks.py
+
+  install:
+    name: readme install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: .github/replay-readme-install.sh

@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+"""The mechanical floor: the three non-negotiable constraints, plus link rot.
+
+Usage:
+    python3 .github/checks.py
+
+This is the only automated verification in the repository, and it deliberately
+checks nothing about *review quality*. What a pass finds, how a page reads, and
+whether the renderer is right are settled by running the skill and reading the
+report -- see AGENTS.md. Nothing here substitutes for that.
+
+Needs Python 3.10+ for sys.stdlib_module_names, so it runs on the modern
+interpreter only. That is fine: it is a check *about* the scripts, not one of
+them, and nothing ships it to a user. The scripts themselves still have to
+compile on 3.9, which is a separate job.
+"""
+
+import ast
+import os
+import re
+import subprocess
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SKILL = os.path.join(ROOT, ".agents", "skills", "two-pass-review")
+SCRIPTS = os.path.join(SKILL, "scripts")
+
+# The scripts import each other by bare name, because they are run as files from
+# a directory the skill does not control and sys.path[0] is the only thing that
+# reliably points at their siblings.
+SIBLINGS = {"validate", "page", "markdown_subset", "render", "scope"}
+
+
+def stdlib_only(problems):
+    """Constraint 1. The skill is copied into repositories we never see, so a
+    dependency is a thing that will be missing rather than a thing to install."""
+    if not hasattr(sys, "stdlib_module_names"):
+        problems.append("checks.py needs Python 3.10+ to know what the stdlib contains")
+        return
+    for name in sorted(os.listdir(SCRIPTS)):
+        if not name.endswith(".py"):
+            continue
+        path = os.path.join(SCRIPTS, name)
+        with open(path, "r", encoding="utf-8") as handle:
+            tree = ast.parse(handle.read(), filename=path)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                # A relative import has no module name to check.
+                imported = [node.module] if node.level == 0 and node.module else []
+            else:
+                continue
+            for module in imported:
+                top = module.split(".")[0]
+                if top in SIBLINGS or top in sys.stdlib_module_names:
+                    continue
+                problems.append("{}: imports {!r}, which is not in the stdlib".format(name, top))
+
+
+# Any on*= attribute, not a list of the ones someone thought of. Naming handlers
+# meant oninput walked past, and the next omission would have been found the same
+# way -- by someone reporting it.
+#
+# Matching on[a-z]+= across the whole file is what forced the list: page.py is
+# Python, so that pattern also hits "only =" and "ongoing=1". Scanning only the
+# string literals removes the conflict at its root, because identifiers live in
+# code and markup lives in constants. It leaves '@media only screen' alone -- no
+# '=' follows -- and catches ' ONINPUT = "x"' with its spacing and casing.
+HANDLER = re.compile(r"\son[a-z]+\s*=", re.IGNORECASE)
+SCRIPTISH = re.compile(r"<script\b|javascript\s*:", re.IGNORECASE)
+
+
+def no_javascript(problems):
+    """Constraint 2, read off the source. Only page.py: the '<script' in
+    markdown_subset.py is the sanitiser naming what it strips.
+
+    This examines string literals, so it sees markup that is written down and not
+    markup that is assembled -- '<div {}>'.format(attr) hides whatever attr holds.
+    That residual is why neither this function nor the line it prints claims the
+    page has no JavaScript. It claims the templates do not spell any, which is a
+    smaller thing. The page itself is proved clean by reading a rendered report."""
+    path = os.path.join(SCRIPTS, "page.py")
+    with open(path, "r", encoding="utf-8") as handle:
+        tree = ast.parse(handle.read(), filename=path)
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+            continue
+        for pattern in (SCRIPTISH, HANDLER):
+            found = pattern.search(node.value)
+            if found:
+                problems.append(
+                    "page.py: a template contains {!r}; the page carries no JavaScript".format(
+                        found.group(0).strip()
+                    )
+                )
+
+
+HOSTILE = (
+    "[x](javascript:alert(1))",
+    "[x](JaVaScRiPt:alert(1))",
+    "[x](data:text/html,<script>alert(1)</script>)",
+    "[x](vbscript:msgbox)",
+    "<script>alert(1)</script>",
+    "<img src=x onerror=alert(1)>",
+    "<IMG SRC=x ONERROR=alert(1)>",
+)
+HREF = re.compile(r'href="([^"]*)"', re.IGNORECASE)
+
+# Restated here rather than imported from markdown_subset. Judging the output
+# with the module's own is_safe_url makes the oracle regress along with the
+# thing it is judging: flip that function to `return True` and every assertion
+# below still passes, which is exactly the regression this exists to catch.
+SAFE_PREFIXES = ("http://", "https://", "mailto:")
+
+
+def sanitiser_holds(problems):
+    """Constraint 2 again, from the other end -- and the only check here that runs
+    the code rather than reading it.
+
+    The static scan above looks at page.py, so a regression in the URL sanitiser
+    would walk straight past it: markdown_subset.py is where a scheme becomes an
+    href, and that is the one place a link in a finding can turn into script. So
+    the sanitiser is exercised on input written to get through it.
+
+    Escaped text is not a finding. '&lt;img src=x onerror=alert(1)&gt;' in the
+    output is the sanitiser working, which is why this asserts on tags and href
+    values rather than grepping for 'onerror'."""
+    sys.path.insert(0, SCRIPTS)
+    try:
+        from markdown_subset import Markdown
+    except ImportError as error:  # pragma: no cover - a broken import is the floor job's problem
+        problems.append("cannot import markdown_subset: {}".format(error))
+        return
+
+    renderer = Markdown(known_ids=set())
+    for source in HOSTILE:
+        rendered = renderer.render(source)
+        lowered = rendered.lower()
+        for tag in ("<script", "<img", "<iframe", "<svg"):
+            if tag in lowered:
+                problems.append(
+                    "markdown_subset: {!r} survived {!r} unescaped".format(tag, source)
+                )
+        for url in HREF.findall(rendered):
+            if not url.lower().startswith(SAFE_PREFIXES):
+                problems.append(
+                    "markdown_subset: emitted href={!r} from {!r}".format(url, source)
+                )
+
+    # The opposite failure -- a sanitiser that strips everything -- would satisfy
+    # every assertion above while making the report's cross-references dead text.
+    safe = renderer.render("[ok](https://example.com)")
+    if 'href="https://example.com"' not in safe:
+        problems.append("markdown_subset: a safe https link no longer renders as a link")
+
+
+def committed_symlink(problems):
+    """The trap that is invisible locally: an absolute symlink works for whoever
+    wrote it and is broken for everyone who clones, and git shows nothing wrong
+    because it stores the path as the file's contents."""
+    rel = os.path.join(".claude", "skills", "two-pass-review")
+    out = subprocess.run(
+        ["git", "ls-files", "-s", rel], cwd=ROOT, capture_output=True, text=True, check=False
+    ).stdout.strip()
+    if not out:
+        problems.append("{} is not tracked".format(rel))
+        return
+    if not out.startswith("120000"):
+        problems.append("{} is committed as a regular file, not a symlink".format(rel))
+        return
+    target = os.readlink(os.path.join(ROOT, rel))
+    if os.path.isabs(target):
+        problems.append("{} points at an absolute path ({})".format(rel, target))
+    if not os.path.isdir(os.path.join(ROOT, rel)):
+        problems.append("{} does not resolve to a directory".format(rel))
+
+
+def links_resolve(problems):
+    """A clone has to contain everything the docs point at. This has shipped
+    broken once already -- see 1c60e38."""
+    docs = [
+        os.path.join(ROOT, "README.md"),
+        os.path.join(ROOT, "AGENTS.md"),
+        os.path.join(ROOT, "CONTEXT.md"),
+        os.path.join(ROOT, "CODE_OF_CONDUCT.md"),
+        os.path.join(SKILL, "SKILL.md"),
+        os.path.join(SKILL, "NOTICE.md"),
+    ]
+    for doc in docs:
+        with open(doc, "r", encoding="utf-8") as handle:
+            text = handle.read()
+        for target in _markdown_targets(text):
+            if target.startswith(("http://", "https://", "mailto:", "#")):
+                continue
+            # exists(), not isfile(): NOTICE.md links at references/ as a
+            # directory, which GitHub renders as a browsable listing.
+            path = os.path.normpath(os.path.join(os.path.dirname(doc), target.split("#")[0]))
+            if not os.path.exists(path):
+                problems.append(
+                    "{}: links to {!r}, which a clone does not have".format(
+                        os.path.relpath(doc, ROOT), target
+                    )
+                )
+
+
+def _markdown_targets(text):
+    """Inline links only. Enough for these files, and a real parser would be a
+    dependency, which is the one thing this repository cannot have."""
+    targets, index = [], 0
+    while True:
+        open_paren = text.find("](", index)
+        if open_paren == -1:
+            return targets
+        close = text.find(")", open_paren)
+        if close == -1:
+            return targets
+        targets.append(text[open_paren + 2 : close].strip())
+        index = close + 1
+
+
+def main():
+    problems = []
+    for check in (stdlib_only, no_javascript, sanitiser_holds, committed_symlink, links_resolve):
+        check(problems)
+    for problem in problems:
+        sys.stderr.write("  {}\n".format(problem))
+    if problems:
+        sys.stderr.write("\n{} problem(s).\n".format(len(problems)))
+        return 1
+    # Deliberately not "no JavaScript". This ran four checks over source and one
+    # over behaviour; it did not open a report. Saying more than that is how a
+    # green tick starts standing in for the thing it cannot do.
+    sys.stdout.write(
+        "stdlib-only; page.py templates spell no script tag or on*= handler; "
+        "sanitiser rejects unsafe schemes; symlink relative; links resolve.\n"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

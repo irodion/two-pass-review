@@ -36,7 +36,9 @@ change has left this repo's remit.
 
 ## How to check a change
 
-There is no CI and no test runner, deliberately. Verification is two things:
+There is no test runner, deliberately. CI checks the floor and nothing above it — what it covers is at the
+bottom of this section, and passing it means only that the scripts still start. The verification that
+decides whether a change is good is two things, and neither automates:
 
 1. **Run the skill on this repo and read the report.** `/two-pass-review` on the current branch. This is
    the primary check, and it is not ceremonial: it has found real defects in its own implementation more
@@ -52,6 +54,31 @@ review over a hand-made one.
 
 Negative checks for `validate.py` are written ad-hoc and thrown away. Do the same — a committed test
 corpus is out of scope.
+
+## What CI does, and what it cannot
+
+`.github/workflows/checks.yml` runs three things on every push and pull request, none of which know
+anything about reviewing code:
+
+- **`python 3.9` and `python 3.13`** — every script compiles on both, and on the modern one both imports
+  *and runs* with `DeprecationWarning` and `SyntaxWarning` fatal: `scope.py` over a real revision range,
+  `validate.py` and `render.py` down their refusal paths. Importing alone was not enough — a deprecation
+  inside a `main()` is invisible to it, which is how `datetime.utcnow()` would have got through.
+- **`constraints`** — `.github/checks.py`: every import is stdlib; `page.py`'s **string literals** spell no
+  script tag and no `on*=` attribute; `markdown_subset` refuses `javascript:`, `data:` and `vbscript:` when
+  actually run on them; the committed `.claude/skills/` symlink is relative and resolves; every relative
+  link in the docs points at a file a clone has.
+
+  Read that second one narrowly. It inspects literals, so markup that is *assembled* — `"<div {}>".format(attr)`
+  — passes whatever `attr` holds. It is a tripwire on the way a handler would be written, not a proof the
+  page has none, and it prints a line that says so rather than "no JavaScript".
+- **`readme install`** — `.github/replay-readme-install.sh` extracts the `sh` blocks from `README.md` and
+  runs them. It does not keep its own copy of the commands, because a copy would have passed every time
+  the real ones were broken, which by then was three commands across two reviews.
+
+None of this is a test corpus: there are no fixtures and no expected output, only invariants. And none of
+it substitutes for (1) and (2). CI cannot tell you the report is wrong — it can only tell you the scripts
+still start.
 
 ## The reasoning behind the design is not in this repository
 

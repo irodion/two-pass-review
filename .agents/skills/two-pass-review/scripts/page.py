@@ -346,7 +346,7 @@ def render_page(merged):
     )
 
     return PAGE.format(
-        title=esc("Atomic Review — {}".format(scope["repo"])),
+        title=esc("Two-Pass Review — {}".format(scope["repo"])),
         css=CSS,
         verdict=esc(verdict),
         verdict_label="Blocked" if verdict == "blocked" else "Clear",

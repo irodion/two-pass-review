@@ -1,7 +1,7 @@
 # Working on this repository
 
-This repo *is* the `atomic-review` skill. The shipping artifact is
-`.agents/skills/atomic-review/`; everything at the root is scaffolding. `README.md` describes the skill
+This repo *is* the `two-pass-review` skill. The shipping artifact is
+`.agents/skills/two-pass-review/`; everything at the root is scaffolding. `README.md` describes the skill
 for the people who use it — this file is for whoever is changing it.
 
 ## Test with `/usr/bin/python3`, not `python3`
@@ -10,7 +10,7 @@ The scripts target **Python 3.9 syntax**, because macOS `/usr/bin/python3` is 3.
 interpreter a stock Mac will run them with. The `python3` on your `PATH` is almost certainly much newer.
 
 ```sh
-/usr/bin/python3 .agents/skills/atomic-review/scripts/render.py <findings.json>
+/usr/bin/python3 .agents/skills/two-pass-review/scripts/render.py <findings.json>
 ```
 
 A 3.10+ construct passes silently under the newer interpreter and fails for the user. Run both when you
@@ -30,7 +30,7 @@ stderr — which the orchestrator reads as though something failed.
 ## The rubrics are forked text
 
 `references/security.md` and `references/code-quality.md` come from Cursor's `thermos` plugin (MIT). The
-authorised edits are enumerated and complete — see `.agents/skills/atomic-review/NOTICE.md`. **What the
+authorised edits are enumerated and complete — see `.agents/skills/two-pass-review/NOTICE.md`. **What the
 passes look at, weight, or consult is not ours to change.** Finding yourself improving a rubric means the
 change has left this repo's remit.
 
@@ -38,7 +38,7 @@ change has left this repo's remit.
 
 There is no CI and no test runner, deliberately. Verification is two things:
 
-1. **Run the skill on this repo and read the report.** `/atomic-review` on the current branch. This is
+1. **Run the skill on this repo and read the report.** `/two-pass-review` on the current branch. This is
    the primary check, and it is not ceremonial: it has found real defects in its own implementation more
    than once, including several no fixture could reach.
 2. **Render an artifact twice and `diff` the pages.** For a change that should not alter output — a
@@ -47,7 +47,7 @@ There is no CI and no test runner, deliberately. Verification is two things:
    is deterministic and writes no timestamp into the page. Keep it that way.
 
 Any `findings.json` from a previous run works as the input for (2); they accumulate under
-`<temp-root>/atomic-review/<repo-slug>-<hash>/`. A larger artifact is a better test, so prefer a real
+`<temp-root>/two-pass-review/<repo-slug>-<hash>/`. A larger artifact is a better test, so prefer a real
 review over a hand-made one.
 
 Negative checks for `validate.py` are written ad-hoc and thrown away. Do the same — a committed test

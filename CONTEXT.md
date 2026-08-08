@@ -1,4 +1,4 @@
-# Atomic Review
+# Two-Pass Review
 
 A forked thermo-nuclear code review that emits a validated findings JSON and renders it as a self-contained, read-only HTML report in the browser. This glossary exists because upstream uses one word — "review" — for the rubric, the execution, the artifact, and the report, and every downstream decision needs them separated.
 

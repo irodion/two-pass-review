@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render a merged atomic-review artifact as one self-contained HTML report.
+"""Render a merged two-pass-review artifact as one self-contained HTML report.
 
 Usage:
     render.py FINDINGS_JSON

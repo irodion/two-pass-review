@@ -211,7 +211,7 @@ def main(argv):
         )
         return 3
 
-    temp_root = os.path.join(tempfile.gettempdir(), "atomic-review")
+    temp_root = os.path.join(tempfile.gettempdir(), "two-pass-review")
     report_dir = os.path.join(temp_root, repo_slug(root))
     for directory in (temp_root, report_dir):
         status = make_private_dir(directory)

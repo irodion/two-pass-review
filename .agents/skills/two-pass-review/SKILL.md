@@ -1,12 +1,12 @@
 ---
-name: atomic-review
+name: two-pass-review
 description: A single-file HTML report of an unusually strict two-pass code review
   — security and correctness, then code quality — that you open in your browser,
   with findings ordered by whether they block the change.
 disable-model-invocation: true
 ---
 
-# Atomic Review
+# Two-Pass Review
 
 Two rubrics review one pinned diff, each emits findings as validated JSON, the two are merged into one
 list, and a script renders a single self-contained HTML file the user opens.
@@ -130,7 +130,7 @@ The user can rebuild the page from the artifact at any time, with one command th
 agent:
 
 ```
-python3 .agents/skills/atomic-review/scripts/render.py <path-to-findings.json>
+python3 .agents/skills/two-pass-review/scripts/render.py <path-to-findings.json>
 ```
 
 ## What this skill does not do

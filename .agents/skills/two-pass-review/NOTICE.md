@@ -1,6 +1,6 @@
 # NOTICE
 
-`atomic-review` is a fork. This file is voluntary — MIT requires only that the copyright and permission
+`two-pass-review` is a fork. This file is voluntary — MIT requires only that the copyright and permission
 notice be retained, which [`LICENSE`](LICENSE) does, and it does **not** require a statement of changes
 (that is Apache-2.0 §4(b)). It exists because a reader deserves to know which parts of this skill someone
 else wrote.

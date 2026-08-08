@@ -1,18 +1,18 @@
-# Atomic Review
+# Two-Pass Review
 
-An unusually strict two-pass code review that ends in a page you read, instead of eight thousand words
-scrolling past in a terminal.
+An unusually strict code review that ends in a page you read, instead of eight thousand words scrolling
+past in a terminal.
 
 Two rubrics — security and correctness, then code quality — review one pinned diff. Each emits its
 findings as validated JSON. The two are merged into a single list ordered by whether a finding blocks the
 change, and rendered as one self-contained HTML file you open in your browser.
 
-A fork of Cursor's `thermos` plugin. See [`NOTICE.md`](.agents/skills/atomic-review/NOTICE.md) for what
+A fork of Cursor's `thermos` plugin. See [`NOTICE.md`](.agents/skills/two-pass-review/NOTICE.md) for what
 was forked, what changed, and what was read but not copied.
 
 ## What it is
 
-Everything lives under `.agents/skills/atomic-review/`. `SKILL.md` is the orchestrator; `references/`
+Everything lives under `.agents/skills/two-pass-review/`. `SKILL.md` is the orchestrator; `references/`
 holds the two forked rubrics; `scripts/` holds the pipeline.
 
 The pipeline is three steps, and each one refuses to paper over the step before it. **Scope** pins one
@@ -32,8 +32,8 @@ There is no installer, because there is nothing an installer would do that these
 **Into a project** — the skill travels with the repository, and everyone who clones it has the review:
 
 ```sh
-cp -R /path/to/atomic-review/.agents/skills/atomic-review <your-repo>/.agents/skills/
-ln -s ../../.agents/skills/atomic-review <your-repo>/.claude/skills/atomic-review
+cp -R /path/to/two-pass-review/.agents/skills/two-pass-review <your-repo>/.agents/skills/
+ln -s ../../.agents/skills/two-pass-review <your-repo>/.claude/skills/two-pass-review
 ```
 
 One real directory and one relative symlink. Cursor and Codex read `.agents/skills/`; Claude Code reads
@@ -42,17 +42,17 @@ One real directory and one relative symlink. Cursor and Codex read `.agents/skil
 **For yourself, everywhere** — one line per agent you use:
 
 ```sh
-ln -s /path/to/atomic-review/.agents/skills/atomic-review ~/.claude/skills/atomic-review
-ln -s /path/to/atomic-review/.agents/skills/atomic-review ~/.cursor/skills/atomic-review
+ln -s /path/to/two-pass-review/.agents/skills/two-pass-review ~/.claude/skills/two-pass-review
+ln -s /path/to/two-pass-review/.agents/skills/two-pass-review ~/.cursor/skills/two-pass-review
 ```
 
 A user-level install changes one documented thing: the re-render command becomes
-`python3 ~/.claude/skills/atomic-review/scripts/render.py <findings.json>` rather than the repo-relative
+`python3 ~/.claude/skills/two-pass-review/scripts/render.py <findings.json>` rather than the repo-relative
 path, because the skill no longer lives inside the repository being reviewed.
 
 ## Using it
 
-`/atomic-review` in Claude Code and Cursor, `$atomic-review` in Codex. One string, three sigils.
+`/two-pass-review` in Claude Code and Cursor, `$two-pass-review` in Codex. One string, three sigils.
 
 Say what you want reviewed in your own words — a pull request, a commit, this branch against `main`, or
 whatever is sitting uncommitted. There are no flags. If what you said does not pin down a range, you will

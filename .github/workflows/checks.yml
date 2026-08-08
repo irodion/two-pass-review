@@ -59,11 +59,39 @@ jobs:
                  "$S/scope.py" --repo . --base HEAD~1 --mode revisions --head HEAD > scope.json
           python -c "import json,sys; d=json.load(open('scope.json')); sys.exit(0 if d['scope']['files_changed'] else 1)"
           # Both refuse-and-explain paths, which is where argparse and the error
-          # formatting live. Non-zero is the expected outcome, not a failure.
-          ! python -W error::DeprecationWarning -W error::SyntaxWarning \
-                   "$S/validate.py" does-not-exist.json
-          ! python -W error::DeprecationWarning -W error::SyntaxWarning \
-                   "$S/render.py" does-not-exist.json --no-open
+          # formatting live.
+          #
+          # Not `! python ...`: negation accepts *any* non-zero status, and a
+          # warning promoted to an exception exits non-zero too. A deprecation
+          # inside main() would print a traceback and be counted as the refusal
+          # working -- which is the whole thing this step exists to notice. So
+          # the status, the text, and the absence of a traceback are all checked.
+          expect_refusal () {
+              phrase=$1; shift
+              set +e
+              output=$("$@" 2>&1 >/dev/null); status=$?
+              set -e
+              printf '%s\n' "$output"
+              test "$status" -eq 1 || { echo "expected exit 1, got $status" >&2; exit 1; }
+              # Before the text check, so a raised exception is reported as one
+              # rather than as a missing phrase -- the traceback replaces the
+              # refusal on stderr, and the vaguer message would send whoever
+              # reads it looking in the wrong place.
+              case $output in
+                  *Traceback*|*Warning*)
+                      echo "raised instead of refusing" >&2; exit 1 ;;
+              esac
+              case $output in
+                  *"$phrase"*) ;;
+                  *) echo "refusal did not say: $phrase" >&2; exit 1 ;;
+              esac
+          }
+          expect_refusal "Validation failed" \
+              python -W error::DeprecationWarning -W error::SyntaxWarning \
+                     "$S/validate.py" does-not-exist.json
+          expect_refusal "Refusing to render an invalid artifact" \
+              python -W error::DeprecationWarning -W error::SyntaxWarning \
+                     "$S/render.py" does-not-exist.json --no-open
 
   constraints:
     name: constraints

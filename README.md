@@ -80,3 +80,14 @@ loudly they shout, derived from severity for security findings and from category
 
 Codex cannot open a browser — its sandbox denies both the platform opener and binding a port. The printed
 path is the mechanism there, not a fallback.
+
+## Working on it
+
+[`AGENTS.md`](AGENTS.md) is the guide for changing this repository — the Python floor, the three
+constraints that are not negotiable, and how to check a change when there is no CI by design.
+`CLAUDE.md` is a symlink to it, so a coding agent picks it up whichever name it looks for.
+
+[`CONTEXT.md`](CONTEXT.md) is the glossary. Upstream uses one word — "review" — for the rubric, the
+execution, the artifact and the report, and every decision downstream of that needs them separated.
+
+[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) applies to everyone here, maintainers included.

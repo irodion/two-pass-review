@@ -38,24 +38,37 @@ change has left this repo's remit.
 
 There is no CI and no test runner, deliberately. Verification is two things:
 
-1. **Render the fixture and look at it.** `.scratch/review-cockpit/prototype/fixture/findings.json` is a
-   real 36-finding review. It exercises the whole markdown subset, three corroboration pairs, and every
-   renderer requirement. For a change that should not alter output, keep a copy of the page first and
-   `diff` — byte-identical is a stronger guarantee than any assertion you would have written.
-2. **Run the skill on this repo.** `/atomic-review` on the current branch. It has found real defects in
-   its own implementation more than once, including two that no fixture could reach.
+1. **Run the skill on this repo and read the report.** `/atomic-review` on the current branch. This is
+   the primary check, and it is not ceremonial: it has found real defects in its own implementation more
+   than once, including several no fixture could reach.
+2. **Render an artifact twice and `diff` the pages.** For a change that should not alter output — a
+   refactor, a rename, moving escaping around — render before and after and compare. Byte-identical is a
+   stronger guarantee than any assertion you would have written, and it is available because the renderer
+   is deterministic and writes no timestamp into the page. Keep it that way.
+
+Any `findings.json` from a previous run works as the input for (2); they accumulate under
+`<temp-root>/atomic-review/<repo-slug>-<hash>/`. A larger artifact is a better test, so prefer a real
+review over a hand-made one.
 
 Negative checks for `validate.py` are written ad-hoc and thrown away. Do the same — a committed test
 corpus is out of scope.
 
-## `.scratch/` is gitignored, and must stay that way
+## The reasoning behind the design is not in this repository
 
-It holds the planning provenance: the design map, the tickets, and `spec.md`, which decided every
-question this implementation answers and says *why* for the load-bearing ones. Read it before changing a
-design decision; the reasoning is usually load-bearing and usually not obvious.
+Every decision here was argued out before any code existed, in a planning record that is **deliberately
+not distributed**: it quotes a third-party codebase that is not ours to publish, and it contains a copy
+of a **`Proprietary`** upstream plugin that was read for lessons and must never be redistributed. That
+record lives under `.scratch/` on the machine this was built on, and `.gitignore` keeps it there.
 
-It also holds `upstream/codex-security/`, which is licensed **`Proprietary`**. It was read for lessons.
-**Nothing may be copied from it, and it must never be committed.**
+So if you are reading a clone, the surviving record is:
+
+- **`git log`.** Commit messages here are long on purpose. They state what changed and *why*, including
+  what was rejected. Read the message that introduced a line before deciding the line is wrong.
+- **The comments.** They explain *why*, not what. The scripts are full of choices that look arbitrary
+  until you know what they were chosen over.
+
+Neither is a substitute for the full record, so where a decision looks strange and the reason is not
+written down, treat it as load-bearing until proven otherwise and ask rather than assume.
 
 ## Conventions
 

@@ -39,8 +39,9 @@ and any space where someone is representing the project.
 
 ## Reporting
 
-Report a problem to **9167139+irodion@users.noreply.github.com**. Reports are handled privately and the
-reporter's identity is not shared with the person reported.
+Raise a problem on the **issue tracker**. That is the channel; there is no private one, so an issue is
+public and the person you are reporting can read it. Say only what the situation needs — quote the
+behaviour, and leave out anything about the person that the behaviour does not require.
 
 Maintainers will respond, and may edit or remove contributions, or block someone from the project, where
 that is what the situation calls for. Maintainers are held to this document too — more so, not less.

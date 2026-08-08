@@ -394,7 +394,7 @@ def render_finding(finding, markdown, partners):
         links = ", ".join(
             '<a class="xref" href="#finding-{0}">{0}</a>'.format(esc(p["id"])) for p in partners
         )
-        quoted = esc(truncate(partners[0]["title"], 96))
+        quoted = esc(truncate(Markdown.plain(partners[0]["title"]), 96))
         bits.append(
             '<p class="corroboration"><strong>Corroborated by {links}</strong> '
             "&mdash; “{quoted}”</p>".format(links=links, quoted=quoted)
@@ -693,7 +693,10 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
   border-bottom: 1px solid var(--line); padding-bottom: 8px; margin: 42px 0 18px; }
 .counts { font-variant-numeric: tabular-nums; }
 
-.scope .kvs { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 24px; margin: 0 0 14px; }
+/* Wide enough for a full 40-character SHA, which must not break mid-hash --
+   half an object id on each of two lines is not a thing anyone can copy. */
+.scope .kvs { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 10px 24px; margin: 0 0 14px; }
+.scope .chip { overflow-wrap: normal; word-break: keep-all; }
 .kv dt { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0; }
 .kv dd { margin: 2px 0 0; }
 .muted { color: var(--muted); font-size: 14px; }

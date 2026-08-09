@@ -91,8 +91,8 @@ expensive model than the one you chose.
 
 Both passes run on the same tier unless you ask for otherwise, because two passes reaching the same defect
 is only evidence while they were peers. You can ask for otherwise — run security on the stronger model and
-quality on the cheaper one, say — and it will do that and tell you which pass got what, but nothing will
-arrive at that split on its own.
+quality on the cheaper one, say — and it will do it and record what each pass got, but nothing will arrive
+at that split on its own, and the report tells its reader when the passes were unequal.
 
 Effort is worth a moment's thought before you invoke rather than after. The passes argue their findings and
 the merge weighs which of them corroborate each other; none of that is a lookup, and a run at `low` is a
@@ -111,6 +111,10 @@ loudly they shout, derived from severity for security findings and from category
   it. The validator enforces that.
 - **Findings that corroborate each other** sit together with a banner, rather than being merged. Two
   passes reaching one defect from two directions is evidence, and collapsing it would throw that away.
+- **The model and effort are recorded** beside the scope, when the run chose them. They are what was asked
+  for rather than a measurement — nothing in the pipeline can confirm which model answered — and the page
+  says so. If the two passes were asked for different tiers it says that too, because corroboration counts
+  for less between passes that were not peers.
 - **Cross-references are live links.** When a pass writes "same root cause as sec-2", that is a link.
 - **Locations are inert text**, on purpose. The page cannot know which editor you use, an editor link
   needs absolute paths and would break the moment you forward the report, and some cited paths are files a

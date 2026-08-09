@@ -29,6 +29,95 @@ from page import render_page  # noqa: E402
 # --- delivery ----------------------------------------------------------------
 
 
+def ran_ok(command, cwd=None):
+    """Whether the opener reported success, not merely that it started.
+
+    The distinction only matters under WSL, where openers are tried in order:
+    a helper that returns True for any process that launched makes every rung
+    below the first unreachable, and the ladder becomes decoration.
+    """
+    try:
+        completed = subprocess.run(command, cwd=cwd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        return False
+    return completed.returncode == 0
+
+
+def is_wsl():
+    """WSL reports itself as Linux, and the browser it can reach is Windows'.
+
+    Either interop variable is conclusive; /proc/version is the fallback for a
+    shell that inherited a scrubbed environment. Only ever reached from the
+    Linux branch, so no other platform stats /proc.
+    """
+    if os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"):
+        return True
+    try:
+        with open("/proc/version", "r", encoding="utf-8") as handle:
+            return "microsoft" in handle.read().lower()
+    except OSError:
+        return False
+
+
+def windows_path(path):
+    """Ask wslpath, rather than composing a \\\\wsl.localhost\\<distro>\\... path.
+
+    Composing one means guessing the distro when WSL_DISTRO_NAME is unset, and
+    it silently corrupts a path that is already on a Windows drive: a TMPDIR
+    under /mnt/c would be rewritten to a UNC path naming a different file.
+    wslpath is right about both. Decoded explicitly rather than with text=True,
+    which follows the locale -- and a POSIX-locale shell is exactly where a
+    repository slug outside ASCII would come back mangled.
+    """
+    try:
+        completed = subprocess.run(["wslpath", "-w", path], check=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    except OSError:
+        return None
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.decode("utf-8", "replace").strip() or None
+
+
+def open_in_wsl(path):
+    """Hand the report to Windows, which owns the browser on this host.
+
+    A WSL box usually has no Linux browser and often no xdg-open, so the Linux
+    opener finds nothing and the report never appears -- which is the failure
+    this exists to fix.
+    """
+    if shutil.which("wslview") and ran_ok(["wslview", path]):
+        return True
+
+    target = windows_path(path)
+    if target is None:
+        return False
+
+    # A Windows binary inherits this process's directory, and a Linux directory
+    # reaches Windows as \\wsl.localhost\... -- which start and explorer refuse
+    # outright with "UNC paths are not supported". Anywhere on a drive fixes it,
+    # and the file being opened is named absolutely either way.
+    from_drive = "/mnt/c" if os.path.isdir("/mnt/c") else None
+
+    if shutil.which("powershell.exe"):
+        # Single-quoted, with any quote in the path doubled, because this is a
+        # PowerShell command line rather than an argument vector. -FilePath is
+        # the parameter Start-Process actually has -- it is the positional one,
+        # so this is the invocation the failing run confirmed by hand -- and it
+        # takes the path literally, so a [ or ] in a repository slug stays a
+        # character rather than becoming a wildcard.
+        command = "Start-Process -FilePath '{}'".format(target.replace("'", "''"))
+        if ran_ok(["powershell.exe", "-NoProfile", "-Command", command], cwd=from_drive):
+            return True
+
+    # Last, and its result ignored, because explorer.exe exits 1 even when it
+    # succeeds. Higher up the ladder it would open the report, report failure,
+    # and have the rung below it open the report a second time.
+    if shutil.which("explorer.exe"):
+        ran_ok(["explorer.exe", target], cwd=from_drive)
+        return True
+    return False
+
+
 def open_in_browser(path):
     """Best effort, never fatal. The printed path is always the real mechanism."""
     for variable in ("CODEX_SANDBOX", "CI", "SSH_CONNECTION"):
@@ -38,6 +127,11 @@ def open_in_browser(path):
     if system == "Darwin":
         opener = ["open"]
     elif system == "Linux":
+        if is_wsl() and open_in_wsl(path):
+            return True
+        # Falling through rather than returning: a box with interop disabled in
+        # /etc/wsl.conf can still have WSLg and a Linux browser, and opening the
+        # report there beats not opening it at all.
         if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
             return False
         opener = ["xdg-open"]
@@ -47,12 +141,8 @@ def open_in_browser(path):
         return False
     if not shutil.which(opener[0]):
         return False
-    try:
-        # A plain path, never a file:// URL -- a '#' in the path truncates the URL.
-        subprocess.run(opener + [path], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return True
-    except OSError:
-        return False
+    # A plain path, never a file:// URL -- a '#' in the path truncates the URL.
+    return ran_ok(opener + [path])
 
 
 def main(argv):

@@ -88,7 +88,11 @@ Read both validated pass files and write `<run_dir>/findings.json`:
 - `schema_version` 1, `kind` `"merged"`
 - `run` — your `mode` from step 2, `generated_at` as `2026-08-08T14:02:11Z`, and `scope` exactly as
   `scope.py` printed it
-- `passes` — each pass envelope minus its `schema_version` and `kind`
+- `passes` — each pass envelope minus its `schema_version` and `kind`, plus `requested_model` and
+  `requested_effort`: what you asked that pass to run on. Write them here and never into a pass's own file
+  — you are the only party that knows, because a pass cannot see what served it. Leave either out when you
+  did not choose it and the host does not tell you: the page presents these as provenance, and a blank
+  there says less than a guess but nothing false
 - `findings` — every finding from both passes, unchanged apart from the corroboration links below
 - `verdict` — **derived, never authored**: any finding tagged `blocking` makes it `"blocked"`, otherwise
   `"clear"`. `clear` means nothing blocks, not that nothing was found.

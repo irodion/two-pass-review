@@ -204,7 +204,22 @@ def verdict_sentence(verdict, findings):
     return "Neither pass found anything to report."
 
 
-def render_scope(run):
+# What the run asked each pass to run on. Rendered as one labelled value per
+# field and never fused into a phrase: "opus at max effort" is a model name a
+# run can record with no effort beside it, and a page that renders that
+# identically to a model "opus" at effort "max" has destroyed the difference
+# between an effort nobody recorded and one that was. Absent from every
+# artifact written before these fields existed, and from any run whose host
+# does not let the orchestrator choose, so nothing here treats them as
+# required.
+PROVENANCE = (("requested_model", "Model", "model"), ("requested_effort", "Effort", "effort"))
+
+
+def provenance_value(value):
+    return esc(value) if value else '<span class="muted">not recorded</span>'
+
+
+def render_scope(run, passes):
     scope = run["scope"]
     rows = [
         ("Repository", esc(scope["repo"])),
@@ -215,14 +230,47 @@ def render_scope(run):
         rows.append(("Head", '<span class="chip">{}</span>'.format(esc(scope["head"]))))
     rows.append(("Files changed", esc(scope["files_changed"])))
     rows.append(("Diff size", "{:,} bytes".format(scope["diff_bytes"])))
+
     rows.append(
         ("Run", '{} passes, generated <span class="nowrap">{}</span>'.format(esc(run["mode"]), esc(run["generated_at"])))
     )
+
+    tiers = [(e.get("requested_model"), e.get("requested_effort")) for e in passes]
+    recorded = any(model or effort for model, effort in tiers)
+    agreed = len(set(tiers)) == 1
+    # Not the negation of `agreed`, and asked one field at a time: a split is
+    # two passes naming *different* models, or different efforts. One pass
+    # recording an axis the other left blank is unequal evidence, not evidence
+    # of inequality, and the page cannot claim a split it did not observe.
+    differ = any(len({e.get(field) for e in passes if e.get(field)}) > 1 for field, _, _ in PROVENANCE)
+
+    if recorded and agreed:
+        for field, label, _ in PROVENANCE:
+            rows.append((label, provenance_value(passes[0].get(field))))
+    elif recorded:
+        # Every pass gets its rows once any pass has them, including the passes
+        # that recorded nothing. Listing only what is known would read as the
+        # complete account of the run, and a reader comparing two passes has to
+        # be able to see that the second one is missing rather than equal.
+        for envelope in passes:
+            for field, _, name in PROVENANCE:
+                rows.append(
+                    (
+                        "{} &middot; {}".format(producer_label(envelope["producer"]), name),
+                        provenance_value(envelope.get(field)),
+                    )
+                )
+
     body = "".join("<div class=\"kv\"><dt>{}</dt><dd>{}</dd></div>".format(k, v) for k, v in rows)
     note = (
         "The passes reviewed this diff and read the repository around it, so a finding may cite a file "
         "the diff never touched &mdash; or one a remedy proposes and nothing has written yet."
     )
+    if recorded:
+        note += (
+            " Model and effort are what this run asked for, not a measurement: nothing in the pipeline "
+            "can confirm which model answered."
+        )
     untracked = ""
     if scope.get("untracked"):
         untracked = (
@@ -235,9 +283,16 @@ def render_scope(run):
             '<p class="warn">Both rubrics ran in one context window rather than side by side. '
             "A sequential run is the weaker run.</p>"
         )
+    split = ""
+    if differ:
+        split = (
+            '<p class="warn">The passes were not asked for the same model and effort. Corroboration '
+            "between them carries less than it appears to: two passes reaching one defect is evidence "
+            "because they were peers.</p>"
+        )
     return (
         '<section id="scope" class="scope"><h2>Scope</h2><dl class="kvs">{}</dl>'
-        '<p class="muted">{}</p>{}{}</section>'.format(body, note, untracked, sequential)
+        '<p class="muted">{}</p>{}{}{}</section>'.format(body, note, untracked, sequential, split)
     )
 
 
@@ -354,7 +409,7 @@ def render_page(merged):
         scope_line=scope_line,
         nav="\n".join(nav),
         prose_links="".join(prose_links),
-        scope_section=render_scope(merged["run"]),
+        scope_section=render_scope(merged["run"], merged["passes"]),
         groups="\n".join(main),
         prose=render_pass_prose(merged["passes"], markdown),
     )

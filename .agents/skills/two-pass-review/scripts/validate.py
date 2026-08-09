@@ -42,6 +42,8 @@ SCOPE_MODES = ("revisions", "local-patch")
 RUN_MODES = ("parallel", "sequential")
 VERDICTS = ("blocked", "clear")
 
+TIER_MAX = 64
+
 ID_RE = re.compile(r"^(sec|qa)-([0-9]+)$")
 TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
@@ -69,6 +71,12 @@ PASS_FIELDS = frozenset(
         "what_holds_up_md",
         "closing_md",
         "empty_reason_md",
+        # Merge-written, like 'corroborated_by' on a finding: a pass cannot know
+        # what model served it, and the orchestrator that chose is the only
+        # party that does. Listed here so the standalone check can name them
+        # instead of reporting them as fields the schema has never heard of.
+        "requested_model",
+        "requested_effort",
     ]
 )
 EMBEDDED_PASS_FIELDS = PASS_FIELDS - frozenset(["schema_version", "kind"])
@@ -151,6 +159,27 @@ def _prose_or_null(report, where, obj, key):
         return None
     if not isinstance(value, str) or not value.strip():
         report.add(where, "{!r} must be a non-empty string or null".format(key))
+        return None
+    return value
+
+
+def _tier_or_null(report, where, obj, key):
+    """A model or effort label: one short line, or null for 'not recorded'.
+
+    Deliberately not an enum. Both the level names and the model names differ
+    per host and per month, and an artifact that rejected a model because this
+    file predates it would be lying by omission about a run that happened. The
+    cap only keeps a pasted paragraph from taking the scope grid apart; nothing
+    downstream trusts the value further than escaping it.
+    """
+    value = obj.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        report.add(where, "{!r} must be a non-empty string or null".format(key))
+        return None
+    if "\n" in value or len(value) > TIER_MAX:
+        report.add(where, "{!r} must be a single line of at most {} characters".format(key, TIER_MAX))
         return None
     return value
 
@@ -372,6 +401,12 @@ def validate_pass(report, producer, findings_path, envelope_path):
         report.add(where, "'producer' does not match the file name")
     _prose_or_null(report, where, envelope, "what_holds_up_md")
     _prose_or_null(report, where, envelope, "closing_md")
+    for key in ("requested_model", "requested_effort"):
+        if key in envelope:
+            report.add(
+                where,
+                "{!r} is written by the merge step; a pass has no way to know what served it".format(key),
+            )
 
     check_empty_reason(report, where, envelope, has_findings=bool(findings), known_findings=findings_path is not None)
 
@@ -563,6 +598,11 @@ def check_passes(report, where, passes, findings):
         seen.add(producer)
         _prose_or_null(report, at, envelope, "what_holds_up_md")
         _prose_or_null(report, at, envelope, "closing_md")
+        # Both optional, and no rule that the two passes agree: a split is
+        # something the user can ask for, so it is true rather than invalid.
+        # The page is what tells the reader the passes were not peers.
+        _tier_or_null(report, at, envelope, "requested_model")
+        _tier_or_null(report, at, envelope, "requested_effort")
         has_findings = any(isinstance(f, dict) and f.get("producer") == producer for f in findings)
         check_empty_reason(report, at, envelope, has_findings=has_findings)
 

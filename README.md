@@ -85,6 +85,20 @@ Say what you want reviewed in your own words — a pull request, a commit, this 
 whatever is sitting uncommitted. There are no flags. If what you said does not pin down a range, you will
 be asked rather than guessed at.
 
+Model and effort work the same way: name either in the same sentence and both passes run there, or say
+nothing and they inherit whatever your session is set to. Nothing here will quietly move you onto a more
+expensive model than the one you chose.
+
+Both passes run on the same tier unless you ask for otherwise, because two passes reaching the same defect
+is only evidence while they were peers. You can ask for otherwise — run security on the stronger model and
+quality on the cheaper one, say — and it will do that and tell you which pass got what, but nothing will
+arrive at that split on its own.
+
+Effort is worth a moment's thought before you invoke rather than after. The passes argue their findings and
+the merge weighs which of them corroborate each other; none of that is a lookup, and a run at `low` is a
+cheaper review in the sense that matters. The skill deliberately does not pin a level of its own, because
+a pin that raised a low session would equally drag down one you had set high on purpose.
+
 You get back two things: the verdict, and the path to the report.
 
 ## Reading the report

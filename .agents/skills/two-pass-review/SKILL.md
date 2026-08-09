@@ -52,6 +52,17 @@ Both rubrics run over the same pinned diff:
 **Run them as parallel subagents where your host offers them and the user approves.** Otherwise run them
 one after the other, to the same standard, and hold the second to the same depth as the first.
 
+**Which model, and at what effort, is the user's to say.** If the request named either, spawn the passes
+with it. If it did not, they inherit the session's, and you do not raise or lower that on your own
+initiative — a review that silently costs several times what the user expected is its own kind of failure,
+and one that silently thinks less than they had set it to is worse. Where the host offers no per-pass
+model, the session's is what ran; that is not a thing to work around.
+
+**Both passes run on the same model at the same effort.** Corroboration is two passes reaching one defect
+independently, and that is evidence only while they were peers — a cheap pass agreeing with an expensive
+one is not a second opinion. If the user asks for a split anyway, run it and tell them which pass got what.
+Never arrive at one yourself.
+
 Give each pass exactly four things, and let it read the repository for itself:
 
 1. its rubric, as the whole of its instructions

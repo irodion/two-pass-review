@@ -59,18 +59,22 @@ def is_wsl():
         return False
 
 
-def windows_path(path):
-    """Ask wslpath, rather than composing a \\\\wsl.localhost\\<distro>\\... path.
+def translate_path(*arguments):
+    """Ask wslpath, in either direction. Nothing here composes a path by hand.
 
-    Composing one means guessing the distro when WSL_DISTRO_NAME is unset, and
-    it silently corrupts a path that is already on a Windows drive: a TMPDIR
-    under /mnt/c would be rewritten to a UNC path naming a different file.
-    wslpath is right about both. Decoded explicitly rather than with text=True,
-    which follows the locale -- and a POSIX-locale shell is exactly where a
-    repository slug outside ASCII would come back mangled.
+    Composing \\\\wsl.localhost\\<distro>\\... means guessing the distro when
+    WSL_DISTRO_NAME is unset, and it silently corrupts a path that is already
+    on a Windows drive, rewriting it to a UNC path that names a different file.
+    Composing the other direction is worse: [automount] root in /etc/wsl.conf
+    moves where the drives are mounted, so /mnt/c is a default and not a fact.
+    wslpath knows both, and Microsoft's interop guidance is to ask it.
+
+    Decoded explicitly rather than with text=True, which follows the locale --
+    and a POSIX-locale shell is exactly where a repository slug outside ASCII
+    would come back mangled.
     """
     try:
-        completed = subprocess.run(["wslpath", "-w", path], check=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        completed = subprocess.run(["wslpath"] + list(arguments), check=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     except OSError:
         return None
     if completed.returncode != 0:
@@ -88,7 +92,7 @@ def open_in_wsl(path):
     if shutil.which("wslview") and ran_ok(["wslview", path]):
         return True
 
-    target = windows_path(path)
+    target = translate_path("-w", path)
     if target is None:
         return False
 
@@ -96,7 +100,15 @@ def open_in_wsl(path):
     # reaches Windows as \\wsl.localhost\... -- which start and explorer refuse
     # outright with "UNC paths are not supported". Anywhere on a drive fixes it,
     # and the file being opened is named absolutely either way.
-    from_drive = "/mnt/c" if os.path.isdir("/mnt/c") else None
+    #
+    # Asked for rather than assumed to be /mnt/c, because [automount] root is
+    # configurable. Checked with isdir because wslpath translates the syntax
+    # without caring whether anything is mounted there, and a cwd that does not
+    # exist fails the launch outright -- worse than the UNC directory it was
+    # meant to avoid.
+    from_drive = translate_path("-u", "C:\\")
+    if from_drive is not None and not os.path.isdir(from_drive):
+        from_drive = None
 
     if shutil.which("powershell.exe"):
         # Single-quoted, with any quote in the path doubled, because this is a

@@ -119,8 +119,10 @@ python3 <skill-dir>/scripts/validate.py <run_dir>/findings.json
 python3 <skill-dir>/scripts/render.py <run_dir>/findings.json --latest <latest>
 ```
 
-`render.py` validates before it writes and refuses to render an invalid artifact. It opens the report in
-the user's browser where it can, and always prints the path.
+`render.py` validates before it writes and refuses to render an invalid artifact. It always prints the
+path, and tries to open the report in a browser — a best effort that stays silent when it fails, because
+the printed path is the mechanism and the open is the convenience. Nothing reports back whether a window
+appeared, so never say one did.
 
 **Then tell the user two things: the verdict, and where the report is.** Nothing else. Do not summarise
 the findings in the transcript — reproducing the review in prose is the thing this skill exists to

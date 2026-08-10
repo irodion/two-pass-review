@@ -126,6 +126,19 @@ loudly they shout, derived from severity for security findings and from category
 Codex cannot open a browser — its sandbox denies both the platform opener and binding a port. The printed
 path is the mechanism there, not a fallback.
 
+## On WSL
+
+WSL reports itself as Linux but usually has no Linux browser to open, so the report is handed to the
+Windows default browser through interop: `wslview` if `wslu` is installed, otherwise PowerShell or
+Explorer, with the path translated by `wslpath`. Where interop is turned off and a Linux browser exists,
+the ordinary Linux opener still runs; where neither is reachable, the printed path is the report, as on
+Codex.
+
+Opening it by hand is the one place this bites. `explorer.exe` and `cmd.exe` inherit the working
+directory, a Linux one reaches Windows as `\\wsl.localhost\…`, and both refuse it with *"UNC paths are not
+supported"* — so run them from a directory on a Windows drive, or the failure looks like a bad path when
+it is a bad `cwd`.
+
 ## Working on it
 
 [`AGENTS.md`](AGENTS.md) is the guide for changing this repository — the Python floor, the three

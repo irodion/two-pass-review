@@ -29,6 +29,21 @@ from page import render_page  # noqa: E402
 # --- delivery ----------------------------------------------------------------
 
 
+def launch(command, cwd=None):
+    """Run an opener to completion. None if it never started at all.
+
+    Failing to start and starting badly are different answers, and the bottom
+    of the WSL ladder needs to tell them apart: explorer.exe's exit code is not
+    evidence either way, but a binary that could not be executed has certainly
+    opened nothing.
+    """
+    try:
+        completed = subprocess.run(command, cwd=cwd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        return None
+    return completed.returncode
+
+
 def ran_ok(command, cwd=None):
     """Whether the opener reported success, not merely that it started.
 
@@ -36,11 +51,7 @@ def ran_ok(command, cwd=None):
     a helper that returns True for any process that launched makes every rung
     below the first unreachable, and the ladder becomes decoration.
     """
-    try:
-        completed = subprocess.run(command, cwd=cwd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except OSError:
-        return False
-    return completed.returncode == 0
+    return launch(command, cwd=cwd) == 0
 
 
 def is_wsl():
@@ -121,12 +132,16 @@ def open_in_wsl(path):
         if ran_ok(["powershell.exe", "-NoProfile", "-Command", command], cwd=from_drive):
             return True
 
-    # Last, and its result ignored, because explorer.exe exits 1 even when it
-    # succeeds. Higher up the ladder it would open the report, report failure,
-    # and have the rung below it open the report a second time.
+    # Last, and its exit code ignored, because explorer.exe exits 1 even when
+    # it succeeds. Higher up the ladder it would open the report, report
+    # failure, and have the rung below it open the report a second time.
+    #
+    # Whether it started is still worth knowing. Interop can be turned off
+    # while the Windows directories stay on PATH, so the binary is findable and
+    # unrunnable at once -- and answering True there would suppress the
+    # xdg-open the caller would otherwise fall through to.
     if shutil.which("explorer.exe"):
-        ran_ok(["explorer.exe", target], cwd=from_drive)
-        return True
+        return launch(["explorer.exe", target], cwd=from_drive) is not None
     return False
 
 

@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Two-Pass Review — atomic-review</title>
+<style>
+:root {
+  --bg: #fbfaf8; --panel: #ffffff; --ink: #1c1a18; --muted: #6b6560; --line: #e2ddd6;
+  --accent: #7a4b2a; --block: #a32a1e; --block-bg: #fbeae7; --follow: #7a5c12; --note: #5a6570;
+  --code-bg: #f4f1ec; --chip-bg: #efeae2; --shadow: 0 1px 2px rgba(28,26,24,.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17161a; --panel: #1e1d22; --ink: #e9e6e1; --muted: #a09a94; --line: #34323a;
+    --accent: #d59a6c; --block: #f08b7e; --block-bg: #3a201d; --follow: #d6b45c; --note: #96a1ae;
+    --code-bg: #26252b; --chip-bg: #2b2a31; --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+.filter { position: absolute; opacity: 0; pointer-events: none; }
+.layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 40px;
+  max-width: 1240px; margin: 0 auto; padding: 32px 28px 96px; align-items: start; }
+.sidebar { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; font-size: 14px; }
+main { min-width: 0; }
+
+.verdict { border-radius: 8px; padding: 10px 14px; margin-bottom: 18px; font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase; font-size: 13px; }
+.verdict-blocked { background: var(--block-bg); color: var(--block); border: 1px solid var(--block); }
+.verdict-clear { background: var(--chip-bg); color: var(--ink); border: 1px solid var(--line); }
+.masthead .verdict { display: inline-block; font-size: 15px; padding: 8px 18px; }
+.masthead { margin-bottom: 34px; }
+.sentence { font-size: 21px; line-height: 1.45; margin: 8px 0 6px; }
+.scope-line { color: var(--muted); margin: 0; font-size: 14px; }
+
+.filters { margin-bottom: 22px; }
+.filter-title { margin: 12px 0 6px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.pill { display: inline-block; padding: 3px 10px; margin: 0 4px 4px 0; border: 1px solid var(--line);
+  border-radius: 999px; cursor: pointer; font-size: 13px; background: var(--panel); }
+#f-prod-all:checked ~ .layout .pill-prod-all,
+#f-prod-security:checked ~ .layout .pill-prod-security,
+#f-prod-quality:checked ~ .layout .pill-prod-quality,
+#f-block-all:checked ~ .layout .pill-block-all,
+#f-block-only:checked ~ .layout .pill-block-only { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+nav .nav-group { margin: 16px 0 6px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+nav .nav-group a { color: inherit; text-decoration: none; }
+nav ul { list-style: none; margin: 0; padding: 0; }
+nav li { margin: 0 0 3px; line-height: 1.35; }
+nav a { color: var(--ink); text-decoration: none; }
+nav a:hover { text-decoration: underline; }
+.nav-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); }
+[data-disposition="blocking"] .nav-id { color: var(--block); font-weight: 700; }
+.nav-prose { margin-top: 18px; }
+.nav-prose a { color: var(--muted); }
+
+/* Counts stay honest under the producer filter: the renderer emits all three
+   and CSS shows the one that matches. */
+.count { display: none; }
+#f-prod-all:checked ~ .layout .count-all,
+#f-prod-security:checked ~ .layout .count-security,
+#f-prod-quality:checked ~ .layout .count-quality { display: inline; }
+
+/* Filtering, entirely in CSS. */
+#f-prod-security:checked ~ .layout [data-producer="quality"],
+#f-prod-quality:checked ~ .layout [data-producer="security"],
+#f-prod-security:checked ~ .layout .group:not(.has-security),
+#f-prod-quality:checked ~ .layout .group:not(.has-quality),
+#f-block-only:checked ~ .layout [data-disposition="follow-up"],
+#f-block-only:checked ~ .layout [data-disposition="note"] { display: none; }
+
+h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+  border-bottom: 1px solid var(--line); padding-bottom: 8px; margin: 42px 0 18px; }
+.counts { font-variant-numeric: tabular-nums; }
+
+/* Wide enough for a full 40-character SHA, which must not break mid-hash --
+   half an object id on each of two lines is not a thing anyone can copy. */
+.scope .kvs { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 10px 24px; margin: 0 0 14px; }
+.scope .chip { overflow-wrap: normal; word-break: keep-all; }
+.kv dt { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0; }
+.kv dd { margin: 2px 0 0; }
+.muted { color: var(--muted); font-size: 14px; }
+.nowrap { white-space: nowrap; }
+.finding-head h3 code { font-size: .92em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
+.warn { color: var(--block); font-size: 14px; }
+
+.finding { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 20px 22px; margin: 0 0 16px; box-shadow: var(--shadow); }
+.finding-head { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: baseline; }
+.fid { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--muted); }
+[data-disposition="blocking"] .fid { color: var(--block); font-weight: 700; }
+.finding-head h3 { margin: 0; font-size: 18px; line-height: 1.35; }
+.tags { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.tag { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; padding: 2px 8px;
+  border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.tag-critical, .tag-high { color: var(--block); border-color: var(--block); }
+.tag-medium { color: var(--follow); border-color: var(--follow); }
+.tag-conf { border-style: dashed; }
+
+.locations { margin: 14px 0 4px; display: flex; flex-wrap: wrap; gap: 6px; }
+/* Inert on purpose: a chip that looks like a link and is not one is a lie. */
+.chip { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+  background: var(--chip-bg); border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px;
+  user-select: all; -webkit-user-select: all; text-decoration: none; cursor: text; }
+.chip-primary { border-color: var(--accent); color: var(--accent); }
+
+.corroboration { background: var(--chip-bg); border-left: 3px solid var(--accent);
+  padding: 8px 12px; margin: 14px 0 0; font-size: 14px; border-radius: 0 5px 5px 0; }
+.body { margin-top: 6px; }
+.body p { margin: 12px 0; }
+.body ul, .body ol { margin: 12px 0; padding-left: 22px; }
+.body li { margin: 4px 0; }
+.body blockquote { margin: 12px 0; padding: 2px 14px; border-left: 3px solid var(--line); color: var(--muted); }
+.body code, .chip { overflow-wrap: anywhere; }
+.body code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .89em;
+  background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+.body pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px 14px; overflow-x: auto; }
+.body pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.5; }
+.xref { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); }
+a { color: var(--accent); }
+
+.prose details { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 0 18px; }
+.prose summary { cursor: pointer; padding: 12px 0; font-size: 13px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--muted); }
+.prose details[open] summary { border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.prose details > *:last-child { margin-bottom: 16px; }
+
+:target { scroll-margin-top: 24px; }
+.finding:target { border-color: var(--accent); }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 20px 16px 64px; }
+  .sidebar { position: static; max-height: none; margin-bottom: 24px; }
+}
+</style>
+</head>
+<body>
+<input type="radio" name="prod" id="f-prod-all" class="filter" checked>
+<input type="radio" name="prod" id="f-prod-security" class="filter">
+<input type="radio" name="prod" id="f-prod-quality" class="filter">
+<input type="radio" name="block" id="f-block-all" class="filter" checked>
+<input type="radio" name="block" id="f-block-only" class="filter">
+<div class="layout">
+  <aside class="sidebar">
+    <div class="verdict verdict-blocked">
+      <span class="verdict-label">Blocked</span>
+    </div>
+    <div class="filters">
+      <p class="filter-title">Pass</p>
+      <label for="f-prod-all" class="pill pill-prod-all">Both</label>
+      <label for="f-prod-security" class="pill pill-prod-security">Security</label>
+      <label for="f-prod-quality" class="pill pill-prod-quality">Quality</label>
+      <p class="filter-title">Show</p>
+      <label for="f-block-all" class="pill pill-block-all">Everything</label>
+      <label for="f-block-only" class="pill pill-block-only">Blocking only</label>
+    </div>
+    <nav>
+      <p class="nav-group"><a href="#scope">Scope</a></p>
+      <div class="group has-quality has-security" data-disposition="blocking"><p class="nav-group"><a href="#group-blocking">BLOCKING</a> <span class="counts">&middot; <span class="count count-all">4</span><span class="count count-security">2</span><span class="count count-quality">2</span></span></p><ul><li class="nav-finding" data-producer="security"><a href="#finding-sec-2"><span class="nav-id">sec-2</span> Do not trust the drive root that wslpath hands back</a></li><li class="nav-finding" data-producer="quality"><a href="#finding-qa-2"><span class="nav-id">qa-2</span> The Windows path is derived and consumed in the same brea…</a></li><li class="nav-finding" data-producer="security"><a href="#finding-sec-1"><span class="nav-id">sec-1</span> Compare pass provenance before formatting its display lab…</a></li><li class="nav-finding" data-producer="quality"><a href="#finding-qa-1"><span class="nav-id">qa-1</span> Compare the structured tier fields before formatting them</a></li></ul></div>
+<div class="group has-quality has-security" data-disposition="follow-up"><p class="nav-group"><a href="#group-follow-up">FOLLOW-UP</a> <span class="counts">&middot; <span class="count count-all">5</span><span class="count count-security">2</span><span class="count count-quality">3</span></span></p><ul><li class="nav-finding" data-producer="quality"><a href="#finding-qa-3"><span class="nav-id">qa-3</span> Host detection and opener selection want to be separate s…</a></li><li class="nav-finding" data-producer="quality"><a href="#finding-qa-4"><span class="nav-id">qa-4</span> launch returning None deserves a name</a></li><li class="nav-finding" data-producer="security"><a href="#finding-sec-3"><span class="nav-id">sec-3</span> The probe for interop variables also accepts an empty val…</a></li><li class="nav-finding" data-producer="security"><a href="#finding-sec-4"><span class="nav-id">sec-4</span> markdown_subset should refuse scheme-relative URLs too</a></li><li class="nav-finding" data-producer="quality"><a href="#finding-qa-5"><span class="nav-id">qa-5</span> scope_line builds display text three joins deep</a></li></ul></div>
+<div class="group has-quality has-security" data-disposition="note"><p class="nav-group"><a href="#group-note">NOTES</a> <span class="counts">&middot; <span class="count count-all">5</span><span class="count count-security">2</span><span class="count count-quality">3</span></span></p><ul><li class="nav-finding" data-producer="quality"><a href="#finding-qa-8"><span class="nav-id">qa-8</span> The scope section grew a second reason to exist</a></li><li class="nav-finding" data-producer="quality"><a href="#finding-qa-6"><span class="nav-id">qa-6</span> truncate re-splits a string the caller already normalised</a></li><li class="nav-finding" data-producer="quality"><a href="#finding-qa-7"><span class="nav-id">qa-7</span> DISPOSITION_ORDER and DISPOSITION_LABEL are declared far…</a></li><li class="nav-finding" data-producer="security"><a href="#finding-sec-5"><span class="nav-id">sec-5</span> The bytecode cleanup runs after the render, not before</a></li><li class="nav-finding" data-producer="security"><a href="#finding-sec-6"><span class="nav-id">sec-6</span> The literal scan reports what it inspects, which is right</a></li></ul></div>
+      <ul class="nav-prose"><li><a href="#prose-security-what">What holds up &mdash; Security &amp; correctness</a></li><li><a href="#prose-security-closing">Closing notes &mdash; Security &amp; correctness</a></li><li><a href="#prose-quality-what">What holds up &mdash; Code quality</a></li><li><a href="#prose-quality-closing">Closing notes &mdash; Code quality</a></li></ul>
+    </nav>
+  </aside>
+  <main>
+    <header class="masthead">
+      <div class="verdict verdict-blocked"><span class="verdict-label">Blocked</span></div>
+      <p class="sentence">4 of 14 findings block this change &mdash; 2 from the quality pass and 2 from the security pass.</p>
+      <p class="scope-line">atomic-review &middot; revision range &middot; 11 files</p>
+    </header>
+    <section id="scope" class="scope"><h2>Scope</h2><dl class="kvs"><div class="kv"><dt>Repository</dt><dd>atomic-review</dd></div><div class="kv"><dt>Scope mode</dt><dd>revision range</dd></div><div class="kv"><dt>Base</dt><dd><span class="chip">0f47499a1c6d4b2e8a5175614627b1b299609abc</span></dd></div><div class="kv"><dt>Head</dt><dd><span class="chip">55f8aa2b7e3c19d4f5175769e74720d326046def</span></dd></div><div class="kv"><dt>Files changed</dt><dd>11</dd></div><div class="kv"><dt>Diff size</dt><dd>48,211 bytes</dd></div><div class="kv"><dt>Run</dt><dd>parallel passes, generated <span class="nowrap">2026-08-11T09:00:00Z</span></dd></div><div class="kv"><dt>Model</dt><dd>opus</dd></div><div class="kv"><dt>Effort</dt><dd>high</dd></div></dl><p class="muted">The passes reviewed this diff and read the repository around it, so a finding may cite a file the diff never touched &mdash; or one a remedy proposes and nothing has written yet. Model and effort are what this run asked for, not a measurement: nothing in the pipeline can confirm which model answered.</p></section>
+    <section class="group has-quality has-security" data-disposition="blocking"><h2 id="group-blocking">Blocking <span class="counts">&middot; <span class="count count-all">4</span><span class="count count-security">2</span><span class="count count-quality">2</span></span></h2><article class="finding" id="finding-sec-2" data-producer="security" data-disposition="blocking">
+<header class="finding-head"><span class="fid">sec-2</span><h3>Do not trust the drive root that <code>wslpath</code> hands back</h3><div class="tags"><span class="tag tag-prod">Security &amp; correctness</span><span class="tag tag-sev tag-high">high</span></div></header>
+<div class="locations"><span class="chip chip-primary">.agents/skills/two-pass-review/scripts/render.py:118-141</span></div>
+<p class="corroboration"><strong>Corroborated by <a class="xref" href="#finding-qa-2">qa-2</a></strong> &mdash; “The Windows path is derived and consumed in the same breath”</p>
+<div class="body"><p>The WSL branch asks <code>wslpath</code> where the Windows drives are mounted and then joins the report&#x27;s filename onto whatever comes back. <code>wslpath</code> reads <code>/etc/wsl.conf</code>, which is writable by anyone with root on the distribution and is not a value this script derived. A crafted <code>root</code> containing a <code>..</code> sequence, or an absolute path pointing elsewhere, redirects the write outside the run directory before <code>explorer.exe</code> is ever invoked.</p>
+<p>The fix is small: resolve the joined path and refuse it unless it is still inside the run&#x27;s temporary directory. Do this before the file is written, not before it is opened — the opener is not the boundary.</p></div>
+</article>
+<article class="finding" id="finding-qa-2" data-producer="quality" data-disposition="blocking">
+<header class="finding-head"><span class="fid">qa-2</span><h3>The Windows path is derived and consumed in the same breath</h3><div class="tags"><span class="tag tag-prod">Code quality</span><span class="tag tag-cat" title="Boundary / abstraction / type-contract problems that make the code harder to reason about">boundary-contract</span></div></header>
+<div class="locations"><span class="chip chip-primary">.agents/skills/two-pass-review/scripts/render.py:118-141</span></div>
+<p class="corroboration"><strong>Corroborated by <a class="xref" href="#finding-sec-2">sec-2</a></strong> &mdash; “Do not trust the drive root that wslpath hands back”</p>
+<div class="body"><p><code>wslpath</code>&#x27;s answer becomes a write target with nothing in between. There is no point in the function where the derived path is a value that has been checked — it is produced by a subprocess and consumed by a join on the next line, so any reader asking &quot;what makes this path safe?&quot; has nowhere to look. Give the derivation a boundary that returns either a path inside the run directory or nothing, and the security argument becomes something the type of the return value carries rather than something the reader has to reconstruct.</p></div>
+</article>
+<article class="finding" id="finding-sec-1" data-producer="security" data-disposition="blocking">
+<header class="finding-head"><span class="fid">sec-1</span><h3>Compare pass provenance before formatting its display label</h3><div class="tags"><span class="tag tag-prod">Security &amp; correctness</span><span class="tag tag-sev tag-medium">medium</span></div></header>
+<div class="locations"><span class="chip chip-primary">.agents/skills/two-pass-review/scripts/page.py:242-249</span></div>
+<p class="corroboration"><strong>Corroborated by <a class="xref" href="#finding-qa-1">qa-1</a></strong> &mdash; “Compare the structured tier fields before formatting them”</p>
+<div class="body"><p><code>render_scope</code> determines whether the passes were peers from the formatted <code>requested_tier()</code> strings, but that rendering is not a one-to-one representation of <code>(requested_model, requested_effort)</code>. A pass with <code>requested_model: &quot;high effort&quot;</code> and no effort, and another with no model and <code>requested_effort: &quot;high&quot;</code>, both render as <code>high effort</code>; the page therefore claims one shared tier and suppresses the unequal-pass warning. This makes the report&#x27;s provenance and corroboration warning incorrect for an accepted artifact. Compare the two structured field values, including absence, and only format them after agreement has been decided.</p></div>
+</article>
+<article class="finding" id="finding-qa-1" data-producer="quality" data-disposition="blocking">
+<header class="finding-head"><span class="fid">qa-1</span><h3>Compare the structured tier fields before formatting them</h3><div class="tags"><span class="tag tag-prod">Code quality</span><span class="tag tag-cat" title="Boundary / abstraction / type-contract problems that make the code harder to reason about">boundary-contract</span></div></header>
+<div class="locations"><span class="chip chip-primary">.agents/skills/two-pass-review/scripts/page.py:242-249</span></div>
+<p class="corroboration"><strong>Corroborated by <a class="xref" href="#finding-sec-1">sec-1</a></strong> &mdash; “Compare pass provenance before formatting its display label”</p>
+<div class="body"><p><code>render_scope</code> decides whether the passes were peers by comparing <code>requested_tier()</code>&#x27;s display strings, even though the contract is the pair <code>(requested_model, requested_effort)</code>. That formatting is not injective: a security envelope carrying only <code>requested_model: &quot;high effort&quot;</code> and a quality envelope carrying only <code>requested_effort: &quot;high&quot;</code> both become <code>high effort</code>. The page then renders <code>parallel passes on high effort</code> and omits the unequal-pass warning even though the recorded axes differ. Keep the structured pair through the agreement calculation — including which half is absent — and call <code>requested_tier()</code> only when producing display text.</p></div>
+</article></section>
+<section class="group has-quality has-security" data-disposition="follow-up"><h2 id="group-follow-up">Follow-up <span class="counts">&middot; <span class="count count-all">5</span><span class="count count-security">2</span><span class="count count-quality">3</span></span></h2><article class="finding" id="finding-qa-3" data-producer="quality" data-disposition="follow-up">
+<header class="finding-head"><span class="fid">qa-3</span><h3>Host detection and opener selection want to be separate seams</h3><div class="tags"><span class="tag tag-prod">Code quality</span><span class="tag tag-cat" title="Modularity, abstraction, and decomposition issues">modularity-decomposition</span></div></header>
+<div class="locations"><span class="chip chip-primary">.agents/skills/two-pass-review/scripts/render.py:61-212</span></div>
+<div class="body"><p><code>open_report</code> decides the host, derives a Windows path, tries four openers in order, and reports which one worked. <code>is_wsl</code>, <code>windows_path_for</code> and the ladder are three answers to three different questions, and only the last is expensive to get right. Each rung is individually clear, but the reader has to hold the host decision in mind while reading the ladder, and the two concerns fail independently. A <code>windows_openers(path)</code> returning the ordered commands, with <code>open_report</code> doing nothing but walking the list, makes the first two testable without a WSL host — currently the reason neither has a test.</p></div>
+</article>
+<article class="finding" id="finding-qa-4" data-producer="quality" data-disposition="follow-up">
+<header class="finding-head"><span class="fid">qa-4</span><h3><code>launch</code> returning <code>None</code> deserves a name</h3><div class="tags"><span class="tag tag-prod">Code quality</span><span class="tag tag-cat" title="Boundary / abstraction / type-contract problems that make the code harder to reason about">boundary-contract</span></div></header>
+<div class="locations"><span class="chip chip-primary">.agents/skills/two-pass-review/scripts/render.py:30-52</span></div>
+<div class="body"><p><code>launch</code> returns an exit code, or <code>None</code> when the binary could not be executed at all. The distinction is load-bearing — the comment says so — but it is carried by a bare <code>None</code> that every caller has to remember to test. A two-value sentinel, or a small named constant, would put the distinction in the reader&#x27;s way instead of in the docstring.</p></div>
+</article>
+<article class="finding" id="finding-sec-3" data-producer="security" data-disposition="follow-up">
+<header class="finding-head"><span class="fid">sec-3</span><h3>The probe for interop variables also accepts an empty value</h3><div class="tags"><span class="tag tag-prod">Security &amp; correctness</span><span class="tag tag-sev tag-low">low</span><span class="tag tag-conf" title="The failure is a slow path rather than a wrong one — the ladder still reaches the correct opener eventually.">medium confidence</span></div></header>
+<div class="locations"><span class="chip chip-primary">.agents/skills/two-pass-review/scripts/render.py:61-72</span></div>
+<div class="body"><p><code>is_wsl</code> treats the presence of <code>WSL_INTEROP</code> or <code>WSL_DISTRO_NAME</code> in <code>os.environ</code> as conclusive, but an exported-and-empty variable is present. A user shell that clears one of these — some login managers do — puts the renderer onto the Windows ladder on a host with no Windows to reach, and every rung then fails in turn before the Linux fallback runs. Test the value, not the key.</p></div>
+</article>
+<article class="finding" id="finding-sec-4" data-producer="security" data-disposition="follow-up">
+<header class="finding-head"><span class="fid">sec-4</span><h3><code>markdown_subset</code> should refuse scheme-relative URLs too</h3><div class="tags"><span class="tag tag-prod">Security &amp; correctness</span><span class="tag tag-sev tag-low">low</span></div></header>
+<div class="locations"><span class="chip chip-primary">.agents/skills/two-pass-review/scripts/markdown_subset.py:88-104</span></div>
+<div class="body"><p>The link filter refuses <code>javascript:</code>, <code>data:</code> and <code>vbscript:</code> by scheme. A <code>//evil.example/x</code> href carries no scheme at all and survives the check, and over <code>file://</code> it resolves to <code>file://evil.example/x</code> — harmless in practice, but the same string forwarded into a page served over HTTP is a live off-origin fetch. The report is explicitly designed to be forwarded by email, so the second case is not hypothetical.</p></div>
+</article>
+<article class="finding" id="finding-qa-5" data-producer="quality" data-disposition="follow-up">
+<header class="finding-head"><span class="fid">qa-5</span><h3><code>scope_line</code> builds display text three joins deep</h3><div class="tags"><span class="tag tag-prod">Code quality</span><span class="tag tag-cat" title="Legibility and maintainability concerns">legibility</span></div></header>
+<div class="locations"><span class="chip chip-primary">.agents/skills/two-pass-review/scripts/page.py:396-401</span></div>
+<div class="body"><p>Three <code>esc</code> calls, a dictionary lookup with a fallback, and an integer are threaded through one <code>format</code> with <code>&amp;middot;</code> separators. It works, and it is escaped correctly, but the line is now the densest thing in <code>render_page</code> and it is not the most interesting. Lift the three pieces to named locals.</p></div>
+</article></section>
+<section class="group has-quality has-security" data-disposition="note"><h2 id="group-note">Notes <span class="counts">&middot; <span class="count count-all">5</span><span class="count count-security">2</span><span class="count count-quality">3</span></span></h2><article class="finding" id="finding-qa-8" data-producer="quality" data-disposition="note">
+<header class="finding-head"><span class="fid">qa-8</span><h3>The scope section grew a second reason to exist</h3><div class="tags"><span class="tag tag-prod">Code quality</span><span class="tag tag-cat" title="Structural code-quality regressions">structural-regression</span></div></header>
+<div class="locations"><span class="chip chip-primary">.agents/skills/two-pass-review/scripts/page.py:228-268</span></div>
+<div class="body"><p><code>render_scope</code> used to describe the diff. It now also carries the provenance line and the unequal-pass warning, which are about the run rather than about the scope. The section still reads well, but its name has stopped describing its contents and the next addition will have nowhere obvious to go.</p></div>
+</article>
+<article class="finding" id="finding-qa-6" data-producer="quality" data-disposition="note">
+<header class="finding-head"><span class="fid">qa-6</span><h3><code>truncate</code> re-splits a string the caller already normalised</h3><div class="tags"><span class="tag tag-prod">Code quality</span><span class="tag tag-cat" title="Missed opportunities for dramatic simplification / code-judo restructuring">simplification-missed</span></div></header>
+<div class="locations"><span class="chip chip-primary">.agents/skills/two-pass-review/scripts/page.py:119-122</span></div>
+<div class="body"><p>Every caller passes the output of <code>Markdown.plain</code>, which has already collapsed whitespace. The <code>&quot; &quot;.join(text.split())</code> inside <code>truncate</code> is therefore a second pass over the same string. Harmless at report scale; noted only because the duplication suggests one of the two is meant to be the boundary and it is not obvious which.</p></div>
+</article>
+<article class="finding" id="finding-qa-7" data-producer="quality" data-disposition="note">
+<header class="finding-head"><span class="fid">qa-7</span><h3><code>DISPOSITION_ORDER</code> and <code>DISPOSITION_LABEL</code> are declared far apart</h3><div class="tags"><span class="tag tag-prod">Code quality</span><span class="tag tag-cat" title="Legibility and maintainability concerns">legibility</span></div></header>
+<div class="locations"><span class="chip chip-primary">.agents/skills/two-pass-review/scripts/page.py:22-41</span></div>
+<div class="body"><p>The order and the labels are the same three values seen twice, nineteen lines apart, and adding a disposition means editing both. A single ordered mapping would make the pairing structural rather than remembered.</p></div>
+</article>
+<article class="finding" id="finding-sec-5" data-producer="security" data-disposition="note">
+<header class="finding-head"><span class="fid">sec-5</span><h3>The bytecode cleanup runs after the render, not before</h3><div class="tags"><span class="tag tag-prod">Security &amp; correctness</span></div></header>
+<div class="locations"><span class="chip chip-primary">.github/checks.py:44-58</span></div>
+<div class="body"><p><code>__pycache__</code> directories are removed once the checks have run. If a check imports a script and the process is killed midway, the bytecode survives into the next run. Not a correctness problem — Python revalidates by mtime — but the check that asserts the tree is clean can then see its own leftovers.</p></div>
+</article>
+<article class="finding" id="finding-sec-6" data-producer="security" data-disposition="note">
+<header class="finding-head"><span class="fid">sec-6</span><h3>The literal scan reports what it inspects, which is right</h3><div class="tags"><span class="tag tag-prod">Security &amp; correctness</span><span class="tag tag-conf" title="Recorded for the reader&#x27;s benefit rather than as a defect; no change is being asked for.">low confidence</span></div></header>
+<div class="locations"><span class="chip chip-primary">.github/checks.py:96-130</span></div>
+<div class="body"><p>Worth recording as a non-finding: the script-tag check inspects string literals and prints a line saying so, rather than claiming the page has no JavaScript. Assembled markup would pass it. That is a documented limit, not a gap, and the wording already prevents the misreading.</p></div>
+</article></section>
+    <section id="prose-security-what" class="prose"><h2>What holds up &mdash; Security &amp; correctness</h2><details open><summary>Security &amp; correctness</summary><p>The WSL opener ladder fails closed: a binary that cannot be executed is told apart from one that ran and reported failure, so no rung is skipped on the strength of a launch that never happened. Escaping still runs on the whole string before any structural regex touches it, and the new provenance labels reach the page through <code>esc</code> like everything else. Nothing in the diff opens a network path, adds a dependency, or writes outside the run&#x27;s temporary directory.</p></details></section>
+<section id="prose-security-closing" class="prose"><h2>Closing notes &mdash; Security &amp; correctness</h2><details open><summary>Security &amp; correctness</summary><p>Two problems survive. The structured-to-display collapse can present unequal provenance as equal, and the drive-mapping lookup trusts a path it did not derive itself. Neither is reachable without a WSL host, but both are reachable from ordinary input on one.</p></details></section>
+<section id="prose-quality-what" class="prose"><h2>What holds up &mdash; Code quality</h2><details open><summary>Code quality</summary><p>The opener ladder reads top to bottom and each rung states what it is testing, which is the shape this code wanted from the start. Optional embedded-pass fields preserve old artifacts, and standalone pass validation correctly refuses merge-owned provenance. The renderer&#x27;s escaping boundary is still a single point rather than a habit spread across call sites.</p></details></section>
+<section id="prose-quality-closing" class="prose"><h2>Closing notes &mdash; Code quality</h2><details open><summary>Code quality</summary><p>The representation is compact, but peer detection must operate on the structured provenance rather than on a human-readable phrase — the report&#x27;s warning and its corroboration claims both depend on that distinction. Two of the follow-ups are the same decomposition argument seen from different files.</p></details></section>
+  </main>
+</div>
+</body>
+</html>

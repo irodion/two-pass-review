@@ -610,7 +610,14 @@ body {
   margin: 0; background: var(--bg); color: var(--ink);
   font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
-.filter { position: absolute; opacity: 0; pointer-events: none; }
+/* `fixed`, not `absolute`. Clicking a <label> focuses the control it names, and
+   the browser scrolls that control into view -- and an absolutely-positioned
+   element with auto offsets sits at its static position, which is the top of
+   <body>. A reader thirty cards down was thrown back to the masthead on every
+   filter change. A fixed element is in the viewport by definition, so scrolling
+   it into view is a no-op. It stays just as inert either way. */
+.filter { position: fixed; top: 0; left: 0; width: 0; height: 0;
+  opacity: 0; pointer-events: none; }
 .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 40px;
   max-width: 1240px; margin: 0 auto; padding: 32px 28px 96px; align-items: start; }
 .sidebar { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; font-size: 14px; }

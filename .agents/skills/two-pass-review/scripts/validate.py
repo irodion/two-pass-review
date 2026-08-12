@@ -349,21 +349,29 @@ def _check_location_in_repo(report, at, path, start, end, repo):
             "'path' {!r} resolves outside the repository -- a location names a file inside the checkout".format(path),
         )
         return
+    # A bare path may be prospective: the report's documented contract says a
+    # cited path can be a file a remedy proposes and nothing has written yet,
+    # and a finding about a deletion has only the deleted name to point at.
+    # Line numbers are a different claim -- code that exists at those lines
+    # today -- so a location carrying them must resolve to a real file.
+    if start is None:
+        return
     if not os.path.isfile(target):
         report.add(
             at,
-            "'path' {!r} is not a file in the repository -- locate the finding at code that exists".format(path),
+            "'path' {!r} carries line numbers but is not a file in the repository -- "
+            "a proposed or deleted file is cited by bare path, with no lines".format(path),
         )
-    elif start is not None:
-        count = _line_count(target)
-        last = start if end is None else end
-        if last > count:
-            span = "line {} runs".format(start) if end is None else "lines {}-{} run".format(start, end)
-            report.add(
-                at,
-                "{} past the end of {!r}, which has {} line(s) -- "
-                "line numbers are read off the file, never recalled from the diff".format(span, path, count),
-            )
+        return
+    count = _line_count(target)
+    last = start if end is None else end
+    if last > count:
+        span = "line {} runs".format(start) if end is None else "lines {}-{} run".format(start, end)
+        report.add(
+            at,
+            "{} past the end of {!r}, which has {} line(s) -- "
+            "line numbers are read off the file, never recalled from the diff".format(span, path, count),
+        )
 
 
 def _line_count(path):

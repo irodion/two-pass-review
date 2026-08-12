@@ -24,8 +24,8 @@ trusting whoever invoked it.
 
 No dependencies, no network, no build step. The report is one self-contained file — no sibling assets, no
 embedded JSON, nothing fetched — which is why it works over `file://` and still works after you email it
-to someone. Its whole script is a clipboard handler behind the copy buttons and a class toggle behind
-`Mark dealt with`.
+to someone. Its whole script is a clipboard handler behind the copy buttons, a class toggle behind
+`Mark dealt with`, and the counting that keeps the headings honest as you filter.
 
 ## Installing it somewhere else
 
@@ -113,10 +113,12 @@ loudly they shout, derived from severity for security findings and from category
   it. The validator enforces that.
 - **Findings that corroborate each other** sit together with a banner, rather than being merged. Two
   passes reaching one defect from two directions is evidence, and collapsing it would throw that away.
-- **The model and effort are recorded** beside the scope, when the run chose them. They are what was asked
-  for rather than a measurement — nothing in the pipeline can confirm which model answered — and the page
-  says so. If the two passes were asked for different tiers it says that too, because corroboration counts
-  for less between passes that were not peers.
+- **What the run was pointed at is in the sidebar**, under `Run`: repository, scope mode, the two object
+  ids, the diff size, and the model and effort when the run chose them. They are what was asked for
+  rather than a measurement — nothing in the pipeline can confirm which model answered — and the page
+  says so. Anything that reduces what the report is worth goes the other way, into the masthead above the
+  findings: untracked files that were never diffed, a sequential run, or two passes asked for different
+  tiers, because corroboration counts for less between passes that were not peers.
 - **Cross-references are live links.** When a pass writes "same root cause as sec-2", that is a link.
 - **Locations are inert text**, on purpose. The page cannot know which editor you use, an editor link
   needs absolute paths and would break the moment you forward the report, and some cited paths are files a
@@ -127,16 +129,20 @@ loudly they shout, derived from severity for security findings and from category
   options. A corroborated finding names its partner rather than pasting it; the partner has its own button.
 - **Every finding can be marked dealt with.** `✓ Mark dealt with` folds the card to its title, strikes
   the title through, and strikes the sidebar entry with it, so the nav stops advertising findings you
-  have already dealt with and the page compacts as you read. `Hide dismissed` takes those findings out of the flow
-  entirely, and a disposition whose findings are all dismissed takes its heading with it. Undo is where
-  the card is. A heading counts what is left beside what the passes found — `Blocking · 3 of 7` — so
-  your progress never overwrites the run's own number. It is a mark on your reading, not on the
-  finding: it does not touch the verdict, and none of it survives a reload — a report is a snapshot of
-  one diff, and a stale mark against a regenerated one would mislead.
-- Filters for pass, for blocking-only and for dismissal are pure CSS: the script owns the mark, and
-  hidden radios and sibling selectors filter on it. The page's whole script is that and the clipboard
-  handler — neither parses, renders or evaluates anything a pass wrote. Everything a pass wrote is
-  escaped before it reaches the page, script or no script.
+  have already dealt with and the page compacts as you read. Once anything is marked, the sidebar offers
+  `Hide N dismissed`, which takes those findings out of the flow entirely, and a disposition whose
+  findings are all dismissed takes its heading with it. Undo is where the card is. A heading counts what
+  is left beside what the passes found — `Blocking · 3 of 7` — so your progress never overwrites the
+  run's own number. It is a mark on your reading, not on the finding: it does not touch the verdict, and
+  none of it survives a reload — a report is a snapshot of one diff, and a stale mark against a
+  regenerated one would mislead.
+- **Filters for pass, severity, blocking-only and dismissal** are hidden radios and sibling selectors:
+  the state is a radio and CSS does the hiding. Severity filters the security findings only — a quality
+  finding is rated by category and a security note by nothing at all, so both stay visible, and the
+  sidebar says so while the filter is on. The script counts: a heading above a filtered list has to agree
+  with what is under it. That, the clipboard handler and the dismissal toggle are the whole of it —
+  none of them parses, renders or evaluates anything a pass wrote, and everything a pass wrote is escaped
+  before it reaches the page, script or no script.
 
 ## On Codex
 

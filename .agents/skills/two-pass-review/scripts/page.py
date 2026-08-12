@@ -504,17 +504,19 @@ PAGE = """<!doctype html>
 <input type="radio" name="block" id="f-block-only" class="filter">
 <div class="layout">
   <aside class="sidebar">
-    <div class="verdict verdict-{verdict}">
-      <span class="verdict-label">{verdict_label}</span>
-    </div>
-    <div class="filters">
-      <p class="filter-title">Pass</p>
-      <label for="f-prod-all" class="pill pill-prod-all">Both</label>
-      <label for="f-prod-security" class="pill pill-prod-security">Security</label>
-      <label for="f-prod-quality" class="pill pill-prod-quality">Quality</label>
-      <p class="filter-title">Show</p>
-      <label for="f-block-all" class="pill pill-block-all">Everything</label>
-      <label for="f-block-only" class="pill pill-block-only">Blocking only</label>
+    <div class="sidebar-head">
+      <div class="verdict verdict-{verdict}">
+        <span class="verdict-label">{verdict_label}</span>
+      </div>
+      <div class="filters">
+        <p class="filter-title">Pass</p>
+        <label for="f-prod-all" class="pill pill-prod-all">Both</label>
+        <label for="f-prod-security" class="pill pill-prod-security">Security</label>
+        <label for="f-prod-quality" class="pill pill-prod-quality">Quality</label>
+        <p class="filter-title">Show</p>
+        <label for="f-block-all" class="pill pill-block-all">Everything</label>
+        <label for="f-block-only" class="pill pill-block-only">Blocking only</label>
+      </div>
     </div>
     <nav>
       <p class="nav-group"><a href="#scope">Scope</a></p>
@@ -621,6 +623,13 @@ body {
 .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 40px;
   max-width: 1240px; margin: 0 auto; padding: 32px 28px 96px; align-items: start; }
 .sidebar { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; font-size: 14px; }
+/* The sidebar is sticky against the page *and* a scroll container of its own, so
+   its first children -- the verdict badge and the filter pills -- are the first
+   things out of it once the nav overflows. Sticky again one level in keeps them:
+   the nav scrolls underneath a head that stays. The 22px gap is padding here
+   rather than margin on `.filters` because a margin collapses out of the sticky
+   box and leaves a transparent strip for nav entries to slide through. */
+.sidebar-head { position: sticky; top: 0; z-index: 1; background: var(--bg); padding-bottom: 22px; }
 main { min-width: 0; }
 
 .verdict { border-radius: 8px; padding: 10px 14px; margin-bottom: 18px; font-weight: 700;
@@ -632,7 +641,8 @@ main { min-width: 0; }
 .sentence { font-size: 21px; line-height: 1.45; margin: 8px 0 6px; }
 .scope-line { color: var(--muted); margin: 0; font-size: 14px; }
 
-.filters { margin-bottom: 22px; }
+/* No margin: the gap under the filters is the head's padding now, see above. */
+.filters { margin-bottom: 0; }
 .filter-title { margin: 12px 0 6px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 .pill { display: inline-block; padding: 3px 10px; margin: 0 4px 4px 0; border: 1px solid var(--line);
   border-radius: 999px; cursor: pointer; font-size: 13px; background: var(--panel); }
@@ -643,6 +653,10 @@ main { min-width: 0; }
 #f-block-only:checked ~ .layout .pill-block-only { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 
 nav .nav-group { margin: 16px 0 6px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+/* The first group's top margin used to collapse into the filters' bottom margin
+   and disappear. Padding does not collapse, so without this the gap would be
+   22 + 16 and the unscrolled page would no longer match what it was. */
+nav > .nav-group:first-child { margin-top: 0; }
 nav .nav-group a { color: inherit; text-decoration: none; }
 nav ul { list-style: none; margin: 0; padding: 0; }
 nav li { margin: 0 0 3px; line-height: 1.35; }
@@ -740,5 +754,8 @@ a { color: var(--accent); }
 @media (max-width: 900px) {
   .layout { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 20px 16px 64px; }
   .sidebar { position: static; max-height: none; margin-bottom: 24px; }
+  /* Nothing scrolls out of a sidebar that no longer scrolls, and a head left
+     sticky here would pin itself over the report instead. */
+  .sidebar-head { position: static; }
 }
 """

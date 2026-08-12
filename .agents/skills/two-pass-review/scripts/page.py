@@ -256,8 +256,13 @@ def dismiss_control():
 
 def render_finding(finding, markdown, partners):
     finding_id = finding["id"]
-    bits = ['<article class="finding" id="finding-{}" data-producer="{}" data-disposition="{}">'.format(
-        esc(finding_id), esc(finding["producer"]), esc(finding["disposition"])
+    # `data-severity` only where there is one. Its absence is what the severity
+    # filter reads to leave a card alone: a quality finding is not rated on this
+    # axis and a security note is not either, and both stay on screen whatever the
+    # filter says. An empty attribute would be a rating of "".
+    bits = ['<article class="finding" id="finding-{}" data-producer="{}" data-disposition="{}"{}>'.format(
+        esc(finding_id), esc(finding["producer"]), esc(finding["disposition"]),
+        ' data-severity="{}"'.format(esc(finding["severity"])) if finding.get("severity") else "",
     )]
 
     # One pill per card at most, and it is the severity: it is the only one of
@@ -536,9 +541,12 @@ def render_page(merged):
         )
 
         entries = "".join(
-            '<li class="nav-finding" id="nav-{fid}" data-producer="{prod}"><a href="#finding-{fid}">'
+            '<li class="nav-finding" id="nav-{fid}" data-producer="{prod}"{sev}><a href="#finding-{fid}">'
             '<span class="nav-id">{fid}</span> {title}</a></li>'.format(
-                prod=esc(f["producer"]), fid=esc(f["id"]), title=esc(truncate(Markdown.plain(f["title"])))
+                prod=esc(f["producer"]),
+                fid=esc(f["id"]),
+                sev=' data-severity="{}"'.format(esc(f["severity"])) if f.get("severity") else "",
+                title=esc(truncate(Markdown.plain(f["title"]))),
             )
             for f in flat
         )
@@ -604,6 +612,10 @@ PAGE = """<!doctype html>
 <input type="radio" name="prod" id="f-prod-all" class="filter" checked>
 <input type="radio" name="prod" id="f-prod-security" class="filter">
 <input type="radio" name="prod" id="f-prod-quality" class="filter">
+<input type="radio" name="sev" id="f-sev-all" class="filter" checked>
+<input type="radio" name="sev" id="f-sev-high" class="filter">
+<input type="radio" name="sev" id="f-sev-medium" class="filter">
+<input type="radio" name="sev" id="f-sev-low" class="filter">
 <input type="radio" name="block" id="f-block-all" class="filter" checked>
 <input type="radio" name="block" id="f-block-only" class="filter">
 <input type="radio" name="dism" id="f-dism-keep" class="filter" checked>
@@ -619,6 +631,12 @@ PAGE = """<!doctype html>
         <label for="f-prod-all" class="pill pill-prod-all">Both</label>
         <label for="f-prod-security" class="pill pill-prod-security">Security</label>
         <label for="f-prod-quality" class="pill pill-prod-quality">Quality</label>
+        <p class="filter-title">Severity</p>
+        <label for="f-sev-all" class="pill pill-sev-all">All</label>
+        <label for="f-sev-high" class="pill pill-sev-high">High</label>
+        <label for="f-sev-medium" class="pill pill-sev-medium">Medium</label>
+        <label for="f-sev-low" class="pill pill-sev-low">Low</label>
+        <p class="sev-note">Quality findings aren&rsquo;t rated by severity, so they stay visible.</p>
         <p class="filter-title">Show</p>
         <label for="f-block-all" class="pill pill-block-all">Everything</label>
         <label for="f-block-only" class="pill pill-block-only">Blocking only</label>
@@ -723,11 +741,33 @@ SCRIPT = """
   // something in it is dismissed and `Blocking · 3 of 7` after, so what the passes
   // found is never overwritten -- which was the decision when the counts were
   // frozen, and it survives the arrival of a mechanism that could decrement.
+  // Which severity the pills are on, and whether a card survives it. `high` takes
+  // `critical` with it, as the stylesheet does -- the two rules answer the same
+  // question and disagreeing would put a card on screen that the count denies.
+  // A card with no rating passes every setting: it was never rated on this axis.
+  function activeSeverity() {
+    var radio = document.querySelector('input[name="sev"]:checked');
+    return radio ? radio.id.replace('f-sev-', '') : 'all';
+  }
+
+  function passesSeverity(card, severity) {
+    if (severity === 'all') { return true; }
+    var own = card.getAttribute('data-severity');
+    if (!own) { return true; }
+    return own === severity || (severity === 'high' && own === 'critical');
+  }
+
   function retally(disposition) {
     var scope = '.group[data-disposition="' + disposition + '"]';
     var cards = document.querySelectorAll('section' + scope + ' .finding');
+    var severity = activeSeverity();
     var tally = {all: [0, 0], security: [0, 0], quality: [0, 0]};
     for (var i = 0; i < cards.length; i++) {
+      // A card the severity filter has taken off screen is neither live nor
+      // total: under `High`, `3 of 7` would be counting four findings the reader
+      // cannot see. The run's own number is what `of 7` protects, and here the
+      // reader has narrowed what the run is being shown as.
+      if (!passesSeverity(cards[i], severity)) { continue; }
       var live = !cards[i].classList.contains('dismissed');
       var keys = ['all', cards[i].getAttribute('data-producer')];
       for (var k = 0; k < keys.length; k++) {
@@ -752,6 +792,12 @@ SCRIPT = """
         boxes[b].classList.toggle(
           key === 'all' ? 'all-dismissed' : 'all-dismissed-' + key,
           tally[key][1] > 0 && tally[key][0] === 0
+        );
+        // Nothing rated this way at all, as against everything rated this way
+        // dismissed. The two retire the same heading and the reader can undo only
+        // one of them, so they are not the same class.
+        boxes[b].classList.toggle(
+          key === 'all' ? 'sev-empty' : 'sev-empty-' + key, tally[key][1] === 0
         );
         var span = boxes[b].querySelector('.count-' + key);
         if (!span) { continue; }
@@ -790,6 +836,20 @@ SCRIPT = """
     retally(card.getAttribute('data-disposition'));
     refreshDismissedLink();
   });
+
+  // The severity pills hide cards in CSS, like the two filters beside them, but a
+  // heading counting cards the reader cannot see is a heading that is wrong. So
+  // the one thing the script does here is count again: every disposition, because
+  // the filter is global, and only on change, because nothing else moves it.
+  var severityRadios = document.querySelectorAll('input[name="sev"]');
+  for (var s = 0; s < severityRadios.length; s++) {
+    severityRadios[s].addEventListener('change', function () {
+      var sections = document.querySelectorAll('section.group[data-disposition]');
+      for (var i = 0; i < sections.length; i++) {
+        retally(sections[i].getAttribute('data-disposition'));
+      }
+    });
+  }
 })();
 """
 
@@ -864,8 +924,20 @@ main { min-width: 0; }
 #f-prod-all:checked ~ .layout .pill-prod-all,
 #f-prod-security:checked ~ .layout .pill-prod-security,
 #f-prod-quality:checked ~ .layout .pill-prod-quality,
+#f-sev-all:checked ~ .layout .pill-sev-all,
+#f-sev-high:checked ~ .layout .pill-sev-high,
+#f-sev-medium:checked ~ .layout .pill-sev-medium,
+#f-sev-low:checked ~ .layout .pill-sev-low,
 #f-block-all:checked ~ .layout .pill-block-all,
 #f-block-only:checked ~ .layout .pill-block-only { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+/* Said only while it is true, because the reader has to be able to trust that a
+   filtered page is filtered: a quality finding on screen under `High` is not the
+   filter leaking, it is a finding the rubric never rated. */
+.sev-note { display: none; margin: 6px 0 0; font-size: 11.5px; line-height: 1.4; color: var(--muted); }
+#f-sev-high:checked ~ .layout .sev-note,
+#f-sev-medium:checked ~ .layout .sev-note,
+#f-sev-low:checked ~ .layout .sev-note { display: block; }
 
 /* Not a filter pair, because for most of a report's life there is nothing to
    filter: the reader has dismissed nothing, and two pills saying so were two
@@ -912,6 +984,26 @@ nav a:hover { text-decoration: underline; }
 #f-prod-quality:checked ~ .layout .group:not(.has-quality),
 #f-block-only:checked ~ .layout [data-disposition="follow-up"],
 #f-block-only:checked ~ .layout [data-disposition="note"] { display: none; }
+
+/* Severity, on the bare attribute so a card and its nav entry obey one rule, and
+   so anything without a rating is never matched: a quality finding has a category
+   instead, and a security note has neither, and both belong on screen at every
+   setting.
+   `High` takes `critical` with it. The rubric can write either, the pills the
+   design settled on are four, and the two already share a rank in SEVERITY_RANK
+   -- so a critical finding hides from every pill but `All` unless High claims it,
+   which is the one outcome a severity filter must never produce. */
+#f-sev-high:checked ~ .layout [data-severity]:not([data-severity="high"]):not([data-severity="critical"]),
+#f-sev-medium:checked ~ .layout [data-severity]:not([data-severity="medium"]),
+#f-sev-low:checked ~ .layout [data-severity]:not([data-severity="low"]),
+/* Set by the script, which is the only party that knows what the filter left:
+   `sev-empty` means this disposition has nothing on screen at the current
+   setting, so it retires its heading and its nav block like `all-dismissed`
+   does. Not scoped to a radio -- it is recomputed every time the filter moves,
+   so it is only ever set while it is true. */
+.group.sev-empty,
+#f-prod-security:checked ~ .layout .group.sev-empty-security,
+#f-prod-quality:checked ~ .layout .group.sev-empty-quality { display: none; }
 
 h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
   border-bottom: 1px solid var(--line); padding-bottom: 8px; margin: 42px 0 18px; }

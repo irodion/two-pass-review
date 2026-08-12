@@ -22,8 +22,9 @@ lie — chiefly that the verdict agrees with the list beneath it — and nothing
 The **renderer** turns the merged artifact into the page, and calls the validator itself rather than
 trusting whoever invoked it.
 
-No dependencies, no network, no build step. The report is one file with no JavaScript in it, which is why
-it works over `file://` and still works after you email it to someone.
+No dependencies, no network, no build step. The report is one self-contained file — no sibling assets, no
+embedded JSON, nothing fetched — which is why it works over `file://` and still works after you email it
+to someone. Its only script is a small clipboard handler behind the copy buttons.
 
 ## Installing it somewhere else
 
@@ -119,7 +120,13 @@ loudly they shout, derived from severity for security findings and from category
 - **Locations are inert text**, on purpose. The page cannot know which editor you use, an editor link
   needs absolute paths and would break the moment you forward the report, and some cited paths are files a
   remedy is proposing and nothing has written yet. Selecting a chip selects the whole path.
-- Filters for pass and for blocking-only are pure CSS. The page has no JavaScript at all.
+- **Every finding has two copy buttons.** `Copy` puts it on the clipboard as markdown — title, pass,
+  disposition, severity, locations and body, plus the confidence rationale when there is one. `Copy for
+  agent` appends an instruction asking an agent to verify the finding against the real code and propose
+  options. A corroborated finding names its partner rather than pasting it; the partner has its own button.
+- Filters for pass and for blocking-only are pure CSS. The page's only JavaScript is the clipboard
+  handler: it moves a string from an attribute to the clipboard, and never parses, renders or evaluates
+  it. Everything a pass wrote is escaped before it reaches the page, script or no script.
 
 ## On Codex
 
@@ -141,8 +148,9 @@ it is a bad `cwd`.
 
 ## Working on it
 
-[`AGENTS.md`](AGENTS.md) is the guide for changing this repository — the Python floor, the three
-constraints that are not negotiable, and how to check a change when there is no CI by design.
+[`AGENTS.md`](AGENTS.md) is the guide for changing this repository — the Python floor, the two
+constraints that are not negotiable, where the line between Python and JavaScript sits, and how to check
+a change when there is no CI by design.
 `CLAUDE.md` is a symlink to it, so a coding agent picks it up whichever name it looks for.
 
 [`CONTEXT.md`](CONTEXT.md) is the glossary. Upstream uses one word — "review" — for the rubric, the

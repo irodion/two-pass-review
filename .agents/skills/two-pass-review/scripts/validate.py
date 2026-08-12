@@ -2,7 +2,7 @@
 """Validate two-pass-review artifacts. Stdlib only, Python 3.9 syntax.
 
 Usage:
-    validate.py FILE [FILE ...]
+    validate.py [--repo PATH] FILE [FILE ...]
 
 Give it a pass's two files together so the cross-file rules can run:
 
@@ -11,6 +11,10 @@ Give it a pass's two files together so the cross-file rules can run:
 or the merged artifact on its own:
 
     validate.py findings.json
+
+With --repo, each finding's locations are also checked against the checkout:
+the file must exist there and the line range must fit inside it. Without the
+flag those checks are skipped, so old artifacts validate exactly as before.
 
 Every problem is reported with an address the repair loop can act on -- a file
 and, for line-oriented input, the line that carries the defect. Exit status is
@@ -206,7 +210,7 @@ def _conditional(report, where, obj, key, required_when, condition, advice=None)
 # --- findings ----------------------------------------------------------------
 
 
-def check_finding(report, where, finding, in_merged):
+def check_finding(report, where, finding, in_merged, repo=None):
     if not isinstance(finding, dict):
         report.add(where, "a finding must be a JSON object")
         return None
@@ -235,7 +239,7 @@ def check_finding(report, where, finding, in_merged):
 
     _nonempty_str(report, where, finding, "body_md")
 
-    check_locations(report, where, finding.get("locations"))
+    check_locations(report, where, finding.get("locations"), repo)
 
     # severity iff security and not a note. A note is not "low severity" -- it
     # is the claim that the thing does not warrant attention, which is exactly
@@ -280,7 +284,7 @@ def check_finding(report, where, finding, in_merged):
     return finding_id
 
 
-def check_locations(report, where, locations):
+def check_locations(report, where, locations, repo=None):
     if not isinstance(locations, list) or not locations:
         report.add(where, "'locations' must be an array holding at least one location")
         return
@@ -290,7 +294,7 @@ def check_locations(report, where, locations):
             report.add(at, "a location must be a JSON object")
             continue
         _check_unknown(report, at, location, LOCATION_FIELDS, "location")
-        _nonempty_str(report, at, location, "path")
+        path = _nonempty_str(report, at, location, "path")
         start = end = None
         for key in ("start_line", "end_line"):
             if key not in location:
@@ -306,6 +310,43 @@ def check_locations(report, where, locations):
             report.add(at, "'end_line' {} is before 'start_line' {}".format(end, start))
         if end is not None and start is None:
             report.add(at, "'end_line' without 'start_line'")
+
+        # A pass that recalls line numbers instead of reading them writes
+        # ranges past the end of the file -- observed, not hypothetical: a
+        # correct argument about a 37-line file arrived located at 88-95.
+        # The quote in the body is checkable by a reader; the range is
+        # checkable only against the checkout, which is what --repo is for.
+        # Read this check as narrowly as it is written: it catches a range
+        # the file cannot contain, not a range that points at the wrong
+        # real lines, which only reading the file can catch.
+        if repo is None or path is None:
+            continue
+        target = os.path.join(repo, path)
+        if not os.path.isfile(target):
+            report.add(
+                at,
+                "'path' {!r} is not a file in the repository -- locate the finding at code that exists".format(path),
+            )
+        elif start is not None:
+            count = _line_count(target)
+            last = start if end is None else end
+            if last > count:
+                span = "line {} runs".format(start) if end is None else "lines {}-{} run".format(start, end)
+                report.add(
+                    at,
+                    "{} past the end of {!r}, which has {} line(s) -- "
+                    "line numbers are read off the file, never recalled from the diff".format(span, path, count),
+                )
+
+
+def _line_count(path):
+    # Bytes, not text: the located file can be anything the repository holds,
+    # and an encoding error here would turn a valid finding into a traceback.
+    with open(path, "rb") as handle:
+        data = handle.read()
+    if not data:
+        return 0
+    return data.count(b"\n") + (0 if data.endswith(b"\n") else 1)
 
 
 def check_ids_contiguous(report, where, ids_by_producer):
@@ -361,13 +402,13 @@ def load_json(report, path):
         return None
 
 
-def validate_pass(report, producer, findings_path, envelope_path):
+def validate_pass(report, producer, findings_path, envelope_path, repo=None):
     findings = []
     ids_by_producer = {}
     if findings_path is not None:
         for number, finding in load_jsonl(report, findings_path):
             where = _where(findings_path, number)
-            finding_id = check_finding(report, where, finding, in_merged=False)
+            finding_id = check_finding(report, where, finding, in_merged=False, repo=repo)
             if isinstance(finding, dict) and finding.get("producer") not in (None, producer):
                 report.add(
                     where,
@@ -428,7 +469,7 @@ def check_empty_reason(report, where, envelope, has_findings, known_findings=Tru
 # --- merged artifact ---------------------------------------------------------
 
 
-def validate_merged(report, path):
+def validate_merged(report, path, repo=None):
     merged = load_json(report, path)
     if merged is None:
         return
@@ -455,7 +496,7 @@ def validate_merged(report, path):
     producers_seen = set()
     for index, finding in enumerate(findings):
         at = "{} findings[{}]".format(where, index)
-        finding_id = check_finding(report, at, finding, in_merged=True)
+        finding_id = check_finding(report, at, finding, in_merged=True, repo=repo)
         if not isinstance(finding, dict):
             continue
         producers_seen.add(finding.get("producer"))
@@ -616,8 +657,14 @@ def check_passes(report, where, passes, findings):
 # --- entry point -------------------------------------------------------------
 
 
-def validate_paths(paths):
-    """Validate the given artifacts. Returns a list of addressed problems."""
+def validate_paths(paths, repo=None):
+    """Validate the given artifacts. Returns a list of addressed problems.
+
+    `repo` is the checkout the findings are about; when given, locations are
+    checked against it. render.py calls this without one -- at render time
+    there is no repository to hand, and a merge that already validated with
+    --repo does not need the locations proven twice.
+    """
     report = Report()
 
     merged = []
@@ -646,20 +693,40 @@ def validate_paths(paths):
 
     for producer in PRODUCERS:
         if producer in pass_findings or producer in pass_envelopes:
-            validate_pass(report, producer, pass_findings.get(producer), pass_envelopes.get(producer))
+            validate_pass(report, producer, pass_findings.get(producer), pass_envelopes.get(producer), repo)
 
     for path in merged:
-        validate_merged(report, path)
+        validate_merged(report, path, repo)
 
     return report.problems
 
 
 def main(argv):
-    paths = argv[1:]
+    repo = None
+    paths = []
+    arguments = argv[1:]
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument == "--repo":
+            if index + 1 == len(arguments):
+                sys.stderr.write("--repo needs a path\n")
+                return 2
+            repo = arguments[index + 1]
+            index += 2
+            continue
+        paths.append(argument)
+        index += 1
+    # A wrong --repo is the operator's mistake, not the artifact's: refusing
+    # here keeps it out of the repair loop, which can fix findings but not
+    # the command it was invoked with.
+    if repo is not None and not os.path.isdir(repo):
+        sys.stderr.write("--repo {!r} is not a directory\n".format(repo))
+        return 2
     if not paths:
         sys.stderr.write(__doc__.split("\n\n", 1)[1])
         return 2
-    problems = validate_paths(paths)
+    problems = validate_paths(paths, repo)
     if problems:
         sys.stderr.write("Validation failed. Fix each of these and validate again:\n\n")
         for problem in problems:

@@ -317,80 +317,116 @@ def provenance_value(value):
     return esc(value) if value else '<span class="muted">not recorded</span>'
 
 
-def render_scope(run, passes):
-    scope = run["scope"]
-    rows = [
-        ("Repository", esc(scope["repo"])),
-        ("Scope mode", esc(SCOPE_MODE_LABEL.get(scope["mode"], scope["mode"]))),
-        ("Base", '<span class="chip">{}</span>'.format(esc(scope["base"]))),
-    ]
-    if scope.get("head"):
-        rows.append(("Head", '<span class="chip">{}</span>'.format(esc(scope["head"]))))
-    rows.append(("Files changed", esc(scope["files_changed"])))
-    rows.append(("Diff size", "{:,} bytes".format(scope["diff_bytes"])))
+def provenance_state(passes):
+    """What the passes recorded about model and effort, as three answers.
 
-    rows.append(
-        ("Run", '{} passes, generated <span class="nowrap">{}</span>'.format(esc(run["mode"]), esc(run["generated_at"])))
-    )
-
+    Read by the sidebar, which lists the fields, and by the masthead, which warns
+    about them. `differ` is not the negation of `agreed`, and it is asked one field
+    at a time: a split is two passes naming *different* models, or different
+    efforts. One pass recording an axis the other left blank is unequal evidence,
+    not evidence of inequality, and the page cannot claim a split it did not
+    observe.
+    """
     tiers = [(e.get("requested_model"), e.get("requested_effort")) for e in passes]
     recorded = any(model or effort for model, effort in tiers)
     agreed = len(set(tiers)) == 1
-    # Not the negation of `agreed`, and asked one field at a time: a split is
-    # two passes naming *different* models, or different efforts. One pass
-    # recording an axis the other left blank is unequal evidence, not evidence
-    # of inequality, and the page cannot claim a split it did not observe.
     differ = any(len({e.get(field) for e in passes if e.get(field)}) > 1 for field, _, _ in PROVENANCE)
+    return recorded, agreed, differ
 
+
+def render_run_panel(run, passes):
+    """The run's facts, in the sidebar rather than in the reading column.
+
+    They are what the run was pointed at, not something a pass found, and between
+    the verdict sentence and the first finding they were a page of reference
+    material the reader had to scroll past to reach the report. Reference material
+    belongs beside the report, where it stays available and stops interrupting.
+
+    Two columns for the short fields, full width for the ones that must not wrap
+    mid-value -- a repository path, a 40-character object id, a timestamp.
+    """
+    scope = run["scope"]
+    # (label, value, full-width). Order is the reading order of the panel, and the
+    # pairs fall on their own rows because each wide row closes the one above it.
+    rows = [
+        ("Repository", esc(scope["repo"]), True),
+        ("Scope mode", esc(SCOPE_MODE_LABEL.get(scope["mode"], scope["mode"])), False),
+        ("Files changed", esc(scope["files_changed"]), False),
+        ("Base", '<span class="chip">{}</span>'.format(esc(scope["base"])), True),
+    ]
+    if scope.get("head"):
+        rows.append(("Head", '<span class="chip">{}</span>'.format(esc(scope["head"])), True))
+    rows.append(("Diff size", "{:,} bytes".format(scope["diff_bytes"]), False))
+    rows.append(("Passes", esc(run["mode"]), False))
+
+    recorded, agreed, _ = provenance_state(passes)
     if recorded and agreed:
         for field, label, _ in PROVENANCE:
-            rows.append((label, provenance_value(passes[0].get(field))))
+            rows.append((label, provenance_value(passes[0].get(field)), False))
     elif recorded:
         # Every pass gets its rows once any pass has them, including the passes
         # that recorded nothing. Listing only what is known would read as the
         # complete account of the run, and a reader comparing two passes has to
-        # be able to see that the second one is missing rather than equal.
+        # be able to see that the second one is missing rather than equal. Full
+        # width, because the label is now a pass name and a field name.
         for envelope in passes:
             for field, _, name in PROVENANCE:
                 rows.append(
                     (
                         "{} &middot; {}".format(producer_label(envelope["producer"]), name),
                         provenance_value(envelope.get(field)),
+                        True,
                     )
                 )
+    rows.append(("Generated", '<span class="nowrap">{}</span>'.format(esc(run["generated_at"])), True))
 
-    body = "".join("<div class=\"kv\"><dt>{}</dt><dd>{}</dd></div>".format(k, v) for k, v in rows)
+    body = "".join(
+        '<div class="kv{wide}"><dt>{k}</dt><dd>{v}</dd></div>'.format(
+            wide=" kv-wide" if wide else "", k=label, v=value
+        )
+        for label, value, wide in rows
+    )
     note = (
-        "The passes reviewed this diff and read the repository around it, so a finding may cite a file "
-        "the diff never touched &mdash; or one a remedy proposes and nothing has written yet."
+        "A finding may cite a file the diff never touched &mdash; or one a remedy proposes and nothing "
+        "has written yet."
     )
     if recorded:
-        note += (
-            " Model and effort are what this run asked for, not a measurement: nothing in the pipeline "
-            "can confirm which model answered."
-        )
-    untracked = ""
-    if scope.get("untracked"):
-        untracked = (
-            '<p class="warn">{} file(s) in this working tree are untracked and were '
-            "not reviewed. Git can only diff what it has been told about.</p>".format(scope["untracked"])
-        )
-    sequential = ""
-    if run["mode"] == "sequential":
-        sequential = (
-            '<p class="warn">Both rubrics ran in one context window rather than side by side. '
-            "A sequential run is the weaker run.</p>"
-        )
-    split = ""
-    if differ:
-        split = (
-            '<p class="warn">The passes were not asked for the same model and effort. Corroboration '
-            "between them carries less than it appears to: two passes reaching one defect is evidence "
-            "because they were peers.</p>"
-        )
+        note += " Model and effort are what this run asked for, not a measurement."
     return (
-        '<section id="scope" class="scope"><h2>Scope</h2><dl class="kvs">{}</dl>'
-        '<p class="muted">{}</p>{}{}{}</section>'.format(body, note, untracked, sequential, split)
+        '<section class="run"><p class="run-title">Run</p><dl class="run-facts">{}</dl>'
+        '<p class="run-note">{}</p></section>'.format(body, note)
+    )
+
+
+def render_warnings(run, passes):
+    """What the reader has to know before believing the report, in the masthead.
+
+    These went to the sidebar's neighbours in the old scope section, under the
+    facts they qualify, which put the one thing on the page that reduces what the
+    findings are worth below the fold. A warning is not reference material.
+    """
+    scope = run["scope"]
+    warnings = []
+    if scope.get("untracked"):
+        warnings.append(
+            "{} file(s) in this working tree are untracked and were not reviewed. Git can only "
+            "diff what it has been told about.".format(scope["untracked"])
+        )
+    if run["mode"] == "sequential":
+        warnings.append(
+            "Both rubrics ran in one context window rather than side by side. A sequential run is "
+            "the weaker run."
+        )
+    if provenance_state(passes)[2]:
+        warnings.append(
+            "The passes were not asked for the same model and effort. Corroboration between them "
+            "carries less than it appears to: two passes reaching one defect is evidence because "
+            "they were peers."
+        )
+    return "".join(
+        '<p class="callout"><span class="callout-mark" aria-hidden="true">!</span>'
+        "<span>{}</span></p>".format(text)
+        for text in warnings
     )
 
 
@@ -507,7 +543,8 @@ def render_page(merged):
         scope_line=scope_line,
         nav="\n".join(nav),
         prose_links="".join(prose_links),
-        scope_section=render_scope(merged["run"], merged["passes"]),
+        warnings=render_warnings(merged["run"], merged["passes"]),
+        run_panel=render_run_panel(merged["run"], merged["passes"]),
         groups="\n".join(main),
         prose=render_pass_prose(merged["passes"], markdown),
         script=SCRIPT,
@@ -550,17 +587,17 @@ PAGE = """<!doctype html>
       </div>
     </div>
     <nav>
-      <p class="nav-group"><a href="#scope">Scope</a></p>
       {nav}
       <ul class="nav-prose">{prose_links}</ul>
     </nav>
+    {run_panel}
   </aside>
   <main>
     <header class="masthead">
       <p class="sentence">{sentence}</p>
       <p class="scope-line">{scope_line}</p>
+      {warnings}
     </header>
-    {scope_section}
     {groups}
     {prose}
   </main>
@@ -692,13 +729,15 @@ SCRIPT = """
 CSS = """
 :root {
   --bg: #fbfaf8; --panel: #ffffff; --ink: #1c1a18; --muted: #6b6560; --line: #e2ddd6;
-  --accent: #7a4b2a; --block: #a32a1e; --block-bg: #fbeae7; --follow: #7a5c12; --note: #5a6570;
+  --accent: #7a4b2a; --block: #a32a1e; --block-bg: #fbeae7; --block-edge: #f0cdc6;
+  --follow: #7a5c12; --note: #5a6570;
   --code-bg: #f4f1ec; --chip-bg: #efeae2; --shadow: 0 1px 2px rgba(28,26,24,.06);
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #17161a; --panel: #1e1d22; --ink: #e9e6e1; --muted: #a09a94; --line: #34323a;
-    --accent: #d59a6c; --block: #f08b7e; --block-bg: #3a201d; --follow: #d6b45c; --note: #96a1ae;
+    --accent: #d59a6c; --block: #f08b7e; --block-bg: #3a201d; --block-edge: #5e332d;
+    --follow: #d6b45c; --note: #96a1ae;
     --code-bg: #26252b; --chip-bg: #2b2a31; --shadow: none;
   }
 }
@@ -763,8 +802,10 @@ main { min-width: 0; }
 nav .nav-group { margin: 16px 0 6px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 /* The first group's top margin used to collapse into the filters' bottom margin
    and disappear. Padding does not collapse, so without this the gap would be
-   22 + 16 and the unscrolled page would no longer match what it was. */
-nav > .nav-group:first-child { margin-top: 0; }
+   22 + 16 and the unscrolled page would no longer match what it was. The rule
+   reaches one level further in than it used to: the `Scope` link was the nav's
+   own first child, and with it gone the first thing in there is a group block. */
+nav > div:first-child .nav-group { margin-top: 0; }
 nav .nav-group a { color: inherit; text-decoration: none; }
 nav ul { list-style: none; margin: 0; padding: 0; }
 nav li { margin: 0 0 3px; line-height: 1.35; }
@@ -794,17 +835,29 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
   border-bottom: 1px solid var(--line); padding-bottom: 8px; margin: 42px 0 18px; }
 .counts { font-variant-numeric: tabular-nums; }
 
-/* Wide enough for a full 40-character SHA, which must not break mid-hash --
+/* The run's facts, under the nav rather than above the findings. Two columns for
+   the short ones; `.kv-wide` spans both for the values that must not be cut in
+   half -- and a full 40-character SHA must not break mid-hash either, because
    half an object id on each of two lines is not a thing anyone can copy. */
-.scope .kvs { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 10px 24px; margin: 0 0 14px; }
-.scope .chip { overflow-wrap: normal; word-break: keep-all; }
-.kv dt { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0; }
-.kv dd { margin: 2px 0 0; }
+.run { margin-top: 26px; padding-top: 16px; border-top: 1px solid var(--line); }
+.run-title { margin: 0 0 10px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.run-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin: 0; }
+.kv-wide { grid-column: 1 / -1; }
+.kv dt { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0; }
+.kv dd { margin: 1px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+.run-facts .chip { font-size: 11px; line-height: 1.55; overflow-wrap: normal; word-break: keep-all; }
+.run-note { margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .muted { color: var(--muted); font-size: 14px; }
 .nowrap { white-space: nowrap; }
 .finding-head h3 code { font-size: .92em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
-.warn { color: var(--block); font-size: 14px; }
+
+/* A warning is the one thing on the page that reduces what the findings are
+   worth, so it sits in the masthead, tinted, above everything it qualifies. */
+.callout { display: flex; gap: 9px; margin: 16px 0 0; padding: 9px 12px; background: var(--block-bg);
+  border: 1px solid var(--block-edge); border-radius: 8px; color: var(--block);
+  font-size: 13.5px; line-height: 1.5; }
+.callout-mark { font-weight: 700; }
 
 .finding { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
   padding: 20px 22px; margin: 0 0 16px; box-shadow: var(--shadow); }

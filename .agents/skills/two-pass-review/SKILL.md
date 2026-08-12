@@ -86,8 +86,12 @@ exist yet, which a pass restricted to a pasted blob cannot do.
 Read both validated pass files and write `<run_dir>/findings.json`:
 
 - `schema_version` 1, `kind` `"merged"`
-- `run` — your `mode` from step 2, `generated_at` as `2026-08-08T14:02:11Z`, and `scope` exactly as
-  `scope.py` printed it
+- `run` — your `mode` from step 2, `generated_at`, and `scope` exactly as `scope.py` printed it.
+  `generated_at` is the moment you merged, in UTC, shaped like `2026-08-08T14:02:11Z` — that string is
+  a shape to copy, not a time, so get the real one from `date -u +%Y-%m-%dT%H:%M:%SZ` rather than
+  writing it down from memory. `scope` means the object under the `"scope"` key of what `scope.py`
+  printed — the run directory's `scope.json` holds that same object bare, so either source works, but
+  what you embed is the object itself, never a wrapper holding it
 - `passes` — each pass envelope minus its `schema_version` and `kind`, plus `requested_model` and
   `requested_effort`: what you asked that pass to run on. Write them here and never into a pass's own file
   — you are the only party that knows, because a pass cannot see what served it. Leave either out when you

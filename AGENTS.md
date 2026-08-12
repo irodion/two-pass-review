@@ -67,12 +67,22 @@ Python rendered.** JavaScript does not become the rendering engine.
 Revisit this if the page ever grows real interactivity — live search, sorting, thousands of findings —
 because then the balance genuinely does shift. It has not yet.
 
-## The rubrics are forked text
+## The rubrics are forked text; the contracts are not
 
-`references/security.md` and `references/code-quality.md` come from Cursor's `thermos` plugin (MIT). The
-authorised edits are enumerated and complete — see `.agents/skills/two-pass-review/NOTICE.md`. **What the
-passes look at, weight, or consult is not ours to change.** Finding yourself improving a rubric means the
-change has left this repo's remit.
+`references/security.md` and `references/code-quality.md` each hold two things, split by the
+`# Output contract` divider. Above it is the rubric, forked from Cursor's `thermos` plugin (MIT); the
+authorised edits are enumerated and complete — see `.agents/skills/two-pass-review/NOTICE.md`. **The
+rubric half is frozen: what the passes look at, weight, or consult is not ours to change there.**
+Finding yourself improving a rubric means the change has left this repo's remit.
+
+Below the divider is ours entirely, and it carries more than field tables: recording standards, and
+procedure that makes a demand the rubric already states executable by a weaker model. The caller sweep
+is the worked example — "tracing through possible side effects" is a rubric demand that a small model
+does not act on until it is a numbered procedure, and making it one moved cross-file detection from
+zero to complete on a seeded diff without adding a false positive. The line to hold: **the contract may
+operationalize the rubric's own demands, never add a subject, a weighting, or a consultation the rubric
+does not already require.** A contract procedure you cannot trace back to a sentence in the rubric half
+does not belong in this repository.
 
 ## How to check a change
 

@@ -175,9 +175,14 @@ Argue the finding and say what to do about it in the same prose. Do not split th
 from its argument is a suggestion with no weight behind it.
 
 **Open with the evidence.** The body's first move is a short verbatim excerpt of the lines the finding
-is about, fenced, before any argument. A quote is the one part of a finding that can be checked against
+is about, fenced, before any argument — a single lead-in line naming what the excerpt shows is fine,
+and is what the example above does. A quote is the one part of a finding that can be checked against
 the repository byte for byte — it is what lets the reader weigh the argument that follows, and a claim
 that cannot produce the lines it is about was not ready to emit.
+
+One deliberate exception: when the lines themselves hold a secret — a credential, a token, personal
+data — redact the value inside the excerpt and say in the body that you did. The report is a document
+people forward, and evidence that a secret exists must not be a second copy of it.
 
 Write in this subset, which is all the report renders:
 

@@ -526,7 +526,6 @@ PAGE = """<!doctype html>
   </aside>
   <main>
     <header class="masthead">
-      <div class="verdict verdict-{verdict}"><span class="verdict-label">{verdict_label}</span></div>
       <p class="sentence">{sentence}</p>
       <p class="scope-line">{scope_line}</p>
     </header>
@@ -632,11 +631,22 @@ body {
 .sidebar-head { position: sticky; top: 0; z-index: 1; background: var(--bg); padding-bottom: 22px; }
 main { min-width: 0; }
 
+/* The badge renders once, in the sidebar, and there is no .masthead .verdict
+   override because there is no masthead badge to resize. It used to render in
+   both: the two sat about 200px apart on the same horizontal line and read as
+   the same word printed twice, so the masthead's was deleted. This is the copy
+   that stayed because it is the one that survives scrolling while `.sidebar` is
+   sticky -- see `.sidebar-head` above -- so on the desktop layout the verdict is
+   on every screen and not just the first. Below 900px it is not: the sidebar
+   goes static and the badge scrolls away with it, because a single-column layout
+   has no second column to persist anything in. */
 .verdict { border-radius: 8px; padding: 10px 14px; margin-bottom: 18px; font-weight: 700;
   letter-spacing: .08em; text-transform: uppercase; font-size: 13px; }
 .verdict-blocked { background: var(--block-bg); color: var(--block); border: 1px solid var(--block); }
 .verdict-clear { background: var(--chip-bg); color: var(--ink); border: 1px solid var(--line); }
-.masthead .verdict { display: inline-block; font-size: 15px; padding: 8px 18px; }
+/* .sentence keeps its 8px top margin now that it leads the masthead. It is what
+   lands the sentence level with the sidebar badge, so the two read as one unit
+   and the masthead loses no signal. */
 .masthead { margin-bottom: 34px; }
 .sentence { font-size: 21px; line-height: 1.45; margin: 8px 0 6px; }
 .scope-line { color: var(--muted); margin: 0; font-size: 14px; }

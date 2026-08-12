@@ -1,0 +1,271 @@
+{
+  "schema_version": 1,
+  "kind": "merged",
+  "run": {
+    "mode": "parallel",
+    "generated_at": "2026-08-11T09:00:00Z",
+    "scope": {
+      "repo": "atomic-review",
+      "mode": "revisions",
+      "base": "0f47499a1c6d4b2e8a5175614627b1b299609abc",
+      "head": "55f8aa2b7e3c19d4f5175769e74720d326046def",
+      "files_changed": 11,
+      "diff_bytes": 48211
+    }
+  },
+  "verdict": "blocked",
+  "passes": [
+    {
+      "producer": "security",
+      "what_holds_up_md": "The WSL opener ladder fails closed: a binary that cannot be executed is told apart from one that ran and reported failure, so no rung is skipped on the strength of a launch that never happened. Escaping still runs on the whole string before any structural regex touches it, and the new provenance labels reach the page through `esc` like everything else. Nothing in the diff opens a network path, adds a dependency, or writes outside the run's temporary directory.",
+      "closing_md": "Two problems survive. The structured-to-display collapse can present unequal provenance as equal, and the drive-mapping lookup trusts a path it did not derive itself. Neither is reachable without a WSL host, but both are reachable from ordinary input on one.",
+      "empty_reason_md": null,
+      "requested_model": "opus",
+      "requested_effort": "high"
+    },
+    {
+      "producer": "quality",
+      "what_holds_up_md": "The opener ladder reads top to bottom and each rung states what it is testing, which is the shape this code wanted from the start. Optional embedded-pass fields preserve old artifacts, and standalone pass validation correctly refuses merge-owned provenance. The renderer's escaping boundary is still a single point rather than a habit spread across call sites.",
+      "closing_md": "The representation is compact, but peer detection must operate on the structured provenance rather than on a human-readable phrase — the report's warning and its corroboration claims both depend on that distinction. Two of the follow-ups are the same decomposition argument seen from different files.",
+      "empty_reason_md": null,
+      "requested_model": "opus",
+      "requested_effort": "high"
+    }
+  ],
+  "findings": [
+    {
+      "id": "sec-1",
+      "producer": "security",
+      "disposition": "blocking",
+      "severity": "medium",
+      "title": "Compare pass provenance before formatting its display label",
+      "locations": [
+        {
+          "path": ".agents/skills/two-pass-review/scripts/page.py",
+          "start_line": 242,
+          "end_line": 249
+        }
+      ],
+      "body_md": "`render_scope` determines whether the passes were peers from the formatted `requested_tier()` strings, but that rendering is not a one-to-one representation of `(requested_model, requested_effort)`. A pass with `requested_model: \"high effort\"` and no effort, and another with no model and `requested_effort: \"high\"`, both render as `high effort`; the page therefore claims one shared tier and suppresses the unequal-pass warning. This makes the report's provenance and corroboration warning incorrect for an accepted artifact. Compare the two structured field values, including absence, and only format them after agreement has been decided.",
+      "corroborated_by": [
+        "qa-1"
+      ]
+    },
+    {
+      "id": "qa-1",
+      "producer": "quality",
+      "disposition": "blocking",
+      "category": "boundary-contract",
+      "title": "Compare the structured tier fields before formatting them",
+      "locations": [
+        {
+          "path": ".agents/skills/two-pass-review/scripts/page.py",
+          "start_line": 242,
+          "end_line": 249
+        }
+      ],
+      "body_md": "`render_scope` decides whether the passes were peers by comparing `requested_tier()`'s display strings, even though the contract is the pair `(requested_model, requested_effort)`. That formatting is not injective: a security envelope carrying only `requested_model: \"high effort\"` and a quality envelope carrying only `requested_effort: \"high\"` both become `high effort`. The page then renders `parallel passes on high effort` and omits the unequal-pass warning even though the recorded axes differ. Keep the structured pair through the agreement calculation — including which half is absent — and call `requested_tier()` only when producing display text.",
+      "corroborated_by": [
+        "sec-1"
+      ]
+    },
+    {
+      "id": "sec-2",
+      "producer": "security",
+      "disposition": "blocking",
+      "severity": "high",
+      "title": "Do not trust the drive root that `wslpath` hands back",
+      "locations": [
+        {
+          "path": ".agents/skills/two-pass-review/scripts/render.py",
+          "start_line": 118,
+          "end_line": 141
+        }
+      ],
+      "body_md": "The WSL branch asks `wslpath` where the Windows drives are mounted and then joins the report's filename onto whatever comes back. `wslpath` reads `/etc/wsl.conf`, which is writable by anyone with root on the distribution and is not a value this script derived. A crafted `root` containing a `..` sequence, or an absolute path pointing elsewhere, redirects the write outside the run directory before `explorer.exe` is ever invoked.\n\nThe fix is small: resolve the joined path and refuse it unless it is still inside the run's temporary directory. Do this before the file is written, not before it is opened — the opener is not the boundary.",
+      "corroborated_by": [
+        "qa-2"
+      ]
+    },
+    {
+      "id": "sec-3",
+      "producer": "security",
+      "disposition": "follow-up",
+      "severity": "low",
+      "title": "The probe for interop variables also accepts an empty value",
+      "locations": [
+        {
+          "path": ".agents/skills/two-pass-review/scripts/render.py",
+          "start_line": 61,
+          "end_line": 72
+        }
+      ],
+      "body_md": "`is_wsl` treats the presence of `WSL_INTEROP` or `WSL_DISTRO_NAME` in `os.environ` as conclusive, but an exported-and-empty variable is present. A user shell that clears one of these — some login managers do — puts the renderer onto the Windows ladder on a host with no Windows to reach, and every rung then fails in turn before the Linux fallback runs. Test the value, not the key.",
+      "confidence": "medium",
+      "confidence_rationale": "The failure is a slow path rather than a wrong one — the ladder still reaches the correct opener eventually.",
+      "corroborated_by": []
+    },
+    {
+      "id": "sec-4",
+      "producer": "security",
+      "disposition": "follow-up",
+      "severity": "low",
+      "title": "`markdown_subset` should refuse scheme-relative URLs too",
+      "locations": [
+        {
+          "path": ".agents/skills/two-pass-review/scripts/markdown_subset.py",
+          "start_line": 88,
+          "end_line": 104
+        }
+      ],
+      "body_md": "The link filter refuses `javascript:`, `data:` and `vbscript:` by scheme. A `//evil.example/x` href carries no scheme at all and survives the check, and over `file://` it resolves to `file://evil.example/x` — harmless in practice, but the same string forwarded into a page served over HTTP is a live off-origin fetch. The report is explicitly designed to be forwarded by email, so the second case is not hypothetical.",
+      "corroborated_by": []
+    },
+    {
+      "id": "qa-2",
+      "producer": "quality",
+      "disposition": "blocking",
+      "category": "boundary-contract",
+      "title": "The Windows path is derived and consumed in the same breath",
+      "locations": [
+        {
+          "path": ".agents/skills/two-pass-review/scripts/render.py",
+          "start_line": 118,
+          "end_line": 141
+        }
+      ],
+      "body_md": "`wslpath`'s answer becomes a write target with nothing in between. There is no point in the function where the derived path is a value that has been checked — it is produced by a subprocess and consumed by a join on the next line, so any reader asking \"what makes this path safe?\" has nowhere to look. Give the derivation a boundary that returns either a path inside the run directory or nothing, and the security argument becomes something the type of the return value carries rather than something the reader has to reconstruct.",
+      "corroborated_by": [
+        "sec-2"
+      ]
+    },
+    {
+      "id": "qa-3",
+      "producer": "quality",
+      "disposition": "follow-up",
+      "category": "modularity-decomposition",
+      "title": "Host detection and opener selection want to be separate seams",
+      "locations": [
+        {
+          "path": ".agents/skills/two-pass-review/scripts/render.py",
+          "start_line": 61,
+          "end_line": 212
+        }
+      ],
+      "body_md": "`open_report` decides the host, derives a Windows path, tries four openers in order, and reports which one worked. `is_wsl`, `windows_path_for` and the ladder are three answers to three different questions, and only the last is expensive to get right. Each rung is individually clear, but the reader has to hold the host decision in mind while reading the ladder, and the two concerns fail independently. A `windows_openers(path)` returning the ordered commands, with `open_report` doing nothing but walking the list, makes the first two testable without a WSL host — currently the reason neither has a test.",
+      "corroborated_by": []
+    },
+    {
+      "id": "qa-4",
+      "producer": "quality",
+      "disposition": "follow-up",
+      "category": "boundary-contract",
+      "title": "`launch` returning `None` deserves a name",
+      "locations": [
+        {
+          "path": ".agents/skills/two-pass-review/scripts/render.py",
+          "start_line": 30,
+          "end_line": 52
+        }
+      ],
+      "body_md": "`launch` returns an exit code, or `None` when the binary could not be executed at all. The distinction is load-bearing — the comment says so — but it is carried by a bare `None` that every caller has to remember to test. A two-value sentinel, or a small named constant, would put the distinction in the reader's way instead of in the docstring.",
+      "corroborated_by": []
+    },
+    {
+      "id": "qa-5",
+      "producer": "quality",
+      "disposition": "follow-up",
+      "category": "legibility",
+      "title": "`scope_line` builds display text three joins deep",
+      "locations": [
+        {
+          "path": ".agents/skills/two-pass-review/scripts/page.py",
+          "start_line": 396,
+          "end_line": 401
+        }
+      ],
+      "body_md": "Three `esc` calls, a dictionary lookup with a fallback, and an integer are threaded through one `format` with `&middot;` separators. It works, and it is escaped correctly, but the line is now the densest thing in `render_page` and it is not the most interesting. Lift the three pieces to named locals.",
+      "corroborated_by": []
+    },
+    {
+      "id": "sec-5",
+      "producer": "security",
+      "disposition": "note",
+      "title": "The bytecode cleanup runs after the render, not before",
+      "locations": [
+        {
+          "path": ".github/checks.py",
+          "start_line": 44,
+          "end_line": 58
+        }
+      ],
+      "body_md": "`__pycache__` directories are removed once the checks have run. If a check imports a script and the process is killed midway, the bytecode survives into the next run. Not a correctness problem — Python revalidates by mtime — but the check that asserts the tree is clean can then see its own leftovers.",
+      "corroborated_by": []
+    },
+    {
+      "id": "sec-6",
+      "producer": "security",
+      "disposition": "note",
+      "title": "The literal scan reports what it inspects, which is right",
+      "locations": [
+        {
+          "path": ".github/checks.py",
+          "start_line": 96,
+          "end_line": 130
+        }
+      ],
+      "body_md": "Worth recording as a non-finding: the script-tag check inspects string literals and prints a line saying so, rather than claiming the page has no JavaScript. Assembled markup would pass it. That is a documented limit, not a gap, and the wording already prevents the misreading.",
+      "confidence": "low",
+      "confidence_rationale": "Recorded for the reader's benefit rather than as a defect; no change is being asked for.",
+      "corroborated_by": []
+    },
+    {
+      "id": "qa-6",
+      "producer": "quality",
+      "disposition": "note",
+      "category": "simplification-missed",
+      "title": "`truncate` re-splits a string the caller already normalised",
+      "locations": [
+        {
+          "path": ".agents/skills/two-pass-review/scripts/page.py",
+          "start_line": 119,
+          "end_line": 122
+        }
+      ],
+      "body_md": "Every caller passes the output of `Markdown.plain`, which has already collapsed whitespace. The `\" \".join(text.split())` inside `truncate` is therefore a second pass over the same string. Harmless at report scale; noted only because the duplication suggests one of the two is meant to be the boundary and it is not obvious which.",
+      "corroborated_by": []
+    },
+    {
+      "id": "qa-7",
+      "producer": "quality",
+      "disposition": "note",
+      "category": "legibility",
+      "title": "`DISPOSITION_ORDER` and `DISPOSITION_LABEL` are declared far apart",
+      "locations": [
+        {
+          "path": ".agents/skills/two-pass-review/scripts/page.py",
+          "start_line": 22,
+          "end_line": 41
+        }
+      ],
+      "body_md": "The order and the labels are the same three values seen twice, nineteen lines apart, and adding a disposition means editing both. A single ordered mapping would make the pairing structural rather than remembered.",
+      "corroborated_by": []
+    },
+    {
+      "id": "qa-8",
+      "producer": "quality",
+      "disposition": "note",
+      "category": "structural-regression",
+      "title": "The scope section grew a second reason to exist",
+      "locations": [
+        {
+          "path": ".agents/skills/two-pass-review/scripts/page.py",
+          "start_line": 228,
+          "end_line": 268
+        }
+      ],
+      "body_md": "`render_scope` used to describe the diff. It now also carries the provenance line and the unequal-pass warning, which are about the run rather than about the scope. The section still reads well, but its name has stopped describing its contents and the next addition will have nowhere obvious to go.",
+      "corroborated_by": []
+    }
+  ]
+}

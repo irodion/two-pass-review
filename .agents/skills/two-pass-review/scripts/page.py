@@ -186,6 +186,27 @@ def copy_payload(finding, partners):
     return "\n".join(lines)
 
 
+# Drawn here rather than fetched or set in a font: an icon font is a sibling
+# asset and this file has none, and the page is read over file:// and out of a
+# mail client. `aria-hidden`, because every one of these sits beside the word it
+# illustrates -- a screen reader that announces both hears the label twice.
+def icon(paths, size=13, stroke="1.5"):
+    return (
+        '<svg class="icon" width="{s}" height="{s}" viewBox="0 0 24 24" fill="none" '
+        'stroke="currentColor" stroke-width="{w}" stroke-linecap="round" stroke-linejoin="round" '
+        'aria-hidden="true" focusable="false">{p}</svg>'
+    ).format(s=size, w=stroke, p=paths)
+
+
+ICON_CLIPBOARD = icon('<rect x="9" y="9" width="13" height="13" rx="2"></rect>'
+                      '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>')
+ICON_TERMINAL = icon('<rect x="3" y="4" width="18" height="16" rx="2"></rect>'
+                     '<path d="M8 10l2.5 2-2.5 2M13 14h3"></path>')
+ICON_CHECK = icon('<polyline points="20 6 9 17 4 12"></polyline>', stroke="2")
+ICON_NO_ENTRY = icon('<circle cx="12" cy="12" r="10"></circle>'
+                     '<line x1="4.9" y1="4.9" x2="19.1" y2="19.1"></line>', size=15, stroke="2")
+
+
 def copy_controls(payload):
     """Two buttons, one payload, carried in an attribute.
 
@@ -193,16 +214,25 @@ def copy_controls(payload):
     newlines are then encoded so the opening tag stays on one line. Both are
     escaping, not structure, so escape-first is untouched -- and the handler only
     ever moves this string to the clipboard, never evaluates it.
+
+    Both icons ship on every button and CSS shows one, the same bargain
+    `dismiss_control` strikes with its two captions: the script says *which state*
+    the button is in and never has to know what that state looks like.
     """
     def attr(text):
         return esc(text).replace("\n", "&#10;")
 
-    return (
-        '<div class="copy">'
-        '<button type="button" class="copy-btn" data-copy="{plain}">Copy</button>'
-        '<button type="button" class="copy-btn" data-copy="{wrapped}">Copy for agent</button>'
-        "</div>"
-    ).format(plain=attr(payload), wrapped=attr(payload + "\n\n" + PROMPT_WRAPPER))
+    def button(text, idle, payload_text):
+        return (
+            '<button type="button" class="copy-btn" data-copy="{copy}">'
+            '<span class="icon-idle">{idle}</span><span class="icon-done">{done}</span>'
+            '<span class="copy-label">{text}</span></button>'
+        ).format(copy=attr(payload_text), idle=idle, done=ICON_CHECK, text=text)
+
+    return '<div class="copy">{}{}</div>'.format(
+        button("Copy", ICON_CLIPBOARD, payload),
+        button("Copy for agent", ICON_TERMINAL, payload + "\n\n" + PROMPT_WRAPPER),
+    )
 
 
 def dismiss_control():
@@ -546,6 +576,9 @@ def render_page(merged):
         title=esc("Two-Pass Review — {}".format(scope["repo"])),
         css=CSS,
         verdict=esc(verdict),
+        # Only the blocked badge gets one. `Clear` is the absence of a reason to
+        # stop, and an icon on it would be a second thing claiming to say so.
+        verdict_icon=ICON_NO_ENTRY if verdict == "blocked" else "",
         verdict_label="Blocked" if verdict == "blocked" else "Clear",
         sentence=verdict_sentence(verdict, findings),
         scope_line=scope_line,
@@ -579,7 +612,7 @@ PAGE = """<!doctype html>
   <aside class="sidebar">
     <div class="sidebar-head">
       <div class="verdict verdict-{verdict}">
-        <span class="verdict-label">{verdict_label}</span>
+        {verdict_icon}<span class="verdict-label">{verdict_label}</span>
       </div>
       <div class="filters">
         <p class="filter-title">Pass</p>
@@ -645,13 +678,19 @@ SCRIPT = """
     return copied;
   }
 
-  function flash(button, message) {
+  // Writes the caption, not the button: the button also holds two icons, and
+  // replacing its textContent would delete them. `data-busy` carries which of the
+  // two outcomes happened rather than just `busy`, because CSS swaps in the
+  // checkmark and a tick beside `Copy failed` would be a lie. Both values are
+  // truthy, so the re-entry guard is unchanged.
+  function flash(button, message, ok) {
     if (button.dataset.busy) { return; }
-    button.dataset.busy = '1';
-    var original = button.textContent;
-    button.textContent = message;
+    button.dataset.busy = ok ? 'ok' : 'fail';
+    var label = button.querySelector('.copy-label') || button;
+    var original = label.textContent;
+    label.textContent = message;
     setTimeout(function () {
-      button.textContent = original;
+      label.textContent = original;
       delete button.dataset.busy;
     }, 1200);
   }
@@ -662,11 +701,15 @@ SCRIPT = """
     var text = button.getAttribute('data-copy');
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(
-        function () { flash(button, 'Copied'); },
-        function () { flash(button, fallback(text) ? 'Copied' : 'Copy failed'); }
+        function () { flash(button, 'Copied', true); },
+        function () {
+          var copied = fallback(text);
+          flash(button, copied ? 'Copied' : 'Copy failed', copied);
+        }
       );
     } else {
-      flash(button, fallback(text) ? 'Copied' : 'Copy failed');
+      var copied = fallback(text);
+      flash(button, copied ? 'Copied' : 'Copy failed', copied);
     }
   });
 
@@ -785,8 +828,9 @@ main { min-width: 0; }
    on every screen and not just the first. Below 900px it is not: the sidebar
    goes static and the badge scrolls away with it, because a single-column layout
    has no second column to persist anything in. */
-.verdict { border-radius: 8px; padding: 10px 14px; margin-bottom: 18px; font-weight: 700;
-  letter-spacing: .08em; text-transform: uppercase; font-size: 13px; }
+.verdict { display: flex; align-items: center; gap: 7px; border-radius: 8px; padding: 10px 14px;
+  margin-bottom: 18px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: 13px; }
+.verdict .icon { flex-shrink: 0; }
 .verdict-blocked { background: var(--block-bg); color: var(--block); border: 1px solid var(--block); }
 .verdict-clear { background: var(--chip-bg); color: var(--ink); border: 1px solid var(--line); }
 /* .sentence keeps its 8px top margin now that it leads the masthead. It is what
@@ -909,10 +953,16 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
 .card-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
   margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .copy { display: flex; gap: 8px; }
-.copy-btn { font: inherit; font-size: 12.5px; color: var(--muted); background: var(--panel);
-  border: 1px solid var(--line); border-radius: 5px; padding: 4px 10px; cursor: pointer; }
+.copy-btn { display: flex; align-items: center; gap: 6px; font: inherit; font-size: 12.5px;
+  color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 5px;
+  padding: 4px 10px; cursor: pointer; }
 .copy-btn:hover { color: var(--ink); border-color: var(--accent); }
 .copy-btn[data-busy] { color: var(--accent); border-color: var(--accent); }
+/* Both icons ship; this picks. `ok` only -- the check is a claim that the text
+   is on the clipboard, and on the failure path it is not. */
+.copy-btn .icon-idle, .copy-btn .icon-done { display: flex; }
+.copy-btn .icon-done, .copy-btn[data-busy="ok"] .icon-idle { display: none; }
+.copy-btn[data-busy="ok"] .icon-done { display: flex; }
 
 /* Always visible, never hover-revealed: this page is printed and forwarded by
    email, where there is no hover. Borderless until wanted, so the mark reads as

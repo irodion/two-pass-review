@@ -230,25 +230,33 @@ def render_finding(finding, markdown, partners):
         esc(finding_id), esc(finding["producer"]), esc(finding["disposition"])
     )]
 
+    # One pill per card at most, and it is the severity: it is the only one of
+    # these that says how loud the finding is. A category names a kind, a producer
+    # names a pass and a confidence qualifies the claim -- none of them is
+    # competing with the title, so none of them is drawn like something that is.
     axis = ""
     if finding.get("severity"):
         axis = '<span class="tag tag-sev tag-{0}">{0}</span>'.format(esc(finding["severity"]))
     elif finding.get("category"):
-        axis = '<span class="tag tag-cat" title="{}">{}</span>'.format(
+        axis = '<span class="meta-label" title="{}">{}</span>'.format(
             esc(CATEGORY_LABEL.get(finding["category"], finding["category"])), esc(finding["category"])
         )
 
     confidence = ""
     if finding.get("confidence") in ("medium", "low"):
-        confidence = '<span class="tag tag-conf" title="{}">{} confidence</span>'.format(
+        confidence = '<span class="meta-label meta-conf" title="{}">{} confidence</span>'.format(
             esc(finding.get("confidence_rationale") or ""), esc(finding["confidence"])
         )
 
+    # The metadata reads above the title rather than under it. Under it, the eye
+    # left the title, crossed a row of tags and arrived at the claim -- so the two
+    # sentences that carry the finding were separated by the labels that describe
+    # it. Above it, the labels are what you skim past on the way in.
     bits.append(
         '<header class="finding-head">'
-        '<span class="fid">{fid}</span>'
-        '<h3>{title}</h3>'
-        '<div class="tags"><span class="tag tag-prod">{prod}</span>{axis}{conf}</div>'
+        '<div class="meta"><span class="fid">{fid}</span>'
+        '<span class="meta-label">{prod}</span>{axis}{conf}</div>'
+        "<h3>{title}</h3>"
         "</header>".format(
             fid=esc(finding_id),
             title=markdown.inline(finding["title"], self_id=finding_id),
@@ -728,14 +736,16 @@ SCRIPT = """
 
 CSS = """
 :root {
-  --bg: #fbfaf8; --panel: #ffffff; --ink: #1c1a18; --muted: #6b6560; --line: #e2ddd6;
+  --bg: #fbfaf8; --panel: #ffffff; --ink: #1c1a18; --ink-2: #4d4843; --muted: #6b6560;
+  --line: #e2ddd6;
   --accent: #7a4b2a; --block: #a32a1e; --block-bg: #fbeae7; --block-edge: #f0cdc6;
   --follow: #7a5c12; --note: #5a6570;
   --code-bg: #f4f1ec; --chip-bg: #efeae2; --shadow: 0 1px 2px rgba(28,26,24,.06);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #17161a; --panel: #1e1d22; --ink: #e9e6e1; --muted: #a09a94; --line: #34323a;
+    --bg: #17161a; --panel: #1e1d22; --ink: #e9e6e1; --ink-2: #c2bcb5; --muted: #a09a94;
+    --line: #34323a;
     --accent: #d59a6c; --block: #f08b7e; --block-bg: #3a201d; --block-edge: #5e332d;
     --follow: #d6b45c; --note: #96a1ae;
     --code-bg: #26252b; --chip-bg: #2b2a31; --shadow: none;
@@ -859,20 +869,32 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
   font-size: 13.5px; line-height: 1.5; }
 .callout-mark { font-weight: 700; }
 
-.finding { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-  padding: 20px 22px; margin: 0 0 16px; box-shadow: var(--shadow); }
-.finding-head { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: baseline; }
-.fid { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--muted); }
-[data-disposition="blocking"] .fid { color: var(--block); font-weight: 700; }
-.finding-head h3 { margin: 0; font-size: 18px; line-height: 1.35; }
-.tags { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+/* The left edge carries the disposition, so a card says which of the three lists
+   it is in without the reader having to find the heading it is under -- which is
+   what a deep-linked or filtered page costs otherwise. */
+.finding { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--note);
+  border-radius: 10px; padding: 18px 22px 15px; margin: 0 0 14px; box-shadow: var(--shadow); }
+.finding[data-disposition="blocking"] { border-left-color: var(--block); }
+.finding[data-disposition="follow-up"] { border-left-color: var(--follow); }
+.meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; margin-bottom: 7px; }
+.fid { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  letter-spacing: .04em; font-weight: 700; color: var(--note); }
+[data-disposition="blocking"] .fid { color: var(--block); }
+[data-disposition="follow-up"] .fid { color: var(--follow); }
+/* `text-wrap: pretty` where it is supported, and nothing where it is not: a
+   widowed last word is the failure it prevents, which is a wobble and not a bug. */
+.finding-head h3 { margin: 0; font-size: 19px; line-height: 1.3; font-weight: 600;
+  letter-spacing: -.005em; text-wrap: pretty; }
+.meta-label { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+/* Dashed underline rather than a dashed pill: the border said `there is more
+   here` in the same shape the severity uses to say `this is how loud it is`. */
+.meta-conf { border-bottom: 1px dashed var(--line); }
 .tag { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; padding: 2px 8px;
-  border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-weight: 600; }
 .tag-critical, .tag-high { color: var(--block); border-color: var(--block); }
 .tag-medium { color: var(--follow); border-color: var(--follow); }
-.tag-conf { border-style: dashed; }
 
-.locations { margin: 14px 0 4px; display: flex; flex-wrap: wrap; gap: 6px; }
+.locations { margin: 11px 0 0; display: flex; flex-wrap: wrap; gap: 6px; }
 /* Inert on purpose: a chip that looks like a link and is not one is a lie. */
 .chip { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
   background: var(--chip-bg); border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px;
@@ -906,7 +928,10 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
    reaching a second subtree is exactly what the CSS-only design had to buy with
    a checkbox per finding at the root of the document. Nothing here is generated
    per finding. */
-.finding.dismissed .tags,
+/* Everything in the meta line except the id: a folded card is its id and its
+   struck title, and the labels that qualified the finding have nothing left to
+   qualify. */
+.finding.dismissed .meta > :not(.fid),
 .finding.dismissed .locations,
 .finding.dismissed .corroboration,
 .finding.dismissed .body,
@@ -914,6 +939,10 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
 .finding.dismissed .dm-open,
 .dm-done { display: none; }
 .finding.dismissed .dm-done { display: inline; }
+/* The edge fades with the card. It says which list the finding is in, and a
+   dismissed finding is not one the reader is still being pointed at. Later in
+   the sheet than the three disposition colours, which is what makes it win. */
+.finding.dismissed { border-left-color: var(--line); }
 /* The nav entry is struck on the <li> rather than the <a>, so the more specific
    `nav a:hover` adds its underline instead of replacing the line through. */
 .finding.dismissed .finding-head h3,
@@ -930,10 +959,20 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
 #f-prod-security:checked ~ #f-dism-hide:checked ~ .layout .group.all-dismissed-security,
 #f-prod-quality:checked ~ #f-dism-hide:checked ~ .layout .group.all-dismissed-quality { display: none; }
 
-.corroboration { background: var(--chip-bg); border-left: 3px solid var(--accent);
-  padding: 8px 12px; margin: 14px 0 0; font-size: 14px; border-radius: 0 5px 5px 0; }
-.body { margin-top: 6px; }
-.body p { margin: 12px 0; }
+/* A rule, not a filled block. The banner is one line of provenance about the
+   finding above it, and a tinted panel gave it the weight of a second finding. */
+.corroboration { border-left: 2px solid var(--accent); padding-left: 11px; margin: 13px 0 0;
+  font-size: 13.5px; line-height: 1.5; color: var(--muted); }
+.corroboration strong { color: var(--accent); font-weight: 600; }
+/* No margin of its own: the first block inside carries the gap, and which block
+   that is depends on what the pass wrote. */
+.body { margin-top: 0; }
+/* The claim, then the argument. A finding's first paragraph is the thing being
+   asserted and the rest is why -- they were rendered identically, so a reader
+   skimming for what the finding says had to read the whole card to find out.
+   `> p:first-child`, so a body that opens with a list is left alone. */
+.body p { margin: 10px 0 0; font-size: 15px; line-height: 1.55; color: var(--ink-2); }
+.body > p:first-child { margin-top: 13px; font-size: 16.5px; line-height: 1.5; color: var(--ink); }
 .body ul, .body ol { margin: 12px 0; padding-left: 22px; }
 .body li { margin: 4px 0; }
 .body blockquote { margin: 12px 0; padding: 2px 14px; border-left: 3px solid var(--line); color: var(--muted); }

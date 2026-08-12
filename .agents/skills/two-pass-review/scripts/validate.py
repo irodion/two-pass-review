@@ -311,49 +311,59 @@ def check_locations(report, where, locations, repo=None):
             report.add(at, "'end_line' {} is before 'start_line' {}".format(end, start))
         if end is not None and start is None:
             report.add(at, "'end_line' without 'start_line'")
+        if repo is not None and path is not None:
+            _check_location_in_repo(report, at, path, start, end, repo)
 
-        # A pass that recalls line numbers instead of reading them writes
-        # ranges past the end of the file -- observed, not hypothetical: a
-        # correct argument about a 37-line file arrived located at 88-95.
-        # The quote in the body is checkable by a reader; the range is
-        # checkable only against the checkout, which is what --repo is for.
-        # Read this check as narrowly as it is written: it catches a range
-        # the file cannot contain, not a range that points at the wrong
-        # real lines, which only reading the file can catch.
-        if repo is None or path is None:
-            continue
-        # `path` is written by a pass that read a possibly hostile repository,
-        # so it is confined before it is used. An absolute path hands
-        # os.path.join the right to discard `repo` entirely -- documented
-        # behaviour, not an edge case -- and a relative one can walk out
-        # through `..` or a symlink. realpath on both sides settles the
-        # question by what the filesystem would actually open.
-        if os.path.isabs(path):
-            report.add(at, "'path' must be relative to the repository root")
-            continue
-        root = os.path.realpath(repo)
-        target = os.path.realpath(os.path.join(root, path))
-        if target != root and not target.startswith(root + os.sep):
+
+def _check_location_in_repo(report, at, path, start, end, repo):
+    """The half of a location only the checkout can judge.
+
+    Everything in check_locations above the call is JSON shape and touches no
+    file; everything here is filesystem. Kept apart so the shape checks stay
+    provably I/O-free and this block -- the security-sensitive one -- reads
+    as a unit.
+
+    A pass that recalls line numbers instead of reading them writes ranges
+    past the end of the file -- observed, not hypothetical: a correct
+    argument about a 37-line file arrived located at 88-95. The quote in the
+    body is checkable by a reader; the range is checkable only against the
+    checkout, which is what --repo is for. Read the range check as narrowly
+    as it is written: it catches a range the file cannot contain, not a
+    range that points at the wrong real lines, which only reading the file
+    can catch.
+    """
+    # `path` is written by a pass that read a possibly hostile repository,
+    # so it is confined before it is used. An absolute path hands
+    # os.path.join the right to discard `repo` entirely -- documented
+    # behaviour, not an edge case -- and a relative one can walk out
+    # through `..` or a symlink. realpath on both sides settles the
+    # question by what the filesystem would actually open.
+    if os.path.isabs(path):
+        report.add(at, "'path' must be relative to the repository root")
+        return
+    root = os.path.realpath(repo)
+    target = os.path.realpath(os.path.join(root, path))
+    if target != root and not target.startswith(root + os.sep):
+        report.add(
+            at,
+            "'path' {!r} resolves outside the repository -- a location names a file inside the checkout".format(path),
+        )
+        return
+    if not os.path.isfile(target):
+        report.add(
+            at,
+            "'path' {!r} is not a file in the repository -- locate the finding at code that exists".format(path),
+        )
+    elif start is not None:
+        count = _line_count(target)
+        last = start if end is None else end
+        if last > count:
+            span = "line {} runs".format(start) if end is None else "lines {}-{} run".format(start, end)
             report.add(
                 at,
-                "'path' {!r} resolves outside the repository -- a location names a file inside the checkout".format(path),
+                "{} past the end of {!r}, which has {} line(s) -- "
+                "line numbers are read off the file, never recalled from the diff".format(span, path, count),
             )
-            continue
-        if not os.path.isfile(target):
-            report.add(
-                at,
-                "'path' {!r} is not a file in the repository -- locate the finding at code that exists".format(path),
-            )
-        elif start is not None:
-            count = _line_count(target)
-            last = start if end is None else end
-            if last > count:
-                span = "line {} runs".format(start) if end is None else "lines {}-{} run".format(start, end)
-                report.add(
-                    at,
-                    "{} past the end of {!r}, which has {} line(s) -- "
-                    "line numbers are read off the file, never recalled from the diff".format(span, path, count),
-                )
 
 
 def _line_count(path):

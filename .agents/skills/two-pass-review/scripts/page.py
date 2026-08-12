@@ -1165,10 +1165,26 @@ a { color: var(--accent); }
 .finding:target { border-color: var(--accent); }
 
 @media (max-width: 900px) {
-  .layout { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 20px 16px 64px; }
-  .sidebar { position: static; max-height: none; margin-bottom: 24px; }
+  /* One column, and the report is not last in it. `display: contents` dissolves
+     the sidebar's box so its three parts become items of the layout in their own
+     right and can be ordered around `main`: the verdict and the filters stay
+     above the report, and the nav and the run's facts -- a table of contents and
+     a page of reference material, neither of which the reader came for -- move
+     below it. Two columns are what made those readable beside the report at all,
+     and there is no second column here to put them in.
+
+     Ordering them needs no change to the markup, which is the point: the DOM
+     order is the desktop order, where the sidebar is one sticky column and none
+     of this applies. */
+  .layout { display: flex; flex-direction: column; align-items: stretch;
+    gap: 0; padding: 20px 16px 64px; }
+  .sidebar { display: contents; }
+  main { order: 1; }
+  nav { order: 2; margin-top: 28px; }
+  .run { order: 3; }
   /* Nothing scrolls out of a sidebar that no longer scrolls, and a head left
-     sticky here would pin itself over the report instead. */
+     sticky here would pin itself over the report instead. Its padding is the gap
+     above the report now, which is what the sidebar's own margin used to be. */
   .sidebar-head { position: static; }
 }
 """

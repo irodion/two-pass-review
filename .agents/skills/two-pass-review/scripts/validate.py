@@ -12,9 +12,13 @@ or the merged artifact on its own:
 
     validate.py findings.json
 
-With --repo, each finding's locations are also checked against the checkout:
-the file must exist there and the line range must fit inside it. Without the
-flag those checks are skipped, so old artifacts validate exactly as before.
+With --repo, each finding's locations are also checked against the checkout.
+Every path is confined to it, whatever else holds. A location carrying line
+numbers must name a real file whose line count contains the range. A bare
+path may name a file that does not exist yet -- the report's contract lets a
+remedy cite a file it proposes, and a deletion leaves only the deleted name
+to point at -- but what does exist at a bare path must be a file. Without
+the flag those checks are skipped, so old artifacts validate as before.
 
 Every problem is reported with an address the repair loop can act on -- a file
 and, for line-oriented input, the line that carries the defect. Exit status is
@@ -347,6 +351,16 @@ def _check_location_in_repo(report, at, path, start, end, repo):
         report.add(
             at,
             "'path' {!r} resolves outside the repository -- a location names a file inside the checkout".format(path),
+        )
+        return
+    # Prospective is a claim about the future; a directory is a mistake in
+    # the present. What exists must be a file -- checked before the bare-path
+    # return below, or "." and every directory in the checkout would pass as
+    # a location.
+    if os.path.exists(target) and not os.path.isfile(target):
+        report.add(
+            at,
+            "'path' {!r} exists but is not a file -- a location names a file, real or proposed".format(path),
         )
         return
     # A bare path may be prospective: the report's documented contract says a

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The mechanical floor: the three non-negotiable constraints, plus link rot.
+"""The mechanical floor: the two non-negotiable constraints, plus link rot.
 
 Usage:
     python3 .github/checks.py
@@ -18,8 +18,10 @@ compile on 3.9, which is a separate job.
 import ast
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SKILL = os.path.join(ROOT, ".agents", "skills", "two-pass-review")
@@ -56,6 +58,70 @@ def stdlib_only(problems):
                 if top in SIBLINGS or top in sys.stdlib_module_names:
                     continue
                 problems.append("{}: imports {!r}, which is not in the stdlib".format(name, top))
+
+
+def page_script_parses(problems):
+    """The page's one script lives inside a Python string, so nothing on the
+    Python side ever looks at it. `py_compile` sees a string literal; the 3.9 and
+    3.13 jobs see a string literal. A typo in it therefore ships a page that
+    renders perfectly and a button that silently does nothing.
+
+    `node --check` parses without executing, which is the whole of what is wanted
+    here -- this is a syntax check, not a linter. It catches a typo. It cannot
+    catch a *mistake*: misspell the `data-copy` attribute or get the selector
+    wrong and this passes while the button stays dead. That is still settled by
+    opening the report and clicking it, per AGENTS.md.
+
+    Skips where node is absent rather than failing. ubuntu-latest ships node, so
+    CI always runs it; a contributor without node loses the check and is told so,
+    which is the same bargain stdlib_only strikes on Python 3.9."""
+    path = os.path.join(SCRIPTS, "page.py")
+    with open(path, "r", encoding="utf-8") as handle:
+        tree = ast.parse(handle.read(), filename=path)
+
+    source = None
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)):
+            continue
+        if any(isinstance(t, ast.Name) and t.id == "SCRIPT" for t in node.targets):
+            source = node.value.value
+
+    # Not "nothing to do": the constant being gone means either the page stopped
+    # carrying a script, or it started building one some other way. Both want a
+    # human, so neither is allowed to pass quietly.
+    if not isinstance(source, str):
+        problems.append("page.py: no SCRIPT string constant, so its JavaScript was not checked")
+        return
+
+    node_bin = shutil.which("node")
+    if node_bin is None:
+        sys.stdout.write("  skipped: no node on PATH, so page.py's SCRIPT was not parsed\n")
+        return
+
+    handle = tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False)
+    try:
+        handle.write(source)
+        handle.close()
+        result = subprocess.run(
+            [node_bin, "--check", handle.name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+        )
+        if result.returncode != 0:
+            # The temp path is in node's message and means nothing to a reader, so
+            # it is swapped for the name of the thing they would actually edit.
+            # Both spellings, longest first: on macOS tempfile hands back
+            # /var/folders/... while node reports the resolved
+            # /private/var/folders/..., and substituting the short one first
+            # leaves a severed "/private" behind.
+            detail = result.stdout
+            for name in sorted({handle.name, os.path.realpath(handle.name)}, key=len, reverse=True):
+                detail = detail.replace(name, "page.py:SCRIPT")
+            detail = detail.strip()
+            problems.append("page.py: SCRIPT is not valid JavaScript --\n    {}".format(detail))
+    finally:
+        os.unlink(handle.name)
 
 
 HOSTILE = (
@@ -234,6 +300,7 @@ def main():
     problems = []
     checks = (
         stdlib_only,
+        page_script_parses,
         sanitiser_holds,
         committed_symlink,
         no_build_artifacts,
@@ -246,12 +313,12 @@ def main():
     if problems:
         sys.stderr.write("\n{} problem(s).\n".format(len(problems)))
         return 1
-    # Says what it checked, not what it hopes. This ran three checks over source
-    # and one over behaviour; it did not open a report. Saying more than that is
+    # Says what it checked, not what it hopes. It parsed the page's script; it did
+    # not click the button, and it did not open a report. Saying more than that is
     # how a green tick starts standing in for the thing it cannot do.
     sys.stdout.write(
-        "stdlib-only; sanitiser rejects unsafe schemes; symlink relative; "
-        "no build artifacts tracked; links resolve.\n"
+        "stdlib-only; page SCRIPT parses; sanitiser rejects unsafe schemes; "
+        "symlink relative; no build artifacts tracked; links resolve.\n"
     )
     return 0
 

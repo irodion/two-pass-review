@@ -205,6 +205,25 @@ def copy_controls(payload):
     ).format(plain=attr(payload), wrapped=attr(payload + "\n\n" + PROMPT_WRAPPER))
 
 
+def dismiss_control():
+    """The reader's `I have dealt with this` mark.
+
+    It sits in the card foot, not the header: you know a finding is dealt with once
+    you have read to the end of it, and the header already carries an id, a title
+    and up to three tags. Both captions ship and CSS shows one, so the control
+    reads correctly in either state without the script rewriting text.
+
+    Carries no id of its own -- the handler reads the card's, which is already
+    there. `aria-pressed` because this is a toggle and says so.
+    """
+    return (
+        '<button type="button" class="dismiss" aria-pressed="false">'
+        '<span class="dm-open">&#10003; Mark dealt with</span>'
+        '<span class="dm-done">&#10003; Dealt with &middot; undo</span>'
+        "</button>"
+    )
+
+
 def render_finding(finding, markdown, partners):
     finding_id = finding["id"]
     bits = ['<article class="finding" id="finding-{}" data-producer="{}" data-disposition="{}">'.format(
@@ -255,7 +274,14 @@ def render_finding(finding, markdown, partners):
         )
 
     bits.append('<div class="body">{}</div>'.format(markdown.render(finding["body_md"], self_id=finding_id)))
-    bits.append(copy_controls(copy_payload(finding, partners)))
+    # One strip, not two. The copy controls were already across the foot when
+    # dismissal arrived, and a second full-width row would cost every card --
+    # dismissed or not -- a second line of vertical space to say one word.
+    bits.append(
+        '<div class="card-foot">{copy}{dismiss}</div>'.format(
+            copy=copy_controls(copy_payload(finding, partners)), dismiss=dismiss_control()
+        )
+    )
     bits.append("</article>")
     return "\n".join(bits)
 
@@ -436,7 +462,7 @@ def render_page(merged):
         )
 
         entries = "".join(
-            '<li class="nav-finding" data-producer="{prod}"><a href="#finding-{fid}">'
+            '<li class="nav-finding" id="nav-{fid}" data-producer="{prod}"><a href="#finding-{fid}">'
             '<span class="nav-id">{fid}</span> {title}</a></li>'.format(
                 prod=esc(f["producer"]), fid=esc(f["id"]), title=esc(truncate(Markdown.plain(f["title"])))
             )
@@ -502,6 +528,8 @@ PAGE = """<!doctype html>
 <input type="radio" name="prod" id="f-prod-quality" class="filter">
 <input type="radio" name="block" id="f-block-all" class="filter" checked>
 <input type="radio" name="block" id="f-block-only" class="filter">
+<input type="radio" name="dism" id="f-dism-keep" class="filter" checked>
+<input type="radio" name="dism" id="f-dism-hide" class="filter">
 <div class="layout">
   <aside class="sidebar">
     <div class="sidebar-head">
@@ -516,6 +544,9 @@ PAGE = """<!doctype html>
         <p class="filter-title">Show</p>
         <label for="f-block-all" class="pill pill-block-all">Everything</label>
         <label for="f-block-only" class="pill pill-block-only">Blocking only</label>
+        <p class="filter-title">Dismissed</p>
+        <label for="f-dism-keep" class="pill pill-dism-keep">Keep visible</label>
+        <label for="f-dism-hide" class="pill pill-dism-hide">Hide dismissed</label>
       </div>
     </div>
     <nav>
@@ -539,13 +570,16 @@ PAGE = """<!doctype html>
 </html>
 """
 
-# The page's only JavaScript, and it stays that way by intent rather than by rule.
-# It moves a string from a data- attribute to the clipboard. It never parses,
-# renders or evaluates that string, so a hostile `body_md` reaching it is inert --
-# escaping still does the security work, exactly as it does everywhere else here.
+# The page's whole script: the clipboard handler, and dismissal.
 #
-# One delegated listener rather than a handler per button: the page can carry a
-# hundred findings, and two hundred listeners to do one thing is silly.
+# Neither one parses, renders or evaluates anything a pass wrote. The copy handler
+# moves a string from a data- attribute to the clipboard; dismissal only ever
+# toggles a class and writes digits it counted itself. A hostile `body_md`
+# reaching either is inert -- escaping still does the security work, exactly as it
+# does everywhere else here.
+#
+# Delegated listeners rather than a handler per control: the page can carry a
+# hundred findings, and three hundred listeners to do two things is silly.
 #
 # execCommand is a deprecated fallback on purpose. It is the one path confirmed by
 # hand in Safari over file://, where the async clipboard write is the less certain
@@ -589,6 +623,68 @@ SCRIPT = """
     } else {
       flash(button, fallback(text) ? 'Copied' : 'Copy failed');
     }
+  });
+
+  // Dismissal: a reader's session-scoped mark, meaning `I have dealt with this`.
+  // Nothing here is persisted, because a report is a snapshot of one diff and a
+  // stale mark against a regenerated one would mislead.
+  //
+  // Recounted rather than decremented: the run's own number stays on the page
+  // beside the reader's progress through it. A heading reads `Blocking · 7` until
+  // something in it is dismissed and `Blocking · 3 of 7` after, so what the passes
+  // found is never overwritten -- which was the decision when the counts were
+  // frozen, and it survives the arrival of a mechanism that could decrement.
+  function retally(disposition) {
+    var scope = '.group[data-disposition="' + disposition + '"]';
+    var cards = document.querySelectorAll('section' + scope + ' .finding');
+    var tally = {all: [0, 0], security: [0, 0], quality: [0, 0]};
+    for (var i = 0; i < cards.length; i++) {
+      var live = !cards[i].classList.contains('dismissed');
+      var keys = ['all', cards[i].getAttribute('data-producer')];
+      for (var k = 0; k < keys.length; k++) {
+        var slot = tally[keys[k]];
+        if (!slot) { continue; }
+        slot[1] += 1;
+        if (live) { slot[0] += 1; }
+      }
+    }
+    // Both copies of the count, and both halves of the group: `.group` and
+    // data-disposition sit on the <section> and on the sidebar <div> alike.
+    //
+    // Emptiness is per producer, not just overall, because the producer filter
+    // decides which cards are on screen: with `Security` selected, a disposition
+    // whose security findings are all dismissed has nothing left to show even
+    // though its quality findings are untouched. The script marks all three
+    // cases and CSS picks the one the active filter asks for -- which keeps the
+    // filter in the sibling selectors it already lives in.
+    var boxes = document.querySelectorAll(scope);
+    for (var b = 0; b < boxes.length; b++) {
+      for (var key in tally) {
+        boxes[b].classList.toggle(
+          key === 'all' ? 'all-dismissed' : 'all-dismissed-' + key,
+          tally[key][1] > 0 && tally[key][0] === 0
+        );
+        var span = boxes[b].querySelector('.count-' + key);
+        if (!span) { continue; }
+        span.textContent = tally[key][0] === tally[key][1]
+          ? String(tally[key][1])
+          : tally[key][0] + ' of ' + tally[key][1];
+      }
+    }
+  }
+
+  document.addEventListener('click', function (event) {
+    var button = event.target.closest ? event.target.closest('.dismiss') : null;
+    if (!button) { return; }
+    var card = button.closest('.finding');
+    if (!card) { return; }
+    var dismissed = card.classList.toggle('dismissed');
+    button.setAttribute('aria-pressed', dismissed ? 'true' : 'false');
+    // The nav entry carries the card's id under a different prefix, which is the
+    // only thing the two subtrees need to know about each other.
+    var entry = document.getElementById('nav-' + card.id.replace('finding-', ''));
+    if (entry) { entry.classList.toggle('dismissed', dismissed); }
+    retally(card.getAttribute('data-disposition'));
   });
 })();
 """
@@ -660,7 +756,9 @@ main { min-width: 0; }
 #f-prod-security:checked ~ .layout .pill-prod-security,
 #f-prod-quality:checked ~ .layout .pill-prod-quality,
 #f-block-all:checked ~ .layout .pill-block-all,
-#f-block-only:checked ~ .layout .pill-block-only { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+#f-block-only:checked ~ .layout .pill-block-only,
+#f-dism-keep:checked ~ .layout .pill-dism-keep,
+#f-dism-hide:checked ~ .layout .pill-dism-hide { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 
 nav .nav-group { margin: 16px 0 6px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 /* The first group's top margin used to collapse into the filters' bottom margin
@@ -728,13 +826,56 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
   user-select: all; -webkit-user-select: all; text-decoration: none; cursor: text; }
 .chip-primary { border-color: var(--accent); color: var(--accent); }
 
-/* Quiet until wanted: a report is for reading, and two buttons per finding
-   shouting for attention would compete with the finding itself. */
-.copy { display: flex; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+/* Quiet until wanted: a report is for reading, and three controls per finding
+   shouting for attention would compete with the finding itself. The foot keeps
+   its rule and its spacing when the card folds -- the stub is a struck title over
+   a line over its own undo, which is why the mark is reversible where it was
+   made and not from a list somewhere else. */
+.card-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.copy { display: flex; gap: 8px; }
 .copy-btn { font: inherit; font-size: 12.5px; color: var(--muted); background: var(--panel);
   border: 1px solid var(--line); border-radius: 5px; padding: 4px 10px; cursor: pointer; }
 .copy-btn:hover { color: var(--ink); border-color: var(--accent); }
 .copy-btn[data-busy] { color: var(--accent); border-color: var(--accent); }
+
+/* Always visible, never hover-revealed: this page is printed and forwarded by
+   email, where there is no hover. Borderless until wanted, so the mark reads as
+   quieter than the two buttons it shares the strip with. */
+.dismiss { margin-left: auto; font: inherit; font-size: 12.5px; color: var(--muted);
+  background: var(--panel); border: 1px solid transparent; border-radius: 5px;
+  padding: 4px 10px; cursor: pointer; }
+.dismiss:hover { color: var(--ink); border-color: var(--accent); }
+
+/* Dismissal is a class, set by the script on the card and on its sidebar entry.
+   The mark reaches the nav because a struck card under an unstruck nav entry
+   leaves the sidebar advertising findings the reader has dealt with -- and
+   reaching a second subtree is exactly what the CSS-only design had to buy with
+   a checkbox per finding at the root of the document. Nothing here is generated
+   per finding. */
+.finding.dismissed .tags,
+.finding.dismissed .locations,
+.finding.dismissed .corroboration,
+.finding.dismissed .body,
+.finding.dismissed .copy,
+.finding.dismissed .dm-open,
+.dm-done { display: none; }
+.finding.dismissed .dm-done { display: inline; }
+/* The nav entry is struck on the <li> rather than the <a>, so the more specific
+   `nav a:hover` adds its underline instead of replacing the line through. */
+.finding.dismissed .finding-head h3,
+.nav-finding.dismissed { text-decoration: line-through; opacity: .45; }
+/* `Hide dismissed` stays a radio and a sibling selector, like the two filters
+   above it: the script owns the state, CSS filters on it. `.all-dismissed` is
+   set on the <section> and on the nav <div> together, so a disposition nobody
+   has anything left to read retires its heading and its sidebar block at once.
+   The two producer variants are what makes that true under the `Pass` filter as
+   well: with `Security` selected, a disposition whose security findings are all
+   dismissed is empty on screen whatever its quality findings are doing. */
+#f-dism-hide:checked ~ .layout .dismissed,
+#f-dism-hide:checked ~ .layout .group.all-dismissed,
+#f-prod-security:checked ~ #f-dism-hide:checked ~ .layout .group.all-dismissed-security,
+#f-prod-quality:checked ~ #f-dism-hide:checked ~ .layout .group.all-dismissed-quality { display: none; }
 
 .corroboration { background: var(--chip-bg); border-left: 3px solid var(--accent);
   padding: 8px 12px; margin: 14px 0 0; font-size: 14px; border-radius: 0 5px 5px 0; }

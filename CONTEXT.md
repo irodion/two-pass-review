@@ -51,6 +51,14 @@ _Avoid_: duplicate, dedupe, merge
 The single blocked-or-not judgment for a run. Derived from the findings' dispositions, never authored, so it cannot contradict the list beneath it.
 _Avoid_: summary, conclusion, recommendation
 
+**Dismissal**:
+A reader's session-scoped mark on a finding, meaning _I have dealt with this_. It has no bearing on the finding's disposition or on the verdict — dismissing every blocking finding does not clear a blocked report. Evaporates on reload, because a report is a snapshot of one diff and a stale mark against a regenerated one would mislead.
+_Avoid_: resolved, fixed, waived, done
+
+**Dismissed**:
+Of a finding, carrying that mark. Never a synonym for resolved, fixed, or waived — none of which the report can observe.
+_Avoid_: closed, handled, cleared
+
 **Closing prose**:
 The non-finding narrative a pass writes around its findings — what it checked and found sound, what it wants fixed and in what order. Preserved per pass, never synthesized across passes.
 _Avoid_: summary, notes, commentary

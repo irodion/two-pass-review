@@ -622,9 +622,10 @@ PAGE = """<!doctype html>
         <p class="filter-title">Show</p>
         <label for="f-block-all" class="pill pill-block-all">Everything</label>
         <label for="f-block-only" class="pill pill-block-only">Blocking only</label>
-        <p class="filter-title">Dismissed</p>
-        <label for="f-dism-keep" class="pill pill-dism-keep">Keep visible</label>
-        <label for="f-dism-hide" class="pill pill-dism-hide">Hide dismissed</label>
+        <p class="dism-link" hidden>
+          <label for="f-dism-hide" class="dism-hide">Hide <span class="dism-count">0</span> dismissed</label>
+          <label for="f-dism-keep" class="dism-show">Show dismissed (<span class="dism-count">0</span>)</label>
+        </p>
       </div>
     </div>
     <nav>
@@ -761,6 +762,20 @@ SCRIPT = """
     }
   }
 
+  // The one control that cannot be a pill: until the reader dismisses something
+  // there is nothing to hide, and a filter for an empty set is a lit control for a
+  // state that does not exist. So the line is hidden until the first mark and
+  // carries the count, which is the only thing here the script writes -- digits it
+  // counted itself, into a span, never markup.
+  function refreshDismissedLink() {
+    var count = document.querySelectorAll('.finding.dismissed').length;
+    var line = document.querySelector('.dism-link');
+    if (!line) { return; }
+    line.hidden = count === 0;
+    var spans = line.querySelectorAll('.dism-count');
+    for (var i = 0; i < spans.length; i++) { spans[i].textContent = String(count); }
+  }
+
   document.addEventListener('click', function (event) {
     var button = event.target.closest ? event.target.closest('.dismiss') : null;
     if (!button) { return; }
@@ -773,6 +788,7 @@ SCRIPT = """
     var entry = document.getElementById('nav-' + card.id.replace('finding-', ''));
     if (entry) { entry.classList.toggle('dismissed', dismissed); }
     retally(card.getAttribute('data-disposition'));
+    refreshDismissedLink();
   });
 })();
 """
@@ -849,9 +865,21 @@ main { min-width: 0; }
 #f-prod-security:checked ~ .layout .pill-prod-security,
 #f-prod-quality:checked ~ .layout .pill-prod-quality,
 #f-block-all:checked ~ .layout .pill-block-all,
-#f-block-only:checked ~ .layout .pill-block-only,
-#f-dism-keep:checked ~ .layout .pill-dism-keep,
-#f-dism-hide:checked ~ .layout .pill-dism-hide { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+#f-block-only:checked ~ .layout .pill-block-only { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+/* Not a filter pair, because for most of a report's life there is nothing to
+   filter: the reader has dismissed nothing, and two pills saying so were two
+   permanently-lit controls for a state that does not exist yet. The line stays
+   hidden until the first mark, and the script writes only the count -- both
+   captions are labels for the two radios that were already here, so the state is
+   still a radio and the swap is still CSS. */
+.dism-link { margin: 12px 0 0; font-size: 12.5px; }
+.dism-link label { color: var(--muted); cursor: pointer;
+  text-decoration: underline; text-decoration-style: dotted; }
+.dism-link label:hover { color: var(--ink); }
+.dism-show { display: none; }
+#f-dism-hide:checked ~ .layout .dism-hide { display: none; }
+#f-dism-hide:checked ~ .layout .dism-show { display: inline; }
 
 nav .nav-group { margin: 16px 0 6px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 /* The first group's top margin used to collapse into the filters' bottom margin

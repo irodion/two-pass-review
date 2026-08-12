@@ -214,6 +214,19 @@ Answer each by looking, never by recalling:
    target is emitted with `confidence` set and the missing evidence in `confidence_rationale`, or it
    is not a finding yet.
 
+## Sweep the repository before you close
+
+The claims this rubric wants are claims about the whole codebase, and they take a procedure, not a
+mood. Run this before you write your envelope:
+
+1. **For every helper or pattern the diff introduces**, search the repository — `git grep` the obvious
+   names — for the canonical thing it may be duplicating, before concluding nothing exists.
+2. **For every function whose signature or return shape changed**, find its callers, including the
+   ones the diff never touched. A caller left behind, or contorted to fit, is evidence about the
+   boundary — and often the finding.
+3. **For every file the diff meaningfully grows**, open the whole file and ask the two-modules
+   question of what it now holds, not of the hunks alone.
+
 ## Emit each finding the moment you have argued it
 
 Append one JSON object per line to `findings.quality.jsonl` **as you finish arguing each finding**, not

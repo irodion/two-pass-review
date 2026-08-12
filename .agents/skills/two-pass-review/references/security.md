@@ -78,6 +78,21 @@ Answer each by looking, never by recalling:
    carries `confidence` with the missing evidence named in `confidence_rationale`, or it is not a
    finding yet.
 
+## Sweep the callers before you close
+
+The breakage this rubric weights most heavily rarely sits in the hunks — it sits in the code the hunks
+forgot. Tracing side effects is a procedure, not a mood, so run this before you write your envelope:
+
+1. **List what the diff changed the shape or meaning of** — every function whose signature, return
+   shape, or behaviour changed; every name renamed or removed; every environment variable or config
+   key that moved.
+2. **Search the whole repository for each one's users** — `git grep <name>` — and scripts, configs
+   and docs count as users just as much as code does.
+3. **Open every user the diff did not update** and decide whether it still works. A caller still
+   unpacking the old shape, a script still exporting the old variable name — report these, and locate
+   them where the victim lives: the defect is caused by code this diff modifies, so the scope rule is
+   satisfied however untouched the breaking file is.
+
 ## Emit each finding the moment you have argued it
 
 Append one JSON object per line to `findings.security.jsonl` **as you finish arguing each finding**, not

@@ -21,6 +21,7 @@ and, for line-oriented input, the line that carries the defect. Exit status is
 0 when everything validates and 1 when anything does not.
 """
 
+import argparse
 import json
 import os
 import re
@@ -321,7 +322,23 @@ def check_locations(report, where, locations, repo=None):
         # real lines, which only reading the file can catch.
         if repo is None or path is None:
             continue
-        target = os.path.join(repo, path)
+        # `path` is written by a pass that read a possibly hostile repository,
+        # so it is confined before it is used. An absolute path hands
+        # os.path.join the right to discard `repo` entirely -- documented
+        # behaviour, not an edge case -- and a relative one can walk out
+        # through `..` or a symlink. realpath on both sides settles the
+        # question by what the filesystem would actually open.
+        if os.path.isabs(path):
+            report.add(at, "'path' must be relative to the repository root")
+            continue
+        root = os.path.realpath(repo)
+        target = os.path.realpath(os.path.join(root, path))
+        if target != root and not target.startswith(root + os.sep):
+            report.add(
+                at,
+                "'path' {!r} resolves outside the repository -- a location names a file inside the checkout".format(path),
+            )
+            continue
         if not os.path.isfile(target):
             report.add(
                 at,
@@ -342,11 +359,20 @@ def check_locations(report, where, locations, repo=None):
 def _line_count(path):
     # Bytes, not text: the located file can be anything the repository holds,
     # and an encoding error here would turn a valid finding into a traceback.
+    # Streamed, for the same reason: validating one artifact should not cost
+    # the largest located file's size in memory.
+    count = 0
+    chunk = b""
     with open(path, "rb") as handle:
-        data = handle.read()
-    if not data:
-        return 0
-    return data.count(b"\n") + (0 if data.endswith(b"\n") else 1)
+        while True:
+            chunk_read = handle.read(1 << 16)
+            if not chunk_read:
+                break
+            chunk = chunk_read
+            count += chunk.count(b"\n")
+    if chunk and not chunk.endswith(b"\n"):
+        count += 1
+    return count
 
 
 def check_ids_contiguous(report, where, ids_by_producer):
@@ -702,31 +728,24 @@ def validate_paths(paths, repo=None):
 
 
 def main(argv):
+    parser = argparse.ArgumentParser(add_help=True)
+    parser.add_argument("paths", metavar="FILE", nargs="+")
+    parser.add_argument("--repo")
+    try:
+        args = parser.parse_args(argv[1:])
+    except SystemExit:
+        return 2
+
     repo = None
-    paths = []
-    arguments = argv[1:]
-    index = 0
-    while index < len(arguments):
-        argument = arguments[index]
-        if argument == "--repo":
-            if index + 1 == len(arguments):
-                sys.stderr.write("--repo needs a path\n")
-                return 2
-            repo = arguments[index + 1]
-            index += 2
-            continue
-        paths.append(argument)
-        index += 1
-    # A wrong --repo is the operator's mistake, not the artifact's: refusing
-    # here keeps it out of the repair loop, which can fix findings but not
-    # the command it was invoked with.
-    if repo is not None and not os.path.isdir(repo):
-        sys.stderr.write("--repo {!r} is not a directory\n".format(repo))
-        return 2
-    if not paths:
-        sys.stderr.write(__doc__.split("\n\n", 1)[1])
-        return 2
-    problems = validate_paths(paths, repo)
+    if args.repo is not None:
+        repo = os.path.abspath(os.path.expanduser(args.repo))
+        # A wrong --repo is the operator's mistake, not the artifact's:
+        # refusing here keeps it out of the repair loop, which can fix
+        # findings but not the command it was invoked with.
+        if not os.path.isdir(repo):
+            sys.stderr.write("--repo {!r} is not a directory\n".format(args.repo))
+            return 2
+    problems = validate_paths(args.paths, repo)
     if problems:
         sys.stderr.write("Validation failed. Fix each of these and validate again:\n\n")
         for problem in problems:

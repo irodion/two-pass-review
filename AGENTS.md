@@ -36,6 +36,37 @@ natural tool — collapsing is still `<details>`, filtering is still hidden radi
 and neither wants rewriting. Reach for a handler when the alternative is contorting the page around its
 absence.
 
+## Python generates the page; JavaScript only adds behaviour to it
+
+The obvious question, once the page runs a script at all, is why the generator is still Python. It is
+not an inconsistency. **Use the runtime that is already present** — that rule just resolves differently
+on a machine than it does in a browser.
+
+The reader already has a browser, so script *in the page* costs nothing to run. Node is a runtime
+somebody has to install, and macOS ships none. Python 3 is on macOS and on essentially every Linux box.
+Since the skill is copied into other people's repositories and run by an agent, a rewrite to Node would
+trade a dependency that is always there for one that frequently is not, and buy only the pleasure of
+one language.
+
+The sharpest version of the question is `markdown_subset.py`: 237 lines of hand-rolled markdown that
+could, in principle, move to the browser and be deleted. Three reasons it does not:
+
+- **You would hand-roll it again.** No CDN and no build step means no `marked` — the renderer would be
+  inlined and written here, in a new language, for the same work.
+- **Escaping would move into JavaScript**, where it is easier to get wrong. The Python path is correct
+  *by construction* — escape the whole string, then apply structure — and that property is worth more
+  than a deleted file.
+- **The report would stop being a document.** It is one self-contained file that people forward by
+  email. Render it client-side and the HTML holds JSON instead of text, so everything that reads the
+  file without executing script sees nothing: mail previews, `grep`, text extraction, an agent reading
+  it off disk. A report should be a document, not an application.
+
+That last one is the load-bearing reason. So: **Python renders; JavaScript adds behaviour to what
+Python rendered.** JavaScript does not become the rendering engine.
+
+Revisit this if the page ever grows real interactivity — live search, sorting, thousands of findings —
+because then the balance genuinely does shift. It has not yet.
+
 ## The rubrics are forked text
 
 `references/security.md` and `references/code-quality.md` come from Cursor's `thermos` plugin (MIT). The

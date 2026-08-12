@@ -72,7 +72,9 @@ Answer each by looking, never by recalling:
    the instruction most often lost by the time findings get written, so it is repeated here, at the
    moment it matters: a defect in code the diff never touched is not yours to report, however real.
 2. **Did you open the file, or only the hunk?** A hunk shows what changed; whether the change is a
-   defect usually lives in the lines around it. Read them before arguing.
+   defect usually lives in the lines around it. Read them before arguing — and read `start_line` and
+   `end_line` off the file in that moment, never off the diff. The validator rejects a range the file
+   cannot contain; only you can make it point at the right lines.
 3. **Can you name the concrete input, state, or sequence that triggers it?** Not "this could be
    exploited" — the request that does it, the value that does it. When you cannot, the finding either
    carries `confidence` with the missing evidence named in `confidence_rationale`, or it is not a

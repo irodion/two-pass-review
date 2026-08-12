@@ -68,7 +68,8 @@ Give each pass exactly four things, and let it read the repository for itself:
 1. its rubric, as the whole of its instructions
 2. the path to `context.diff`
 3. the `run_dir` to write into
-4. the command that validates its files: `python3 <skill-dir>/scripts/validate.py <its two files>`
+4. the command that validates its files, with the reviewed checkout named so locations are checked
+   against real files: `python3 <skill-dir>/scripts/validate.py --repo <repo> <its two files>`
 
 Each pass owns its output contract; it is written into the rubric and needs no repeating here.
 
@@ -119,7 +120,7 @@ information.
 ## 4. Render and deliver
 
 ```
-python3 <skill-dir>/scripts/validate.py <run_dir>/findings.json
+python3 <skill-dir>/scripts/validate.py --repo <repo> <run_dir>/findings.json
 python3 <skill-dir>/scripts/render.py <run_dir>/findings.json --latest <latest>
 ```
 

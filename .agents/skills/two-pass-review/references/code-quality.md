@@ -208,7 +208,9 @@ Answer each by looking, never by recalling:
    at the moment it matters: mess the diff merely sits near is not yours to report, however real.
 2. **Did you open the file, or only the hunk?** A hunk cannot show that a file now holds two modules,
    or that a helper the diff duplicates already exists. The claims this rubric wants are claims about
-   the surrounding code, so read it before arguing.
+   the surrounding code, so read it before arguing — and read `start_line` and `end_line` off the file
+   in that moment, never off the diff. The validator rejects a range the file cannot contain; only you
+   can make it point at the right lines.
 3. **Is the remedy concrete enough to act on this afternoon?** Not "consider splitting this file" —
    the seam named, the new module named, the canonical helper pointed at. Ambition without a named
    target is emitted with `confidence` set and the missing evidence in `confidence_rationale`, or it

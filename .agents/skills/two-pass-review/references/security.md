@@ -64,6 +64,20 @@ You write two files into the run directory:
 - `findings.security.jsonl` — one finding per line
 - `pass.security.json` — your envelope
 
+## Three questions before a finding earns a line
+
+Answer each by looking, never by recalling:
+
+1. **Is the defect in code this diff adds or modifies?** The scope rule at the top of this rubric is
+   the instruction most often lost by the time findings get written, so it is repeated here, at the
+   moment it matters: a defect in code the diff never touched is not yours to report, however real.
+2. **Did you open the file, or only the hunk?** A hunk shows what changed; whether the change is a
+   defect usually lives in the lines around it. Read them before arguing.
+3. **Can you name the concrete input, state, or sequence that triggers it?** Not "this could be
+   exploited" — the request that does it, the value that does it. When you cannot, the finding either
+   carries `confidence` with the missing evidence named in `confidence_rationale`, or it is not a
+   finding yet.
+
 ## Emit each finding the moment you have argued it
 
 Append one JSON object per line to `findings.security.jsonl` **as you finish arguing each finding**, not
@@ -73,8 +87,14 @@ all of them.
 One line, one object, no trailing commas, no wrapping array.
 
 ```json
-{"id": "sec-3", "producer": "security", "disposition": "blocking", "severity": "medium", "title": "Trust rule loses its fourth derivation when evidence is None", "locations": [{"path": "src/resynth.py", "start_line": 153, "end_line": 176}, {"path": "src/trust.py"}], "body_md": "…claim and remedy, one block…"}
+{"id": "sec-1", "producer": "security", "disposition": "blocking", "severity": "high", "title": "Session cookie loses Secure when HOST_ENV is unset", "locations": [{"path": "src/session.py", "start_line": 41, "end_line": 44}], "body_md": "The diff derives the cookie flag from the deployment environment:\n\n```python\nsecure = os.environ.get(\"HOST_ENV\") == \"production\"\n```\n\nStaging leaves `HOST_ENV` unset, so every staging session cookie ships without `Secure` and survives a downgrade to plain HTTP. Derive the flag from the request scheme instead, or default it to `True` and opt out explicitly where TLS genuinely is not terminated."}
 ```
+
+That example is complete, and it is **one physical line**. `body_md` holds markdown, and markdown is
+made of newlines — every one of them is written as the two characters `\n` inside the JSON string,
+never as a real line break. The body above renders as two paragraphs around a fenced block; in the
+file it stays on the line it started. A real newline mid-object splits it into two lines, neither of
+which parses, and the repair that follows costs one of your two validation attempts.
 
 | field | required | value |
 |---|---|---|
@@ -136,6 +156,11 @@ lower one and say why in the body.
 
 Argue the finding and say what to do about it in the same prose. Do not split them; a remedy read apart
 from its argument is a suggestion with no weight behind it.
+
+**Open with the evidence.** The body's first move is a short verbatim excerpt of the lines the finding
+is about, fenced, before any argument. A quote is the one part of a finding that can be checked against
+the repository byte for byte — it is what lets the reader weigh the argument that follows, and a claim
+that cannot produce the lines it is about was not ready to emit.
 
 Write in this subset, which is all the report renders:
 

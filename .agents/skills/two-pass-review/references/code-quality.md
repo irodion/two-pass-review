@@ -199,6 +199,21 @@ You write two files into the run directory:
 - `findings.quality.jsonl` — one finding per line
 - `pass.quality.json` — your envelope
 
+## Three questions before a finding earns a line
+
+Answer each by looking, never by recalling:
+
+1. **Is the problem in code this diff adds or modifies?** The rubric reviews the branch's changes, and
+   that constraint is the one most often lost by the time findings get written, so it is repeated here,
+   at the moment it matters: mess the diff merely sits near is not yours to report, however real.
+2. **Did you open the file, or only the hunk?** A hunk cannot show that a file now holds two modules,
+   or that a helper the diff duplicates already exists. The claims this rubric wants are claims about
+   the surrounding code, so read it before arguing.
+3. **Is the remedy concrete enough to act on this afternoon?** Not "consider splitting this file" —
+   the seam named, the new module named, the canonical helper pointed at. Ambition without a named
+   target is emitted with `confidence` set and the missing evidence in `confidence_rationale`, or it
+   is not a finding yet.
+
 ## Emit each finding the moment you have argued it
 
 Append one JSON object per line to `findings.quality.jsonl` **as you finish arguing each finding**, not
@@ -208,8 +223,14 @@ all of them.
 One line, one object, no trailing commas, no wrapping array.
 
 ```json
-{"id": "qa-14", "producer": "quality", "disposition": "follow-up", "category": "modularity-decomposition", "title": "Renderer holds both the markdown subset and the page layout", "locations": [{"path": "scripts/render.py", "start_line": 210, "end_line": 480}], "body_md": "…claim and remedy, one block…"}
+{"id": "qa-1", "producer": "quality", "disposition": "follow-up", "category": "branching-complexity", "title": "Retry logic branches on caller identity instead of taking a policy", "locations": [{"path": "src/fetch.py", "start_line": 88, "end_line": 117}], "body_md": "The diff threads a `from_cron` flag through three call sites so `fetch()` can pick a retry count:\n\n```python\nretries = 5 if from_cron else 2\n```\n\nEvery new caller will grow this branch. Make the retry count a parameter with a default of 2 — callers that need more say so, `from_cron` disappears from `fetch()` entirely, and the cron-specific knowledge stays in the cron module where it started."}
 ```
+
+That example is complete, and it is **one physical line**. `body_md` holds markdown, and markdown is
+made of newlines — every one of them is written as the two characters `\n` inside the JSON string,
+never as a real line break. The body above renders as two paragraphs around a fenced block; in the
+file it stays on the line it started. A real newline mid-object splits it into two lines, neither of
+which parses, and the repair that follows costs one of your two validation attempts.
 
 | field | required | value |
 |---|---|---|
@@ -264,6 +285,11 @@ category tiers do not answer it either.
 Argue the finding and say what to do about it in the same prose. Do not split them; a remedy read apart
 from its argument is a suggestion with no weight behind it, and this rubric's whole demand is that the
 remedy be ambitious enough to be worth the argument.
+
+**Open with the evidence.** The body's first move is a short verbatim excerpt of the code the finding
+is about, fenced, before any argument. A quote is the one part of a finding that can be checked against
+the repository byte for byte — it is what lets the reader weigh the argument that follows, and a claim
+that cannot produce the lines it is about was not ready to emit.
 
 Write in this subset, which is all the report renders:
 

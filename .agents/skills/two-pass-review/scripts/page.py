@@ -134,6 +134,77 @@ def location_chip(location, primary):
     return '<span class="chip{}">{}</span>'.format(" chip-primary" if primary else "", label)
 
 
+# Appended after the payload by the second copy button. A suffix, not a
+# template: the payload is a complete finding, so there is nothing to interpolate
+# into and no placeholder to validate.
+PROMPT_WRAPPER = (
+    "verify the review comment, assess it against the real code and propose "
+    "solutions (options), wait for my choice, always recommend one and explain why."
+)
+
+
+def copy_payload(finding, partners):
+    """The markdown one copy button puts on the clipboard, for one finding.
+
+    Composed from the finding dict rather than scraped from the rendered card:
+    `body_md` is right here, and an agent reads the pass's own markdown better
+    than it reads the HTML the pass's markdown turned into. This is the only
+    place the page carries un-rendered source text, and that is deliberate.
+    """
+    lines = ["## {} — {}".format(finding["id"], Markdown.plain(finding["title"])), ""]
+
+    axis = finding.get("severity") or CATEGORY_LABEL.get(finding.get("category"), finding.get("category"))
+    meta = "{} pass · {}".format(finding["producer"], finding["disposition"])
+    if axis:
+        meta += " · {}".format(axis)
+    lines.append(meta)
+
+    # Stated only when it is not high, matching the card. The rationale names the
+    # missing evidence, which is exactly what the agent is being asked to go and
+    # check -- on the card it is a `title` attribute nobody hovers.
+    if finding.get("confidence") in ("medium", "low"):
+        rationale = finding.get("confidence_rationale") or ""
+        lines.append("{} confidence{}".format(finding["confidence"], " — " + rationale if rationale else ""))
+
+    for location in finding.get("locations") or []:
+        start, end = location.get("start_line"), location.get("end_line")
+        if start and end and end != start:
+            lines.append("`{}:{}-{}`".format(location["path"], start, end))
+        elif start:
+            lines.append("`{}:{}`".format(location["path"], start))
+        else:
+            lines.append("`{}`".format(location["path"]))
+
+    # Named, not pasted. The partner is a second finding with its own button, and
+    # two bodies under one button leave the reader unsure what they just copied.
+    for partner in partners:
+        lines.append(
+            'Corroborated by {} — "{}"'.format(partner["id"], truncate(Markdown.plain(partner["title"]), 96))
+        )
+
+    lines += ["", finding["body_md"], "", "— two-pass-review finding {}".format(finding["id"])]
+    return "\n".join(lines)
+
+
+def copy_controls(payload):
+    """Two buttons, one payload, carried in an attribute.
+
+    `esc` gives `quote=True`, which is what makes the value safe in an attribute;
+    newlines are then encoded so the opening tag stays on one line. Both are
+    escaping, not structure, so escape-first is untouched -- and the handler only
+    ever moves this string to the clipboard, never evaluates it.
+    """
+    def attr(text):
+        return esc(text).replace("\n", "&#10;")
+
+    return (
+        '<div class="copy">'
+        '<button type="button" class="copy-btn" data-copy="{plain}">Copy</button>'
+        '<button type="button" class="copy-btn" data-copy="{wrapped}">Copy for agent</button>'
+        "</div>"
+    ).format(plain=attr(payload), wrapped=attr(payload + "\n\n" + PROMPT_WRAPPER))
+
+
 def render_finding(finding, markdown, partners):
     finding_id = finding["id"]
     bits = ['<article class="finding" id="finding-{}" data-producer="{}" data-disposition="{}">'.format(
@@ -184,6 +255,7 @@ def render_finding(finding, markdown, partners):
         )
 
     bits.append('<div class="body">{}</div>'.format(markdown.render(finding["body_md"], self_id=finding_id)))
+    bits.append(copy_controls(copy_payload(finding, partners)))
     bits.append("</article>")
     return "\n".join(bits)
 
@@ -412,6 +484,7 @@ def render_page(merged):
         scope_section=render_scope(merged["run"], merged["passes"]),
         groups="\n".join(main),
         prose=render_pass_prose(merged["passes"], markdown),
+        script=SCRIPT,
     )
 
 
@@ -460,8 +533,63 @@ PAGE = """<!doctype html>
     {prose}
   </main>
 </div>
+<script>{script}</script>
 </body>
 </html>
+"""
+
+# The page's only JavaScript, and it stays that way by intent rather than by rule.
+# It moves a string from a data- attribute to the clipboard. It never parses,
+# renders or evaluates that string, so a hostile `body_md` reaching it is inert --
+# escaping still does the security work, exactly as it does everywhere else here.
+#
+# One delegated listener rather than a handler per button: the page can carry a
+# hundred findings, and two hundred listeners to do one thing is silly.
+#
+# execCommand is a deprecated fallback on purpose. It is the one path confirmed by
+# hand in Safari over file://, where the async clipboard write is the less certain
+# of the two, and it costs eight lines to not be broken there.
+SCRIPT = """
+(function () {
+  function fallback(text) {
+    var area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    var copied = false;
+    try { copied = document.execCommand('copy'); } catch (error) { copied = false; }
+    document.body.removeChild(area);
+    return copied;
+  }
+
+  function flash(button, message) {
+    if (button.dataset.busy) { return; }
+    button.dataset.busy = '1';
+    var original = button.textContent;
+    button.textContent = message;
+    setTimeout(function () {
+      button.textContent = original;
+      delete button.dataset.busy;
+    }, 1200);
+  }
+
+  document.addEventListener('click', function (event) {
+    var button = event.target.closest ? event.target.closest('.copy-btn') : null;
+    if (!button) { return; }
+    var text = button.getAttribute('data-copy');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(
+        function () { flash(button, 'Copied'); },
+        function () { flash(button, fallback(text) ? 'Copied' : 'Copy failed'); }
+      );
+    } else {
+      flash(button, fallback(text) ? 'Copied' : 'Copy failed');
+    }
+  });
+})();
 """
 
 CSS = """
@@ -568,6 +696,14 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
   background: var(--chip-bg); border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px;
   user-select: all; -webkit-user-select: all; text-decoration: none; cursor: text; }
 .chip-primary { border-color: var(--accent); color: var(--accent); }
+
+/* Quiet until wanted: a report is for reading, and two buttons per finding
+   shouting for attention would compete with the finding itself. */
+.copy { display: flex; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.copy-btn { font: inherit; font-size: 12.5px; color: var(--muted); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 5px; padding: 4px 10px; cursor: pointer; }
+.copy-btn:hover { color: var(--ink); border-color: var(--accent); }
+.copy-btn[data-busy] { color: var(--accent); border-color: var(--accent); }
 
 .corroboration { background: var(--chip-bg); border-left: 3px solid var(--accent);
   padding: 8px 12px; margin: 14px 0 0; font-size: 14px; border-radius: 0 5px 5px 0; }

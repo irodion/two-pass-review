@@ -17,15 +17,24 @@ A 3.10+ construct passes silently under the newer interpreter and fails for the 
 touch a script: the old one proves the syntax floor, the new one catches deprecations that get written to
 stderr — which the orchestrator reads as though something failed.
 
-## Three constraints that are not negotiable
+## Two constraints that are not negotiable
 
 - **Stdlib only.** No dependencies, no network, no build step. The skill is copied into other people's
   repositories, and anything it needs installed is something that will be missing.
-- **The page has no JavaScript.** Not "very little" — none. It is opened over `file://` and forwarded by
-  email, and emitting no script tags deletes an entire class of escaping bug rather than mitigating it.
-  Collapsing is `<details>`; filtering is hidden radios and sibling selectors.
 - **Escape first, then apply structure.** `html.escape(..., quote=True)` runs on the whole string before
   any structural regex touches it, so no code path can emit an unescaped byte.
+
+There used to be a third: the page carried no JavaScript at all. It was removed deliberately. Escaping
+is what prevents injection here, and it does that whether or not a script tag is present — the ban was
+buying no safety the escaping did not already buy, while costing real functionality. Copy-to-clipboard
+was the case that settled it: preserving the ban meant `user-select: all`, two gestures, and the payload
+duplicated on the page as visible text, against fifteen lines of handler that reads a `data-` attribute
+and never evaluates what it copies.
+
+So: JavaScript on the page is allowed, and should stay proportionate. Prefer CSS where CSS is the
+natural tool — collapsing is still `<details>`, filtering is still hidden radios and sibling selectors,
+and neither wants rewriting. Reach for a handler when the alternative is contorting the page around its
+absence.
 
 ## The rubrics are forked text
 
@@ -64,14 +73,14 @@ anything about reviewing code:
   *and runs* with `DeprecationWarning` and `SyntaxWarning` fatal: `scope.py` over a real revision range,
   `validate.py` and `render.py` down their refusal paths. Importing alone was not enough — a deprecation
   inside a `main()` is invisible to it, which is how `datetime.utcnow()` would have got through.
-- **`constraints`** — `.github/checks.py`: every import is stdlib; `page.py`'s **string literals** spell no
-  script tag and no `on*=` attribute; `markdown_subset` refuses `javascript:`, `data:` and `vbscript:` when
-  actually run on them; the committed `.claude/skills/` symlink is relative and resolves; every relative
-  link in the docs points at a file a clone has.
+- **`constraints`** — `.github/checks.py`: every import is stdlib; `markdown_subset` refuses `javascript:`,
+  `data:` and `vbscript:` when actually run on them; the committed `.claude/skills/` symlink is relative
+  and resolves; every relative link in the docs points at a file a clone has.
 
-  Read that second one narrowly. It inspects literals, so markup that is *assembled* — `"<div {}>".format(attr)`
-  — passes whatever `attr` holds. It is a tripwire on the way a handler would be written, not a proof the
-  page has none, and it prints a line that says so rather than "no JavaScript".
+  The sanitiser check is the one that matters most and it survives the no-JavaScript rule's removal
+  intact — arguably it matters more now. A pass quotes the code under review, so a hostile repository can
+  get a string of its choosing into `body_md`, and the `href` allowlist is what stops that string
+  becoming a `javascript:` link. That was never the same thing as the page carrying no script of its own.
 - **`readme install`** — `.github/replay-readme-install.sh` extracts the `sh` blocks from `README.md` and
   runs them. It does not keep its own copy of the commands, because a copy would have passed every time
   the real ones were broken, which by then was three commands across two reviews.

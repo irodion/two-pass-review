@@ -24,7 +24,8 @@ trusting whoever invoked it.
 
 No dependencies, no network, no build step. The report is one self-contained file — no sibling assets, no
 embedded JSON, nothing fetched — which is why it works over `file://` and still works after you email it
-to someone. Its only script is a small clipboard handler behind the copy buttons.
+to someone. Its whole script is a clipboard handler behind the copy buttons and a class toggle behind
+`Mark dealt with`.
 
 ## Installing it somewhere else
 
@@ -124,9 +125,18 @@ loudly they shout, derived from severity for security findings and from category
   disposition, severity, locations and body, plus the confidence rationale when there is one. `Copy for
   agent` appends an instruction asking an agent to verify the finding against the real code and propose
   options. A corroborated finding names its partner rather than pasting it; the partner has its own button.
-- Filters for pass and for blocking-only are pure CSS. The page's only JavaScript is the clipboard
-  handler: it moves a string from an attribute to the clipboard, and never parses, renders or evaluates
-  it. Everything a pass wrote is escaped before it reaches the page, script or no script.
+- **Every finding can be marked dealt with.** `✓ Mark dealt with` folds the card to its title, strikes
+  the title through, and strikes the sidebar entry with it, so the nav stops advertising findings you
+  have already dealt with and the page compacts as you read. `Hide dismissed` takes those findings out of the flow
+  entirely, and a disposition whose findings are all dismissed takes its heading with it. Undo is where
+  the card is. A heading counts what is left beside what the passes found — `Blocking · 3 of 7` — so
+  your progress never overwrites the run's own number. It is a mark on your reading, not on the
+  finding: it does not touch the verdict, and none of it survives a reload — a report is a snapshot of
+  one diff, and a stale mark against a regenerated one would mislead.
+- Filters for pass, for blocking-only and for dismissal are pure CSS: the script owns the mark, and
+  hidden radios and sibling selectors filter on it. The page's whole script is that and the clipboard
+  handler — neither parses, renders or evaluates anything a pass wrote. Everything a pass wrote is
+  escaped before it reaches the page, script or no script.
 
 ## On Codex
 

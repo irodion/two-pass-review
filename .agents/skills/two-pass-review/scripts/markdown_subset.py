@@ -9,11 +9,19 @@ well-known package of that name for anything else running in the process.
 import html
 import re
 
-# The page runs one script of its own -- a fixed clipboard handler -- and nothing
-# it *renders* may run anything. An `href` is the one place a URL scheme can turn
-# rendered text into code, so links carry an allowlist rather than a blocklist:
-# `javascript:` is the obvious one, `data:text/html` and `vbscript:` are the
-# ones a blocklist forgets. Anything else renders as the text the pass wrote.
+# The page runs a fixed script of its own -- a clipboard handler and a dismissal
+# toggle -- and nothing it *renders* may run anything. Neither handler is what
+# this guards. The dismissal toggle reads nothing a pass wrote. The clipboard
+# handler does: `data-copy` carries `body_md`, escaped into the attribute before
+# it was written there, and the handler moves that string to the clipboard
+# verbatim without ever parsing or evaluating it. Escaped in, inert out.
+#
+# An `href` is the other thing rendered *from* what a pass wrote, and it is the
+# one place a URL scheme can turn rendered text into code -- escaping alone does
+# not help, because `javascript:alert(1)` survives it unchanged. So links carry
+# an allowlist rather than a blocklist: `javascript:` is the obvious one,
+# `data:text/html` and `vbscript:` are the ones a blocklist forgets. Anything
+# else renders as the text the pass wrote.
 #
 # This is not hypothetical. A pass quotes the code under review, so a hostile
 # repository can get a string of its choosing into `body_md`.

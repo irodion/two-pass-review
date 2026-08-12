@@ -6,8 +6,9 @@ Usage:
 
 Stdlib only, Python 3.9 syntax. The page carries no embedded JSON, no network
 requests and no sibling assets -- everything it needs is in the single file it
-writes. Its one script is a fixed clipboard handler behind the copy buttons;
-nothing a pass wrote is ever interpolated into it.
+writes. Its script is fixed -- a clipboard handler behind the copy buttons and a
+class toggle behind `Mark dealt with` -- and nothing a pass wrote is ever
+interpolated into it.
 
 Internal flags (not user-facing surface):
     --no-open        write and print the path without launching a browser

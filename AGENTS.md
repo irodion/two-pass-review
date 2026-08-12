@@ -104,9 +104,16 @@ anything about reviewing code:
   *and runs* with `DeprecationWarning` and `SyntaxWarning` fatal: `scope.py` over a real revision range,
   `validate.py` and `render.py` down their refusal paths. Importing alone was not enough — a deprecation
   inside a `main()` is invisible to it, which is how `datetime.utcnow()` would have got through.
-- **`constraints`** — `.github/checks.py`: every import is stdlib; `markdown_subset` refuses `javascript:`,
-  `data:` and `vbscript:` when actually run on them; the committed `.claude/skills/` symlink is relative
-  and resolves; every relative link in the docs points at a file a clone has.
+- **`constraints`** — `.github/checks.py`: every import is stdlib; `page.py`'s `SCRIPT` constant parses as
+  JavaScript; `markdown_subset` refuses `javascript:`, `data:` and `vbscript:` when actually run on them;
+  the committed `.claude/skills/` symlink is relative and resolves; every relative link in the docs points
+  at a file a clone has.
+
+  The `SCRIPT` check exists because the page's one script lives inside a Python string, where neither
+  `py_compile` nor the 3.9 and 3.13 jobs can see it — a typo would ship a page that renders perfectly and
+  a button that silently does nothing. It runs `node --check`, which parses without executing. Read it as
+  narrowly as it is written: it catches a typo, not a mistake. Misspell `data-copy` or get the selector
+  wrong and it passes while the button stays dead. It skips, loudly, where `node` is absent.
 
   The sanitiser check is the one that matters most and it survives the no-JavaScript rule's removal
   intact — arguably it matters more now. A pass quotes the code under review, so a hostile repository can

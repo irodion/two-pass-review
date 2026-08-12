@@ -40,8 +40,9 @@ Note that `cursor/plugins` carries no root licence; licensing there is per-plugi
 implementation. Two bodies of prior art informed that specification:
 
 - **`cursor-team-kit/skills/pr-review-canvas/`** (MIT © 2026 Cursor) — a plain HTML/CSS/JS renderer. Its
-  `</script>`-terminates-the-tag hazard is designed out here rather than mitigated: this renderer emits no
-  JavaScript at all.
+  `</script>`-terminates-the-tag hazard is designed out here rather than mitigated: every string is
+  escaped before any structural regex touches it, and the one script this page carries is a fixed
+  constant with nothing a pass wrote interpolated into it.
 - **OpenAI's `codex-security` plugin** — licensed **`Proprietary`**. It was read for lessons about report
   shape and validation, and **nothing was copied from it**: not a file, not a function, not a CSS rule. The
   interface shape of `scripts/scope.py` follows the same `--repo/--base/--mode/--head` argument vocabulary,

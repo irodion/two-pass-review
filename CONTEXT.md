@@ -66,5 +66,5 @@ The JSON one pass writes. Each pass writes its own; a merge produces the combine
 _Avoid_: output, results file
 
 **Report**:
-The rendered HTML page — one file, no JavaScript, opened over `file://`.
+The rendered HTML page — one self-contained file, opened over `file://`.
 _Avoid_: cockpit, canvas, output, page

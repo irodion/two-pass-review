@@ -656,6 +656,9 @@ PAGE = """<!doctype html>
     <header class="masthead">
       <p class="sentence">{sentence}</p>
       <p class="scope-line">{scope_line}</p>
+      <p class="disclaimer">This report is machine-written. A finding is a lead until a person has
+      verified it against the code, and a clear verdict means nothing was reported &mdash; never that
+      nothing is there.</p>
       {warnings}
     </header>
     {groups}
@@ -1025,6 +1028,11 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
 .nowrap { white-space: nowrap; }
 .finding-head h3 code { font-size: .92em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
+
+/* The disclaimer is on every page and the warnings are not, so it stays quiet --
+   muted like the scope line, never tinted. Tint it and the run-specific warnings
+   below it stop standing out, which is the one job they have. */
+.disclaimer { color: var(--muted); margin: 10px 0 0; font-size: 13px; line-height: 1.5; }
 
 /* A warning is the one thing on the page that reduces what the findings are
    worth, so it sits in the masthead, tinted, above everything it qualifies. */

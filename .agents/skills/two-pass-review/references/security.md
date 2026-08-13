@@ -59,6 +59,10 @@ run directory, and the command that validates your files. Read repository files 
 *what changed*, not what you are allowed to look at, and a finding may well live in a file the diff never
 touches.
 
+**Do the review yourself.** Never invoke a review skill or hand any of this work to a subagent of your
+own. You and the other pass are peers — one model, one effort — and corroboration is evidence only while
+that holds; work you delegate runs at whatever the host hands it, and quietly stops being peer work.
+
 You write two files into the run directory:
 
 - `findings.security.jsonl` — one finding per line

@@ -657,8 +657,8 @@ PAGE = """<!doctype html>
       <p class="sentence">{sentence}</p>
       <p class="scope-line">{scope_line}</p>
       <p class="disclaimer">This report is machine-written. A finding is a lead until a person has
-      verified it against the code, and a clear verdict means nothing was reported &mdash; never that
-      nothing is there.</p>
+      verified it against the repository, and a clear verdict means nothing was reported &mdash; never
+      that nothing is there.</p>
       {warnings}
     </header>
     {groups}

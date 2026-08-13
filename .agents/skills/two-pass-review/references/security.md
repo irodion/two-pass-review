@@ -75,10 +75,12 @@ Answer each by looking, never by recalling:
    defect usually lives in the lines around it. Read them before arguing — and read `start_line` and
    `end_line` off the file in that moment, never off the diff. The validator rejects a range the file
    cannot contain; only you can make it point at the right lines.
-3. **Can you name the concrete input, state, or sequence that triggers it?** Not "this could be
-   exploited" — the request that does it, the value that does it. When you cannot, the finding either
-   carries `confidence` with the missing evidence named in `confidence_rationale`, or it is not a
-   finding yet.
+3. **Can you name the concrete input, state, or sequence that triggers it — and what the attacker
+   gets?** Not "this could be exploited" — the request that does it, the value that does it, and the
+   gain it buys: whose data, which privilege, what damage. Severity is chosen by that gain, so damage
+   you cannot describe is severity you cannot claim. When you cannot name the trigger or the gain,
+   the finding either carries `confidence` with the missing evidence named in `confidence_rationale`,
+   or it is not a finding yet.
 
 ## Sweep the callers before you close
 

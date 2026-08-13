@@ -295,6 +295,10 @@ category tiers do not answer it either.
 - `follow-up` — real, worth fixing, and it does not block this merge.
 - `note` — you looked, it is real, and it does not deserve the author's afternoon.
 
+Choose by naming the cost: who pays if this merges as-is — the next reader, the next caller, the next
+feature — and when the bill comes due. That named cost is what makes a comment high-conviction rather
+than cosmetic; a cost you cannot name is a `note`, however familiar the pattern looks.
+
 ## `body_md` — claim and remedy in one block
 
 Argue the finding and say what to do about it in the same prose. Do not split them; a remedy read apart

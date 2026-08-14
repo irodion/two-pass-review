@@ -652,7 +652,8 @@ def validate_merged(report, path, repo=None):
 
     check_verdict(report, where, merged.get("verdict"), findings, marks)
     check_passes(report, where, merged.get("passes"), findings)
-    check_self_check(report, where, merged.get("self_check"), by_id, marks_active=marks == "active")
+    if "self_check" in merged:
+        check_self_check(report, where, merged["self_check"], by_id, marks_active=marks == "active")
 
 
 def check_run(report, where, run, version):
@@ -842,9 +843,12 @@ def check_self_check(report, where, self_check, by_id, marks_active):
     reading the corroboration check uses: where the mark itself is the
     reported defect, judging anchors by it would write diagnostics that
     invert once it is repaired.
+
+    The caller gates on key presence, not on value: "no questions" is spelled
+    by omitting the field, and an explicit null is a second spelling of the
+    same thing -- the fork the schema refuses everywhere else -- so null
+    falls into the array refusal below rather than passing as absence.
     """
-    if self_check is None:
-        return
     at = "{} self_check".format(where)
     if not isinstance(self_check, list) or not self_check:
         report.add(at, "'self_check' must be an array holding at least one question -- omit the field when there are none")

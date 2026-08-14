@@ -184,8 +184,12 @@ are the only party that has read the diff, both pass files, and what the merge s
 - **The question names its findings by id**, in the question itself — "does fixing the offset (`sec-3`,
   `qa-1`) also fix the filtering (`qa-3`)?" — so the reader knows what is being asked about before they
   open anything; on the page the ids are live links. The validator refuses a question that names none of
-  its anchors, and one that names a finding its anchors do not carry. Phrase it the way a reviewer would
-  say it across a desk: plain words, one thing asked, no rhetorical flourish.
+  its anchors, and one that names a finding its anchors do not carry.
+- **Write the question and the answer in Simplified Technical English** — ASD-STE100 is the register:
+  short sentences, active voice, one thing asked, one meaning per word. Use the nouns the diff and the
+  findings already use — a function is called what the code calls it, a defect what the finding called
+  it — and never a synonym coined here: the question is a reminder of what the reader just read, and a
+  new name for it is a new thing to decode.
 - **Every question is answerable from the report alone** — the finding's body, or a pass's prose. Never
   from context only the run had, and never about the codebase at large: an answer the reader cannot
   check against the page is trivia, not a self-check.

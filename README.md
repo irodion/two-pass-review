@@ -144,8 +144,8 @@ loudly they shout, derived from severity for security findings and from category
   run's own number. It is a mark on your reading, not on the finding: it does not touch the verdict, and
   none of it survives a reload — a report is a snapshot of one diff, and a stale mark against a
   regenerated one would mislead.
-- **The report may end with a self-check** — up to four questions about what the report itself
-  establishes, each with its answer folded underneath and linked to the findings it rests on. It is a
+- **The report may end with a self-check** — up to four questions, each about one specific standing
+  finding, with its answer folded underneath and linked to the findings it rests on. It is a
   nudge to engage before acting on the verdict, not a gate: the answers live on the page, nothing is
   scored or recorded, and skipping them costs nothing. A thin report carries none — a near-empty review
   earns no quiz.

@@ -176,15 +176,18 @@ to test their own grasp of the report before acting on it. Write them yourself a
 subagent: the falsifier is starved on purpose, but this block wants the opposite, and by this point you
 are the only party that has read the diff, both pass files, and what the merge settled.
 
-- **Every question is answerable from the report alone** — a finding's body, the withdrawn section, a
-  pass's prose. Never from context only the run had: an answer the reader cannot check against the page
-  is trivia, not a self-check.
+- **Every question addresses one specific defect the reader can see** — a standing finding's claim, its
+  remedy, or its blast radius: what a fix must not touch, which other finding it would leave unfixed,
+  what two corroborating findings each saw that the other did not. Never the report's own mechanics —
+  how the verdict derives, what dismissal does, what a link means. A reader quizzed on the page instead
+  of the defects is being checked for attention, and that is not what this block is for.
+- **Every question is answerable from the report alone** — the finding's body, or a pass's prose. Never
+  from context only the run had, and never about the codebase at large: an answer the reader cannot
+  check against the page is trivia, not a self-check.
 - Each entry carries `question` (one plain-language line), `answer_md`, and `anchors` — the ids of the
-  findings the answer rests on. The validator refuses an anchor the artifact does not hold. A withdrawn
-  finding is a legal anchor: what would have to be true for it to have stood is exactly the kind of
-  question that belongs here.
-- Ask about what the report establishes, not about the codebase at large — why one finding outranks
-  another, what a remedy must not touch, what two corroborating findings each saw that the other did not.
+  standing findings the answer rests on. The validator refuses an anchor the artifact does not hold, and
+  a falsified one: a withdrawal is a question the merge already answered, and the reader is only ever
+  quizzed on what they are being asked to act on.
 - **It is a self-check, not a gate.** Nothing scores, records, or depends on the answers; the page says
   so where the questions are. A reader who skips them has lost nothing they were owed.
 - Skip the block entirely when the run gives nothing worth asking — a near-empty report earns no quiz.

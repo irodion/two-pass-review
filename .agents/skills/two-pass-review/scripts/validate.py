@@ -648,7 +648,7 @@ def validate_merged(report, path, repo=None):
 
     check_verdict(report, where, merged.get("verdict"), findings, marks)
     check_passes(report, where, merged.get("passes"), findings)
-    check_self_check(report, where, merged.get("self_check"), by_id)
+    check_self_check(report, where, merged.get("self_check"), by_id, marks_active=marks == "active")
 
 
 def check_run(report, where, run, version):
@@ -822,7 +822,7 @@ def check_verdict(report, where, verdict, findings, marks):
             report.add(where, "verdict is 'blocked' but no finding is tagged 'blocking'")
 
 
-def check_self_check(report, where, self_check, by_id):
+def check_self_check(report, where, self_check, by_id, marks_active):
     """The reader's self-check: at most four questions, grounded in the findings.
 
     Optional and inert: it asserts nothing about the findings, promotes
@@ -830,9 +830,14 @@ def check_self_check(report, where, self_check, by_id):
     it needs no schema version to interpret it. What it does owe is
     checkability: every answer names the findings it rests on, and an anchor
     the artifact does not hold would be the page telling the reader to check
-    an answer against nothing. A withdrawn finding is a legal anchor -- "what
-    would have to be true for it to have stood" is exactly a self-check
-    question, and its card is still on the page to land on.
+    an answer against nothing.
+
+    Standing findings only. A withdrawal is a question the merge already
+    answered, and the reader is quizzed only on what they are being asked to
+    act on -- so a falsified anchor is refused, under the same `marks_active`
+    reading the corroboration check uses: where the mark itself is the
+    reported defect, judging anchors by it would write diagnostics that
+    invert once it is repaired.
     """
     if self_check is None:
         return
@@ -871,6 +876,12 @@ def check_self_check(report, where, self_check, by_id):
                     at_item,
                     "anchor {!r} is not a finding in this artifact -- an answer is grounded in findings "
                     "the reader can open".format(anchor),
+                )
+            elif marks_active and by_id[anchor].get("falsified") is True:
+                report.add(
+                    at_item,
+                    "anchor {!r} is falsified -- a self-check question addresses findings that stand, "
+                    "not ones the merge withdrew".format(anchor),
                 )
 
 

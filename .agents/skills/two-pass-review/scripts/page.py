@@ -573,8 +573,9 @@ def render_self_check(self_check, markdown):
     reader meets the question before the answer -- collapsing is CSS-free and
     script-free, exactly the page's idiom. The anchors render as the same live
     cross-references a body uses, because the whole worth of an answer here is
-    that the reader can open the finding it rests on; a withdrawn anchor still
-    lands, since withdrawn cards keep their ids.
+    that the reader can open the finding it rests on -- and the validator
+    guarantees each one stands, so every link lands on a card the reader is
+    being asked to act on.
 
     Deliberately not a gate, and the note says so on the page: nothing is
     scored, recorded, or consulted by anything else here. It renders after the

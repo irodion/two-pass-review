@@ -603,18 +603,27 @@ def validate_merged(report, path, repo=None):
             ids_by_producer.setdefault(finding["producer"], []).append(int(matched.group(2)))
     check_ids_contiguous(report, where, ids_by_producer)
 
-    # A mark is *active* only where it is legal: a version-2 artifact whose
-    # check ran. Everywhere else the mark is itself the defect, and the checks
-    # below must not interpret it -- honouring an illegal mark would have one
+    # How the 'falsified' marks read on this artifact. "active" only where
+    # they are legal -- a version-2 artifact whose check ran. On a v1
+    # artifact, or beside a skipped or unreadable check, the mark is itself
+    # the reported defect and reads "inactive": honouring it would have one
     # message demand its removal while others instruct the repair loop to
     # strip valid corroboration links and let a blocking finding stop
-    # blocking, and fixing the mark would then surface a second round of
-    # problems the first validation owed the loop up front.
+    # blocking. And where the state itself is missing or unrecognisable, the
+    # marks are "undecided" -- not inactive, because asserting either reading
+    # writes diagnostics that invert once the state is repaired, and a repair
+    # loop obeying both rounds would burn its bounded attempts flipping the
+    # verdict back and forth.
     run = merged.get("run")
     state = run.get("falsification") if isinstance(run, dict) else None
-    marks_active = version >= 2 and state == "ran"
+    if version >= 2 and state == "ran":
+        marks = "active"
+    elif version >= 2 and state not in FALSIFICATIONS:
+        marks = "undecided"
+    else:
+        marks = "inactive"
 
-    check_corroboration(report, where, findings, by_id, marks_active)
+    check_corroboration(report, where, findings, by_id, marks_active=marks == "active")
 
     # A 'falsified' mark is the falsification check's output, so a run whose
     # check was skipped or whose reply could not be read cannot carry marks:
@@ -634,7 +643,7 @@ def validate_merged(report, path, repo=None):
                 ),
             )
 
-    check_verdict(report, where, merged.get("verdict"), findings, marks_active)
+    check_verdict(report, where, merged.get("verdict"), findings, marks)
     check_passes(report, where, merged.get("passes"), findings)
 
 
@@ -692,10 +701,12 @@ def check_corroboration(report, where, findings, by_id, marks_active):
     A link across dispositions means a pass mis-tagged one of the two, and a
     unit spanning dispositions would break the one ordering the page has.
 
-    `marks_active` is whether a 'falsified' mark is legal on this artifact at
-    all. Where it is not, the mark was already reported as the defect, and
-    treating it as a withdrawal here would demand the removal of links that
-    are valid once the mark is gone.
+    `marks_active` is whether a 'falsified' mark definitely reads as a
+    withdrawal here -- a version-2 artifact whose check ran. Where it does
+    not, either the mark or the run state was already reported as the defect,
+    and judging links by the mark anyway would demand the removal of links
+    that are valid once that is repaired; the falsified arms defer to the
+    validation after it.
     """
     for finding in findings:
         if not isinstance(finding, dict):
@@ -756,38 +767,52 @@ def check_corroboration(report, where, findings, by_id, marks_active):
                 )
 
 
-def check_verdict(report, where, verdict, findings, marks_active):
+def check_verdict(report, where, verdict, findings, marks):
     """The verdict agrees with its own list.
 
     This is what makes "derived, so it cannot contradict" checked rather than
     trusted. Falsified findings are outside the derivation entirely: the diff
     contradicts them, so a "blocking" tag on one is a claim the merge has
-    already answered. Only while `marks_active`, though -- an illegal mark
-    was already reported as the defect, and letting it excuse a blocking
-    finding here would hand the repair loop a verdict problem that only
-    appears after the mark is fixed.
+    already answered. Only while the marks read "active", though -- on an
+    artifact where the mark is illegal ("inactive") the mark was already
+    reported as the defect, and letting it excuse a blocking finding here
+    would hand the repair loop a verdict problem that only appears after the
+    mark is fixed.
+
+    "undecided" -- a v2 artifact whose run.falsification is missing or
+    unrecognisable -- reports only what holds under both readings. The
+    honoured set is a subset of the ignored one, so that has a closed form:
+    a clear verdict is wrong only when an unmarked blocking finding exists,
+    a blocked one only when no blocking finding exists at all. Everything
+    between defers behind the state error already on the list, so no verdict
+    instruction is written that repairing the state would invert.
     """
     if verdict not in VERDICTS:
         report.add(where, "'verdict' must be 'blocked' or 'clear'")
         return
-    blocking = [
+    honoured = [
         f.get("id")
         for f in findings
-        if isinstance(f, dict)
-        and f.get("disposition") == "blocking"
-        and not (marks_active and f.get("falsified") is True)
+        if isinstance(f, dict) and f.get("disposition") == "blocking" and f.get("falsified") is not True
     ]
-    if blocking and verdict != "blocked":
+    ignored = [f.get("id") for f in findings if isinstance(f, dict) and f.get("disposition") == "blocking"]
+
+    # What certainly blocks: under "inactive" the marks do not exist, so
+    # every blocking finding stands; under "active" and "undecided" the
+    # unmarked ones do -- for "undecided" because they block either way.
+    certain = ignored if marks == "inactive" else honoured
+    if certain and verdict != "blocked":
         report.add(
             where,
-            "verdict is 'clear' but {} finding(s) block: {}".format(len(blocking), ", ".join(str(b) for b in blocking)),
+            "verdict is 'clear' but {} finding(s) block: {}".format(len(certain), ", ".join(str(b) for b in certain)),
         )
-    if not blocking and verdict != "clear":
-        fell = marks_active and any(
-            isinstance(f, dict) and f.get("disposition") == "blocking" and f.get("falsified") is True
-            for f in findings
-        )
-        if fell:
+
+    # What certainly leaves nothing blocking: under "active" an empty
+    # honoured set settles it; otherwise only an empty ignored set does --
+    # for "undecided" because a marked blocking finding might stand.
+    none_stand = not honoured if marks == "active" else not ignored
+    if none_stand and verdict != "clear":
+        if marks == "active" and ignored:
             report.add(where, "verdict is 'blocked' but every blocking finding is falsified, and a withdrawn finding does not block")
         else:
             report.add(where, "verdict is 'blocked' but no finding is tagged 'blocking'")

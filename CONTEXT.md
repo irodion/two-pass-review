@@ -68,7 +68,7 @@ Of a finding, carrying that mark. Never a synonym for resolved, fixed, or waived
 _Avoid_: closed, handled, cleared
 
 **Self-check**:
-Up to four questions written at the merge for the reader to test their own grasp of the report, each answerable from the page alone and anchored to the findings its answer rests on. Never a gate: nothing scores, records, or depends on an answer.
+Up to four questions written at the merge for the reader to test their own grasp of the report, each addressing one specific standing finding — never the report's own mechanics — and each answerable from the page alone, anchored to the findings its answer rests on. Never a gate: nothing scores, records, or depends on an answer.
 _Avoid_: quiz, test, exam, comprehension gate
 
 **Closing prose**:

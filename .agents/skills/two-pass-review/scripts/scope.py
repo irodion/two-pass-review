@@ -126,7 +126,7 @@ def make_private_dir(path):
 
 
 def filter_overrides(repo):
-    """One -c override per configured filter driver, emptied for this invocation.
+    """(overrides, problem): one -c per configured filter driver, emptied.
 
     A .gitattributes line in the reviewed worktree selects a filter by name,
     but the command behind the name lives in config, which the checkout's
@@ -139,6 +139,14 @@ def filter_overrides(repo):
     An enumeration that fails leaves the overrides empty rather than failing
     the run: that is exactly today's behaviour, and config listing does not
     fail inside a repository that rev-parse already accepted.
+
+    A name the -c syntax cannot express fails the run instead. -c splits its
+    argument at the first equals sign, so a driver named with one -- legal in
+    config, selectable from .gitattributes -- would take the override as a
+    different variable and keep its command. GIT_CONFIG_KEY_n would express
+    it, but older gits ignore those variables silently, which turns one
+    unrepresentable name into no neutralization at all. No real tool names a
+    filter that way, so refusing is a message to an attacker, not a user.
     """
     code, out, _ = git_text(repo, "config", "--list", "--null")
     names = set()
@@ -154,12 +162,18 @@ def filter_overrides(repo):
                 names.add(name)
     arguments = []
     for name in sorted(names):
+        if "=" in name:
+            return None, (
+                "the configured git filter driver {!r} has an equals sign in its name, "
+                "which the -c override that keeps filters out of the review diff cannot "
+                "express. Rename or remove that filter configuration and run again".format(name)
+            )
         arguments += [
             "-c", "filter.{}.clean=".format(name),
             "-c", "filter.{}.process=".format(name),
             "-c", "filter.{}.required=false".format(name),
         ]
-    return arguments
+    return arguments, None
 
 
 def build_diff(repo, mode, base, head):
@@ -176,7 +190,10 @@ def build_diff(repo, mode, base, head):
     # tree, so those are neutralized per configured driver instead. Together
     # that pins the patch to the bytes as they sit in git and on disk, not a
     # filter's account of them.
-    code, raw, error = git(repo, *filter_overrides(repo) + ["diff", "--no-ext-diff", "--no-textconv"] + selector)
+    overrides, problem = filter_overrides(repo)
+    if problem:
+        return None, problem
+    code, raw, error = git(repo, *overrides + ["diff", "--no-ext-diff", "--no-textconv"] + selector)
     if code != 0:
         return None, error
     text = raw.decode("utf-8", "replace")

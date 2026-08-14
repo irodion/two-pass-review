@@ -132,7 +132,13 @@ def build_diff(repo, mode, base, head):
     else:
         # Working tree against the base, which covers staged and unstaged alike.
         selector = [base]
-    code, raw, error = git(repo, "diff", *selector)
+    # Porcelain diff honours external diff drivers and textconv filters from
+    # the checkout's own attributes and config -- arbitrary commands the
+    # repository under review gets to choose, which can hang this step or
+    # quietly rewrite the patch. Refusing both pins the diff to the bytes git
+    # tracks, so what the passes read is the change and not a filter's account
+    # of it.
+    code, raw, error = git(repo, "diff", "--no-ext-diff", "--no-textconv", *selector)
     if code != 0:
         return None, error
     text = raw.decode("utf-8", "replace")

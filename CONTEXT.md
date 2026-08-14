@@ -67,6 +67,10 @@ _Avoid_: resolved, fixed, waived, done
 Of a finding, carrying that mark. Never a synonym for resolved, fixed, or waived — none of which the report can observe.
 _Avoid_: closed, handled, cleared
 
+**Self-check**:
+Up to four questions written at the merge for the reader to test their own grasp of the report, each answerable from the page alone and anchored to the findings its answer rests on. Never a gate: nothing scores, records, or depends on an answer.
+_Avoid_: quiz, test, exam, comprehension gate
+
 **Closing prose**:
 The non-finding narrative a pass writes around its findings — what it checked and found sound, what it wants fixed and in what order. Preserved per pass, never synthesized across passes.
 _Avoid_: summary, notes, commentary

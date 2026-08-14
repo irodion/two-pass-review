@@ -149,6 +149,8 @@ Write `<run_dir>/findings.json`:
   corroboration links below
 - `verdict` — **derived, never authored**: any finding tagged `blocking` that is not falsified makes it
   `"blocked"`, otherwise `"clear"`. `clear` means nothing blocks, not that nothing was found.
+- `self_check` — optional, and the last thing written; the [Self-check](#self-check) subsection below is
+  its whole contract.
 
 ### Corroboration
 
@@ -166,6 +168,27 @@ Both passes sometimes argue the same defect from different angles. Link those, a
 Judge this by reading, not by matching strings — the two passes routinely describe one defect with no
 shared phrasing. Findings that **disagree** get no link at all: both render, both argue, and that is the
 information.
+
+### Self-check
+
+Last, and optional: the merged artifact may carry `self_check` — up to four questions a reader can use
+to test their own grasp of the report before acting on it. Write them yourself at the merge, with no
+subagent: the falsifier is starved on purpose, but this block wants the opposite, and by this point you
+are the only party that has read the diff, both pass files, and what the merge settled.
+
+- **Every question is answerable from the report alone** — a finding's body, the withdrawn section, a
+  pass's prose. Never from context only the run had: an answer the reader cannot check against the page
+  is trivia, not a self-check.
+- Each entry carries `question` (one plain-language line), `answer_md`, and `anchors` — the ids of the
+  findings the answer rests on. The validator refuses an anchor the artifact does not hold. A withdrawn
+  finding is a legal anchor: what would have to be true for it to have stood is exactly the kind of
+  question that belongs here.
+- Ask about what the report establishes, not about the codebase at large — why one finding outranks
+  another, what a remedy must not touch, what two corroborating findings each saw that the other did not.
+- **It is a self-check, not a gate.** Nothing scores, records, or depends on the answers; the page says
+  so where the questions are. A reader who skips them has lost nothing they were owed.
+- Skip the block entirely when the run gives nothing worth asking — a near-empty report earns no quiz.
+  Omit the field; an empty array is invalid.
 
 ## 4. Render and deliver
 

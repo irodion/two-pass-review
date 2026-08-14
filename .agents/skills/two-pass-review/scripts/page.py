@@ -501,11 +501,69 @@ def render_pass_prose(passes, markdown):
     return "\n".join(out)
 
 
+def render_withdrawn(withdrawn, markdown):
+    """The findings the falsification check withdrew, kept on the page.
+
+    Marked, never deleted, is the artifact's rule, and this is the page keeping
+    it: a report that silently lost a finding would be lying about what the
+    passes wrote. The cards render without controls, filters or nav entries --
+    a withdrawn finding is the record of a disagreement the diff settled, not
+    something to act on -- but each keeps its anchor, because a standing body
+    may still cite it and the link has to land somewhere.
+    """
+    if not withdrawn:
+        return ""
+    cards = []
+    for finding in withdrawn:
+        finding_id = finding["id"]
+        chips = "".join(
+            location_chip(location, index == 0) for index, location in enumerate(finding.get("locations") or [])
+        )
+        cards.append(
+            '<article class="finding withdrawn" id="finding-{fid}">'
+            '<header class="finding-head">'
+            '<div class="meta"><span class="fid">{fid}</span>'
+            '<span class="meta-label">{prod}</span>'
+            '<span class="meta-label">withdrawn</span></div>'
+            "<h3>{title}</h3>"
+            "</header>"
+            '<div class="locations">{chips}</div>'
+            '<div class="body">{body}</div>'
+            "</article>".format(
+                fid=esc(finding_id),
+                prod=producer_label(finding["producer"]),
+                title=markdown.inline(finding["title"], self_id=finding_id),
+                chips=chips,
+                body=markdown.render(finding["body_md"], self_id=finding_id),
+            )
+        )
+    note = (
+        "Withdrawn at the merge: a falsification check that read only the diff found it directly "
+        "contradicts each key claim below. Kept for the record &mdash; a withdrawn finding blocks "
+        "nothing and corroborates nothing."
+    )
+    return (
+        '<section class="withdrawn-group"><h2 id="group-withdrawn">Withdrawn at merge '
+        '<span class="counts">&middot; {count}</span></h2>'
+        '<p class="withdrawn-note">{note}</p>\n{cards}</section>'.format(
+            count=len(withdrawn), note=note, cards="\n".join(cards)
+        )
+    )
+
+
 def render_page(merged):
     findings = merged["findings"]
+    # Standing findings drive everything the reader acts on -- ordering, counts,
+    # nav, the verdict sentence. Withdrawn ones render once, in their own
+    # section, and appear nowhere else: a finding the diff contradicts is a
+    # record, not a lead. The markdown cross-referencer still knows every id,
+    # withdrawn included, because a standing body may cite a withdrawn finding
+    # and the link must land on its card rather than dangle.
+    live = [f for f in findings if f.get("falsified") is not True]
+    withdrawn = [f for f in findings if f.get("falsified") is True]
     markdown = Markdown({f["id"] for f in findings})
-    by_id = {f["id"]: f for f in findings}
-    units = ordered_units(findings)
+    by_id = {f["id"]: f for f in live}
+    units = ordered_units(live)
 
     groups = {d: [] for d in DISPOSITION_ORDER}
     for unit in units:
@@ -558,6 +616,8 @@ def render_page(merged):
         )
 
     prose_links = []
+    if withdrawn:
+        prose_links.append('<li><a href="#group-withdrawn">Withdrawn at merge &middot; {}</a></li>'.format(len(withdrawn)))
     for envelope in merged["passes"]:
         producer = envelope["producer"]
         for key, heading in (("what_holds_up_md", "What holds up"), ("closing_md", "Closing notes")):
@@ -575,6 +635,20 @@ def render_page(merged):
             )
 
     verdict = merged["verdict"]
+    sentence = verdict_sentence(verdict, live)
+    # The masthead owns the one-sentence account of the run, so the withdrawals
+    # are said here and not only in their own section -- a reader who never
+    # scrolls still learns the passes wrote more than the page is arguing.
+    if withdrawn and live:
+        sentence += " {} more {} withdrawn at the merge.".format(
+            len(withdrawn), "was" if len(withdrawn) == 1 else "were"
+        )
+    elif withdrawn:
+        sentence = (
+            "The only finding was withdrawn at the merge; nothing stands."
+            if len(withdrawn) == 1
+            else "All {} findings were withdrawn at the merge; nothing stands.".format(len(withdrawn))
+        )
     scope = merged["run"]["scope"]
     scope_line = "{} &middot; {} &middot; {} files".format(
         esc(scope["repo"]), esc(SCOPE_MODE_LABEL.get(scope["mode"], scope["mode"])), scope["files_changed"]
@@ -588,13 +662,14 @@ def render_page(merged):
         # stop, and an icon on it would be a second thing claiming to say so.
         verdict_icon=ICON_NO_ENTRY if verdict == "blocked" else "",
         verdict_label="Blocked" if verdict == "blocked" else "Clear",
-        sentence=verdict_sentence(verdict, findings),
+        sentence=sentence,
         scope_line=scope_line,
         nav="\n".join(nav),
         prose_links="".join(prose_links),
         warnings=render_warnings(merged["run"], merged["passes"]),
         run_panel=render_run_panel(merged["run"], merged["passes"]),
         groups="\n".join(main),
+        withdrawn=render_withdrawn(withdrawn, markdown),
         prose=render_pass_prose(merged["passes"], markdown),
         script=SCRIPT,
     )
@@ -662,6 +737,7 @@ PAGE = """<!doctype html>
       {warnings}
     </header>
     {groups}
+    {withdrawn}
     {prose}
   </main>
 </div>
@@ -1136,6 +1212,13 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
 #f-dism-hide:checked ~ .layout .group.all-dismissed,
 #f-prod-security:checked ~ #f-dism-hide:checked ~ .layout .group.all-dismissed-security,
 #f-prod-quality:checked ~ #f-dism-hide:checked ~ .layout .group.all-dismissed-quality { display: none; }
+
+/* Withdrawn cards are quieter than everything above them and immune to the
+   filters -- no data- attributes, so no selector reaches them. Not struck
+   through: the strike is the reader's dealt-with mark, and borrowing it would
+   claim these were dealt with rather than disproved. */
+.finding.withdrawn { opacity: .7; border-left-color: var(--line); }
+.withdrawn-note { color: var(--muted); font-size: 13px; line-height: 1.5; margin: -8px 0 16px; }
 
 /* A rule, not a filled block. The banner is one line of provenance about the
    finding above it, and a tinted panel gave it the weight of a second finding. */

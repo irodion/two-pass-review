@@ -69,6 +69,7 @@ FINDING_FIELDS = frozenset(
         "confidence",
         "confidence_rationale",
         "corroborated_by",
+        "falsified",
     ]
 )
 LOCATION_FIELDS = frozenset(["path", "start_line", "end_line"])
@@ -285,6 +286,16 @@ def check_finding(report, where, finding, in_merged, repo=None):
         links = finding["corroborated_by"]
         if not isinstance(links, list) or not all(isinstance(x, str) for x in links):
             report.add(where, "'corroborated_by' must be an array of finding ids")
+
+    # Like 'corroborated_by': merge-written, because only the falsification
+    # check -- which a pass never sees -- can set it. True or absent, never
+    # false: a finding that stands says so by carrying no mark, and a second
+    # way to say the same thing is a fork readers would have to reconcile.
+    if "falsified" in finding:
+        if not in_merged:
+            report.add(where, "'falsified' is written by the merge step; a pass file records findings only")
+        elif finding["falsified"] is not True:
+            report.add(where, "'falsified' must be true when present -- a finding that stands omits the field")
 
     return finding_id
 
@@ -622,6 +633,15 @@ def check_corroboration(report, where, findings, by_id):
         if not isinstance(finding, dict):
             continue
         source = finding.get("id")
+        # Corroboration promotes, and a withdrawn finding promotes nothing --
+        # in either direction. The reverse arm is checked at the partner
+        # lookup below, so a one-sided link to a falsified finding is named
+        # too, not just the mutual case.
+        if finding.get("falsified") is True and finding.get("corroborated_by"):
+            report.add(
+                "{} {}".format(where, source),
+                "a falsified finding carries no corroboration links -- it was withdrawn at the merge",
+            )
         for target in finding.get("corroborated_by") or []:
             at = "{} {}".format(where, source)
             if not isinstance(target, str):
@@ -636,6 +656,13 @@ def check_corroboration(report, where, findings, by_id):
             if partner is None:
                 report.add(at, "corroborated_by names {!r}, which is not in this artifact".format(target))
                 continue
+            if partner.get("falsified") is True:
+                report.add(
+                    at,
+                    "corroborates {!r}, which is falsified -- a withdrawn finding cannot promote one that stands".format(
+                        target
+                    ),
+                )
             if source not in (partner.get("corroborated_by") or []):
                 report.add(
                     at,
@@ -665,19 +692,32 @@ def check_verdict(report, where, verdict, findings):
     """The verdict agrees with its own list.
 
     This is what makes "derived, so it cannot contradict" checked rather than
-    trusted.
+    trusted. Falsified findings are outside the derivation entirely: the diff
+    contradicts them, so a "blocking" tag on one is a claim the merge has
+    already answered.
     """
     if verdict not in VERDICTS:
         report.add(where, "'verdict' must be 'blocked' or 'clear'")
         return
-    blocking = [f.get("id") for f in findings if isinstance(f, dict) and f.get("disposition") == "blocking"]
+    blocking = [
+        f.get("id")
+        for f in findings
+        if isinstance(f, dict) and f.get("disposition") == "blocking" and f.get("falsified") is not True
+    ]
     if blocking and verdict != "blocked":
         report.add(
             where,
             "verdict is 'clear' but {} finding(s) block: {}".format(len(blocking), ", ".join(str(b) for b in blocking)),
         )
     if not blocking and verdict != "clear":
-        report.add(where, "verdict is 'blocked' but no finding is tagged 'blocking'")
+        fell = any(
+            isinstance(f, dict) and f.get("disposition") == "blocking" and f.get("falsified") is True
+            for f in findings
+        )
+        if fell:
+            report.add(where, "verdict is 'blocked' but every blocking finding is falsified, and a withdrawn finding does not block")
+        else:
+            report.add(where, "verdict is 'blocked' but no finding is tagged 'blocking'")
 
 
 def check_passes(report, where, passes, findings):

@@ -113,6 +113,12 @@ loudly they shout, derived from severity for security findings and from category
   it. The validator enforces that.
 - **Findings that corroborate each other** sit together with a banner, rather than being merged. Two
   passes reaching one defect from two directions is evidence, and collapsing it would throw that away.
+- **A withdrawn finding stays on the page.** Before the merge, a falsification check that sees only the
+  diff — none of the passes' context — tries to disprove each finding, and one whose key claim the diff
+  itself contradicts is withdrawn rather than deleted. It renders at the bottom, blocks nothing and
+  corroborates nothing; it is kept because a report that silently lost a finding would be lying about
+  what the passes wrote. The check only ever falsifies: a claim it cannot check from the diff passes
+  unchallenged, so it costs no true findings.
 - **What the run was pointed at is in the sidebar**, under `Run`: repository, scope mode, the two object
   ids, the diff size, and the model and effort when the run chose them. They are what was asked for
   rather than a measurement — nothing in the pipeline can confirm which model answered — and the page

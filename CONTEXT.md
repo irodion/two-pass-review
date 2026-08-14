@@ -47,6 +47,14 @@ _Avoid_: certainty, likelihood, probability
 The relationship between two findings from different passes that argue the same defect from different angles. Both survive and are linked; neither is collapsed into the other.
 _Avoid_: duplicate, dedupe, merge
 
+**Falsification**:
+The merge-time check that tries to disprove each finding from the pinned diff alone. A filter, not a third pass: it sees only the diff and the findings — none of the passes' context — and it can only withdraw, never add or edit. Fails open, because it must never cost a true finding.
+_Avoid_: verification, reflection, third pass
+
+**Falsified**:
+Of a finding, directly contradicted by the diff itself and withdrawn at the merge. Marked, never deleted: it stays in the artifact and on the page, blocks nothing, and corroborates nothing.
+_Avoid_: deleted, dropped, rejected, false positive
+
 **Verdict**:
 The single blocked-or-not judgment for a run. Derived from the findings' dispositions, never authored, so it cannot contradict the list beneath it.
 _Avoid_: summary, conclusion, recommendation

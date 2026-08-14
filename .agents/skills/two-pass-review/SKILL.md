@@ -84,7 +84,38 @@ exist yet, which a pass restricted to a pasted blob cannot do.
 
 ## 3. Merge
 
-Read both validated pass files and write `<run_dir>/findings.json`:
+Read both validated pass files. Before anything is linked or written, the findings face one
+falsification check.
+
+### Falsification
+
+A filter, not a third pass: it carries no rubric, emits no findings, and can only withdraw. The shape
+is adapted from OpenCodeReview's Independent Reflection — see [`NOTICE.md`](NOTICE.md).
+
+Spawn one fresh subagent and give it exactly two things: the pinned `context.diff`, and every finding
+from both pass files. Nothing else — no rubric, no repository access, none of the passes' reasoning.
+The starvation is the mechanism. Both passes read the repository as peers, so their errors arrive
+correlated, and only a checker that saw none of what they saw can catch what both misread. Where the
+host offers no fresh subagent, skip the check: running it in your own window, which has read the
+repository and both pass files, checks nothing. Run it at the model and effort the passes ran at.
+
+Its instruction is to falsify, never verify:
+
+- Flag a finding only when the diff itself directly contradicts the finding's key claim.
+- A claim resting on anything outside the diff — other files, business meaning, runtime behaviour —
+  passes unchallenged, however suspicious. The passes had context this check does not.
+- "Cannot confirm" is not "contradicted". The doubt resolves toward keeping.
+- Reply with a JSON array of the flagged ids and nothing else; `[]` when nothing is contradicted.
+
+**Fail open.** If no JSON array can be extracted from the reply, nothing is falsified — this check must
+never cost a true finding. Mark each flagged finding `"falsified": true` in the merged artifact and
+**never delete it**: ids stay contiguous, the record stays whole, and the page renders the finding as
+withdrawn. A falsified finding does not block, is never linked in corroboration, and needs no repair —
+it is not an invalid artifact, it is a recorded disagreement the diff settles.
+
+### The merged artifact
+
+Write `<run_dir>/findings.json`:
 
 - `schema_version` 1, `kind` `"merged"`
 - `run` — your `mode` from step 2, `generated_at`, and `scope` exactly as `scope.py` printed it.
@@ -98,9 +129,10 @@ Read both validated pass files and write `<run_dir>/findings.json`:
   — you are the only party that knows, because a pass cannot see what served it. Leave either out when you
   did not choose it and the host does not tell you: the page presents these as provenance, and a blank
   there says less than a guess but nothing false
-- `findings` — every finding from both passes, unchanged apart from the corroboration links below
-- `verdict` — **derived, never authored**: any finding tagged `blocking` makes it `"blocked"`, otherwise
-  `"clear"`. `clear` means nothing blocks, not that nothing was found.
+- `findings` — every finding from both passes, unchanged apart from the `falsified` marks above and the
+  corroboration links below
+- `verdict` — **derived, never authored**: any finding tagged `blocking` that is not falsified makes it
+  `"blocked"`, otherwise `"clear"`. `clear` means nothing blocks, not that nothing was found.
 
 ### Corroboration
 
@@ -111,7 +143,9 @@ Both passes sometimes argue the same defect from different angles. Link those, a
    leaves two cards apart. The doubt resolves toward not linking.
 2. **Link only within one disposition.** If a `note` and a `blocking` finding really argued one defect, a
    pass mis-tagged it, and quietly promoting it would hide that.
-3. **Write `corroborated_by` on both members.** The validator requires the link to be mutual.
+3. **Never link a falsified finding, in either direction.** Corroboration promotes, and a withdrawn
+   finding promotes nothing. The validator refuses both arms.
+4. **Write `corroborated_by` on both members.** The validator requires the link to be mutual.
 
 Judge this by reading, not by matching strings — the two passes routinely describe one defect with no
 shared phrasing. Findings that **disagree** get no link at all: both render, both argue, and that is the

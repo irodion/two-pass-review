@@ -47,3 +47,8 @@ implementation. Two bodies of prior art informed that specification:
   shape and validation, and **nothing was copied from it**: not a file, not a function, not a CSS rule. The
   interface shape of `scripts/scope.py` follows the same `--repo/--base/--mode/--head` argument vocabulary,
   which is an interface convention rather than an expression.
+- **Alibaba's [`open-code-review`](https://github.com/alibaba/open-code-review)** (Apache-2.0) — its
+  Independent Reflection stage (described in arXiv:2608.09290) is the design the merge step's
+  falsification check adapts: a checker that sees only the diff, flags only what the diff directly
+  contradicts, and fails open. The mechanism was adopted; no text was copied — the instruction `SKILL.md`
+  gives its falsifier is written in this repository's own words.

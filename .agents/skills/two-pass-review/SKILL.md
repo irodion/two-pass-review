@@ -181,6 +181,11 @@ are the only party that has read the diff, both pass files, and what the merge s
   what two corroborating findings each saw that the other did not. Never the report's own mechanics —
   how the verdict derives, what dismissal does, what a link means. A reader quizzed on the page instead
   of the defects is being checked for attention, and that is not what this block is for.
+- **The question names its findings by id**, in the question itself — "does fixing the offset (`sec-3`,
+  `qa-1`) also fix the filtering (`qa-3`)?" — so the reader knows what is being asked about before they
+  open anything; on the page the ids are live links. The validator refuses a question that names none of
+  its anchors, and one that names a finding its anchors do not carry. Phrase it the way a reviewer would
+  say it across a desk: plain words, one thing asked, no rhetorical flourish.
 - **Every question is answerable from the report alone** — the finding's body, or a pass's prose. Never
   from context only the run had, and never about the codebase at large: an answer the reader cannot
   check against the page is trivia, not a self-check.

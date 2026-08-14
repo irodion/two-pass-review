@@ -566,6 +566,50 @@ def render_withdrawn(withdrawn, markdown):
     )
 
 
+def render_self_check(self_check, markdown):
+    """The reader's self-check, last on the page.
+
+    Each answer sits collapsed under its question in a native <details>, so the
+    reader meets the question before the answer -- collapsing is CSS-free and
+    script-free, exactly the page's idiom. The anchors render as the same live
+    cross-references a body uses, because the whole worth of an answer here is
+    that the reader can open the finding it rests on; a withdrawn anchor still
+    lands, since withdrawn cards keep their ids.
+
+    Deliberately not a gate, and the note says so on the page: nothing is
+    scored, recorded, or consulted by anything else here. It renders after the
+    prose and outside the filters -- a question about the report is not a
+    finding, and no data- attribute puts it in any filter's reach.
+    """
+    if not self_check:
+        return ""
+    items = []
+    for entry in self_check:
+        anchors = ", ".join(
+            '<a class="xref" href="#finding-{0}">{0}</a>'.format(esc(anchor)) for anchor in entry["anchors"]
+        )
+        items.append(
+            '<details class="sc-item"><summary>{question}</summary>'
+            '<div class="sc-answer">{answer}</div>'
+            '<p class="sc-anchors">Grounded in {anchors}</p></details>'.format(
+                question=markdown.inline(entry["question"]),
+                answer=markdown.render(entry["answer_md"]),
+                anchors=anchors,
+            )
+        )
+    note = (
+        "A self-check, not a gate: nothing scores or records what you decide. Settle each answer in "
+        "your head, then open it &mdash; every one can be checked against this page."
+    )
+    return (
+        '<section class="selfcheck"><h2 id="selfcheck">Self-check '
+        '<span class="counts">&middot; {count}</span></h2>'
+        '<p class="sc-note">{note}</p>\n{items}</section>'.format(
+            count=len(self_check), note=note, items="\n".join(items)
+        )
+    )
+
+
 def render_page(merged):
     findings = merged["findings"]
     # Standing findings drive everything the reader acts on -- ordering, counts,
@@ -649,6 +693,10 @@ def render_page(merged):
                 )
             )
 
+    self_check = merged.get("self_check") or []
+    if self_check:
+        prose_links.append('<li><a href="#selfcheck">Self-check &middot; {}</a></li>'.format(len(self_check)))
+
     verdict = merged["verdict"]
     sentence = verdict_sentence(verdict, live)
     # The masthead owns the one-sentence account of the run, so the withdrawals
@@ -686,6 +734,7 @@ def render_page(merged):
         groups="\n".join(main),
         withdrawn=render_withdrawn(withdrawn, markdown),
         prose=render_pass_prose(merged["passes"], markdown),
+        selfcheck=render_self_check(self_check, markdown),
         script=SCRIPT,
     )
 
@@ -754,6 +803,7 @@ PAGE = """<!doctype html>
     {groups}
     {withdrawn}
     {prose}
+    {selfcheck}
   </main>
 </div>
 <script>{script}</script>
@@ -1253,13 +1303,27 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
 .body li { margin: 4px 0; }
 .body blockquote { margin: 12px 0; padding: 2px 14px; border-left: 3px solid var(--line); color: var(--muted); }
 .body code, .chip { overflow-wrap: anywhere; }
-.body code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .89em;
+.body code, .sc-answer code, .sc-item summary code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .89em;
   background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
-.body pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+.body pre, .sc-answer pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
   padding: 12px 14px; overflow-x: auto; }
-.body pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.5; }
+.body pre code, .sc-answer pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.5; }
 .xref { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); }
 a { color: var(--accent); }
+
+/* The questions read as sentences, not as the prose sections' uppercase labels:
+   a summary here is the thing being asked, and small-caps would file it as
+   furniture. The answer stays collapsed until the reader opens it, which is the
+   native <details> behaviour and the whole interaction. */
+.sc-note { color: var(--muted); font-size: 13px; line-height: 1.5; margin: -8px 0 16px; }
+.sc-item { border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
+  padding: 0 18px; margin: 0 0 10px; }
+.sc-item summary { cursor: pointer; padding: 12px 0; font-size: 15.5px; line-height: 1.45; }
+.sc-item[open] summary { border-bottom: 1px solid var(--line); }
+.sc-answer p { margin: 12px 0 0; font-size: 15px; line-height: 1.55; color: var(--ink-2); }
+.sc-answer ul, .sc-answer ol { margin: 12px 0 0; padding-left: 22px; }
+.sc-anchors { color: var(--muted); font-size: 13px; margin: 10px 0 14px; }
 
 .prose details { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 0 18px; }
 .prose summary { cursor: pointer; padding: 12px 0; font-size: 13px; letter-spacing: .06em;

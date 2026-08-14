@@ -103,8 +103,11 @@ PASS_FIELDS = frozenset(
     ]
 )
 EMBEDDED_PASS_FIELDS = PASS_FIELDS - frozenset(["schema_version", "kind"])
-MERGED_FIELDS = frozenset(["schema_version", "kind", "run", "verdict", "passes", "findings"])
+MERGED_FIELDS = frozenset(["schema_version", "kind", "run", "verdict", "passes", "findings", "self_check"])
 RUN_FIELDS = frozenset(["mode", "falsification", "generated_at", "scope"])
+SELF_CHECK_FIELDS = frozenset(["question", "answer_md", "anchors"])
+# Enough to prompt reflection, few enough that the reader is not being examined.
+SELF_CHECK_MAX = 4
 SCOPE_FIELDS = frozenset(["repo", "mode", "base", "head", "files_changed", "diff_bytes", "untracked"])
 
 
@@ -645,6 +648,7 @@ def validate_merged(report, path, repo=None):
 
     check_verdict(report, where, merged.get("verdict"), findings, marks)
     check_passes(report, where, merged.get("passes"), findings)
+    check_self_check(report, where, merged.get("self_check"), by_id)
 
 
 def check_run(report, where, run, version):
@@ -816,6 +820,58 @@ def check_verdict(report, where, verdict, findings, marks):
             report.add(where, "verdict is 'blocked' but every blocking finding is falsified, and a withdrawn finding does not block")
         else:
             report.add(where, "verdict is 'blocked' but no finding is tagged 'blocking'")
+
+
+def check_self_check(report, where, self_check, by_id):
+    """The reader's self-check: at most four questions, grounded in the findings.
+
+    Optional and inert: it asserts nothing about the findings, promotes
+    nothing, and cannot touch the verdict -- which is why, unlike 'falsified',
+    it needs no schema version to interpret it. What it does owe is
+    checkability: every answer names the findings it rests on, and an anchor
+    the artifact does not hold would be the page telling the reader to check
+    an answer against nothing. A withdrawn finding is a legal anchor -- "what
+    would have to be true for it to have stood" is exactly a self-check
+    question, and its card is still on the page to land on.
+    """
+    if self_check is None:
+        return
+    at = "{} self_check".format(where)
+    if not isinstance(self_check, list) or not self_check:
+        report.add(at, "'self_check' must be an array holding at least one question -- omit the field when there are none")
+        return
+    if len(self_check) > SELF_CHECK_MAX:
+        report.add(
+            at,
+            "'self_check' holds {} questions; at most {} -- a self-check is a nudge, not an exam".format(
+                len(self_check), SELF_CHECK_MAX
+            ),
+        )
+    for index, item in enumerate(self_check):
+        at_item = "{} self_check[{}]".format(where, index)
+        if not isinstance(item, dict):
+            report.add(at_item, "a self-check question must be a JSON object")
+            continue
+        _check_unknown(report, at_item, item, SELF_CHECK_FIELDS, "self-check")
+        question = _nonempty_str(report, at_item, item, "question")
+        if question and "\n" in question:
+            report.add(at_item, "'question' must be a single line")
+        _nonempty_str(report, at_item, item, "answer_md")
+        anchors = item.get("anchors")
+        if not isinstance(anchors, list) or not anchors or not all(isinstance(a, str) for a in anchors):
+            report.add(at_item, "'anchors' must be an array holding at least one finding id")
+            continue
+        seen = set()
+        for anchor in anchors:
+            if anchor in seen:
+                report.add(at_item, "anchor {!r} is repeated".format(anchor))
+            seen.add(anchor)
+            if anchor not in by_id:
+                report.add(
+                    at_item,
+                    "anchor {!r} is not a finding in this artifact -- an answer is grounded in findings "
+                    "the reader can open".format(anchor),
+                )
 
 
 def check_passes(report, where, passes, findings):

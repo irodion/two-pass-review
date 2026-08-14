@@ -33,7 +33,16 @@ LARGE_BYTES = 500_000
 LARGE_FILES = 150
 
 
-def git(repo, *arguments, input=None):
+# A memory-safety ceiling on captured git output, distinct from LARGE_BYTES:
+# that one is a UX threshold that asks the reviewer to confirm a big diff; this
+# is a backstop against a repository forcing a multi-gigabyte textual patch
+# (a huge blob under --text) and exhausting the host before any measurement can
+# run. No reviewable diff approaches it -- LARGE_BYTES gates real ones at half a
+# megabyte -- so it only ever fires on the pathological case.
+CAPTURE_CEILING = 256 * 1024 * 1024
+
+
+def git(repo, *arguments, input=None, max_bytes=None):
     """Raw bytes out.
 
     Git's output is not guaranteed to be UTF-8. `git diff` calls a file text on
@@ -44,14 +53,43 @@ def git(repo, *arguments, input=None):
     `input` is forwarded to subprocess for the one caller that pipes a payload
     to git -- check-attr --stdin -- so that caller stays on this helper rather
     than rebuilding the argument vector and its own error handling by hand.
+
+    `max_bytes` bounds how much stdout is held in memory, for the one caller
+    whose output size the reviewed repository controls -- the diff. Over the
+    bound, git is killed and stdout comes back None, so build_diff can refuse
+    rather than buffer the whole patch (and then a decoded copy) and risk the
+    host. Left None everywhere else, where output is a ref, a file list or an
+    attribute table and bounded by construction; those keep the plain path
+    untouched. The two options do not combine -- the diff pipes no input.
     """
-    result = subprocess.run(
-        ["git", "-C", repo] + list(arguments),
-        input=input,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    return result.returncode, result.stdout, result.stderr.decode("utf-8", "replace").strip()
+    if max_bytes is None:
+        result = subprocess.run(
+            ["git", "-C", repo] + list(arguments),
+            input=input,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        return result.returncode, result.stdout, result.stderr.decode("utf-8", "replace").strip()
+
+    # Read incrementally and stop the moment the ceiling is passed, so a hostile
+    # patch cannot make this process grow without bound. stderr is drained only
+    # after, which is safe because git's diff stderr is a few lines at most and
+    # cannot fill its pipe while we read stdout.
+    proc = subprocess.Popen(["git", "-C", repo] + list(arguments), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    chunks, total = [], 0
+    while True:
+        chunk = proc.stdout.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            proc.kill()
+            proc.wait()
+            return proc.returncode, None, ""
+        chunks.append(chunk)
+    error = proc.stderr.read().decode("utf-8", "replace").strip()
+    proc.wait()
+    return proc.returncode, b"".join(chunks), error
 
 
 def git_text(repo, *arguments):
@@ -272,8 +310,16 @@ def build_diff(repo, mode, base, head):
     # Together with the worktree neutralization above, the patch is the bytes as
     # they sit in git and on disk, not a repository-chosen account of them.
     code, raw, error = git(
-        repo, *overrides + ["diff", "--no-ext-diff", "--no-textconv", "--text", "--ignore-submodules=none"] + selector
+        repo,
+        *overrides + ["diff", "--no-ext-diff", "--no-textconv", "--text", "--ignore-submodules=none"] + selector,
+        max_bytes=CAPTURE_CEILING,
     )
+    if raw is None:
+        return None, (
+            "the diff exceeded {} bytes and capture was stopped before it could exhaust memory. "
+            "This usually means a large binary was forced to a textual patch; review a committed "
+            "range or narrow the scope".format(CAPTURE_CEILING)
+        )
     if code != 0:
         return None, error
     text = raw.decode("utf-8", "replace")

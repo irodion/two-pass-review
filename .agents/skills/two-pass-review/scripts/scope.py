@@ -176,6 +176,66 @@ def filter_overrides(repo):
     return arguments, None
 
 
+# The built-in attributes that rewrite worktree content on the way into a
+# diff. Unlike filters these run no configured command, so the overrides above
+# cannot reach them and there is no flag to refuse them; they are detected and
+# the run stops instead. text/eol (CRLF) is deliberately absent: it is on
+# nearly every repository, and the only change it hides is one of line endings,
+# which the review does not examine -- listing it would refuse honest repos for
+# no gain.
+CONVERTING_ATTRS = ("ident", "working-tree-encoding")
+
+
+def worktree_conversion_block(repo):
+    """A message when a built-in conversion could hide a local change, else None.
+
+    local-patch diffs the working tree, and git cleans each file through its
+    attributes first, so a change inside an $Id$ span (ident) or under a
+    working-tree-encoding transcoding cleans back to what HEAD holds -- the
+    diff comes up empty and the run reports nothing to review while the payload
+    sits on disk. Only local-patch is exposed: a revision range diffs blob to
+    blob and never touches the working tree.
+
+    Conservative by design: it refuses when the attribute is set on any tracked
+    file, not only a changed one, because the concealment it guards against is
+    the reason the file would not show as changed. The attribute is rare enough
+    that the false refusal is cheaper than reading every candidate's bytes to
+    narrow it, and the message points at the committed range that is immune.
+
+    An enumeration that fails leaves the run to proceed rather than blocking on
+    a git that could not answer -- same fail-toward-today's-behaviour as the
+    filter enumeration, since the attribute is the rare case and a broken git
+    is not the threat here.
+    """
+    code, files, _ = git(repo, "ls-files", "-z")
+    if code != 0 or not files:
+        return None
+    try:
+        completed = subprocess.run(
+            ["git", "-C", repo, "check-attr", "--stdin", "-z"] + list(CONVERTING_ATTRS),
+            input=files, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+    except OSError:
+        return None
+    if completed.returncode != 0:
+        return None
+    # check-attr -z emits flat NUL-terminated triples: path, attribute, value.
+    fields = completed.stdout.split(b"\0")
+    for index in range(0, len(fields) - 2, 3):
+        value = fields[index + 2].decode("utf-8", "replace")
+        if value not in ("unspecified", "unset"):
+            return (
+                "the file {!r} has the git attribute {!r} in effect, a built-in worktree "
+                "conversion that can hide an uncommitted change from a local-patch diff. "
+                "Review a committed range instead -- it diffs the stored bytes and does not "
+                "convert".format(
+                    fields[index].decode("utf-8", "replace"),
+                    fields[index + 1].decode("utf-8", "replace"),
+                )
+            )
+    return None
+
+
 def build_diff(repo, mode, base, head):
     """The patch both passes see. One pinned input is what makes them comparable."""
     if mode == "revisions":
@@ -183,6 +243,9 @@ def build_diff(repo, mode, base, head):
     else:
         # Working tree against the base, which covers staged and unstaged alike.
         selector = [base]
+        problem = worktree_conversion_block(repo)
+        if problem:
+            return None, problem
     # Porcelain diff runs commands the reviewed checkout gets to pick, and any
     # of them can hang this step or rewrite the patch before the passes see
     # it. External diff drivers and textconv have refusal flags; clean and

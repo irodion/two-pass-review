@@ -319,6 +319,15 @@ One deliberate exception: when the lines themselves hold a secret — a credenti
 data — redact the value inside the excerpt and say in the body that you did. The report is a document
 people forward, and evidence that a secret exists must not be a second copy of it.
 
+**Write for a reader who is skimming.** The report lands between tasks: its reader decides in seconds
+whether a finding blocks the merge, with less attention than the finding deserves — and the decision is
+load-bearing anyway. So write the body in simplified technical English, the ASD-STE100 register: short
+sentences, one claim per sentence, active voice, common words. After the excerpt, the first sentence
+states what the change costs — the bug, the duplication, the burden it leaves behind — in the terms the
+code itself uses. Do not introduce an acronym or a term of art the repository does not already contain.
+When the repository under review carries a `CONTEXT.md`, use its vocabulary for the domain nouns; when
+it does not, the code's own names are the vocabulary, and inventing better ones is not your job.
+
 Write in this subset, which is all the report renders:
 
 paragraphs, `inline code`, **bold**, *italic*, bullet and numbered lists, fenced code blocks with an

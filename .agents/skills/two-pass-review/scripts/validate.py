@@ -32,6 +32,16 @@ import re
 import sys
 from collections import Counter
 
+# The one sibling import here, and it is deliberate: the self-check naming rule
+# is a claim about what the reader *sees*, and markdown_subset owns the page's
+# definition of visible text. A second projection written in this file would be
+# the two definitions drifting apart -- the validator passing a question whose
+# ids the renderer hides, which is the defect this import fixes. Bare, with no
+# sys.path mutation, for page.py's reason: run directly, this directory is
+# already first on the path, and imported as a library, the entrypoint that
+# imported it put the directory there.
+from markdown_subset import Markdown  # noqa: E402  (sibling script, same directory)
+
 SCHEMA_VERSION = 1
 
 # The merged artifact is versioned apart from the pass files, whose shape has
@@ -877,9 +887,12 @@ def check_self_check(report, where, self_check, by_id, marks_active):
         # The question says which findings it is about, in its own text: a
         # reader should never have to open the answer to learn what is being
         # asked. Named-but-unanchored is the reverse defect -- a question
-        # citing a finding its own answer is not grounded in.
+        # citing a finding its own answer is not grounded in. Matched against
+        # the plain projection, not the raw markdown, so an id hidden in a
+        # link destination -- text the page never shows -- names nothing,
+        # while one in a link label or inline code still counts.
         if question:
-            named = set(NAMED_ID_RE.findall(question))
+            named = set(NAMED_ID_RE.findall(Markdown.plain(question)))
             if not named & set(anchors):
                 report.add(
                     at_item,

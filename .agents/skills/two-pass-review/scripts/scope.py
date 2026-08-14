@@ -238,25 +238,36 @@ def worktree_conversion_block(repo):
 
 def build_diff(repo, mode, base, head):
     """The patch both passes see. One pinned input is what makes them comparable."""
+    # Two axes of repository-controlled conversion, and they divide by data
+    # source. The `diff` attribute -- custom diff driver, textconv, or `-diff`
+    # marking source as binary -- governs how any diff is *rendered*, so it
+    # reaches a blob-to-blob revision range as much as a worktree one; the
+    # flags on the diff call below refuse all three of its forms and belong on
+    # both modes. Clean/process filters and the built-in worktree conversions
+    # only run when a diff *reads the working tree*, so their neutralization is
+    # local-patch's alone -- applying it to a revision range would make blob
+    # comparison depend on worktree filter config it never invokes, and refuse
+    # a range over an unrepresentable filter name that could not matter.
     if mode == "revisions":
         selector = ["{}..{}".format(base, head)]
+        overrides = []
     else:
         # Working tree against the base, which covers staged and unstaged alike.
         selector = [base]
         problem = worktree_conversion_block(repo)
         if problem:
             return None, problem
-    # Porcelain diff runs commands the reviewed checkout gets to pick, and any
-    # of them can hang this step or rewrite the patch before the passes see
-    # it. External diff drivers and textconv have refusal flags; clean and
-    # process filters have none and run whenever the diff reads the working
-    # tree, so those are neutralized per configured driver instead. Together
-    # that pins the patch to the bytes as they sit in git and on disk, not a
-    # filter's account of them.
-    overrides, problem = filter_overrides(repo)
-    if problem:
-        return None, problem
-    code, raw, error = git(repo, *overrides + ["diff", "--no-ext-diff", "--no-textconv"] + selector)
+        overrides, problem = filter_overrides(repo)
+        if problem:
+            return None, problem
+    # --text forces textual diffing so a `-diff` attribute cannot pin a changed
+    # source file as "Binary files differ" and withhold every line from the
+    # passes; a genuine binary renders as text rather than as a hidden change,
+    # which for a review is the safe direction. --no-ext-diff and --no-textconv
+    # refuse the attribute's other two forms. Together with the worktree
+    # neutralization above, the patch is the bytes as they sit in git and on
+    # disk, not a repository-chosen account of them.
+    code, raw, error = git(repo, *overrides + ["diff", "--no-ext-diff", "--no-textconv", "--text"] + selector)
     if code != 0:
         return None, error
     text = raw.decode("utf-8", "replace")

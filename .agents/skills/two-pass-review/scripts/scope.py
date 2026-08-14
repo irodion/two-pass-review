@@ -33,16 +33,21 @@ LARGE_BYTES = 500_000
 LARGE_FILES = 150
 
 
-def git(repo, *arguments):
+def git(repo, *arguments, input=None):
     """Raw bytes out.
 
     Git's output is not guaranteed to be UTF-8. `git diff` calls a file text on
     a heuristic, so a Latin-1 comment or a mis-encoded fixture arrives as bytes
     a strict decoder rejects -- and a strict decode here would kill the whole
     review in step one, on a repository doing nothing unusual.
+
+    `input` is forwarded to subprocess for the one caller that pipes a payload
+    to git -- check-attr --stdin -- so that caller stays on this helper rather
+    than rebuilding the argument vector and its own error handling by hand.
     """
     result = subprocess.run(
         ["git", "-C", repo] + list(arguments),
+        input=input,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -203,24 +208,20 @@ def worktree_conversion_block(repo):
     narrow it, and the message points at the committed range that is immune.
 
     An enumeration that fails leaves the run to proceed rather than blocking on
-    a git that could not answer -- same fail-toward-today's-behaviour as the
-    filter enumeration, since the attribute is the rare case and a broken git
-    is not the threat here.
+    a git that could not answer: a non-zero exit here returns None, the same
+    fail-toward-today's-behaviour as the filter enumeration, since the
+    attribute is the rare case. A git binary too broken to run is not guarded
+    for -- rev-parse at startup already proved it runnable, so like every other
+    call in this file these two just assume it is.
     """
     code, files, _ = git(repo, "ls-files", "-z")
     if code != 0 or not files:
         return None
-    try:
-        completed = subprocess.run(
-            ["git", "-C", repo, "check-attr", "--stdin", "-z"] + list(CONVERTING_ATTRS),
-            input=files, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        )
-    except OSError:
-        return None
-    if completed.returncode != 0:
+    code, out, _ = git(repo, "check-attr", "--stdin", "-z", *CONVERTING_ATTRS, input=files)
+    if code != 0:
         return None
     # check-attr -z emits flat NUL-terminated triples: path, attribute, value.
-    fields = completed.stdout.split(b"\0")
+    fields = out.split(b"\0")
     for index in range(0, len(fields) - 2, 3):
         value = fields[index + 2].decode("utf-8", "replace")
         if value not in ("unspecified", "unset"):

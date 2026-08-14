@@ -125,6 +125,43 @@ def make_private_dir(path):
     return 0
 
 
+def filter_overrides(repo):
+    """One -c override per configured filter driver, emptied for this invocation.
+
+    A .gitattributes line in the reviewed worktree selects a filter by name,
+    but the command behind the name lives in config, which the checkout's
+    author cannot write. Emptying every configured driver therefore closes the
+    class: a name with no command behind it is a no-op, and required=false
+    keeps the no-op from being an error. The realistic abuse needs no attacker
+    config at all -- git-lfs registers a required process filter globally on
+    most machines, and a hostile attributes file can point any path at it.
+
+    An enumeration that fails leaves the overrides empty rather than failing
+    the run: that is exactly today's behaviour, and config listing does not
+    fail inside a repository that rev-parse already accepted.
+    """
+    code, out, _ = git_text(repo, "config", "--list", "--null")
+    names = set()
+    if code == 0:
+        # --null ends each entry with NUL and splits key from value with the
+        # first newline, so a value carrying either character cannot fake a key.
+        for entry in out.split("\0"):
+            key = entry.split("\n", 1)[0]
+            if not key.startswith("filter."):
+                continue
+            name, _, attribute = key[len("filter."):].rpartition(".")
+            if name and attribute in ("clean", "smudge", "process", "required"):
+                names.add(name)
+    arguments = []
+    for name in sorted(names):
+        arguments += [
+            "-c", "filter.{}.clean=".format(name),
+            "-c", "filter.{}.process=".format(name),
+            "-c", "filter.{}.required=false".format(name),
+        ]
+    return arguments
+
+
 def build_diff(repo, mode, base, head):
     """The patch both passes see. One pinned input is what makes them comparable."""
     if mode == "revisions":
@@ -132,13 +169,14 @@ def build_diff(repo, mode, base, head):
     else:
         # Working tree against the base, which covers staged and unstaged alike.
         selector = [base]
-    # Porcelain diff honours external diff drivers and textconv filters from
-    # the checkout's own attributes and config -- arbitrary commands the
-    # repository under review gets to choose, which can hang this step or
-    # quietly rewrite the patch. Refusing both pins the diff to the bytes git
-    # tracks, so what the passes read is the change and not a filter's account
-    # of it.
-    code, raw, error = git(repo, "diff", "--no-ext-diff", "--no-textconv", *selector)
+    # Porcelain diff runs commands the reviewed checkout gets to pick, and any
+    # of them can hang this step or rewrite the patch before the passes see
+    # it. External diff drivers and textconv have refusal flags; clean and
+    # process filters have none and run whenever the diff reads the working
+    # tree, so those are neutralized per configured driver instead. Together
+    # that pins the patch to the bytes as they sit in git and on disk, not a
+    # filter's account of them.
+    code, raw, error = git(repo, *filter_overrides(repo) + ["diff", "--no-ext-diff", "--no-textconv"] + selector)
     if code != 0:
         return None, error
     text = raw.decode("utf-8", "replace")

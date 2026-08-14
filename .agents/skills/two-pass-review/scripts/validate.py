@@ -603,14 +603,23 @@ def validate_merged(report, path, repo=None):
             ids_by_producer.setdefault(finding["producer"], []).append(int(matched.group(2)))
     check_ids_contiguous(report, where, ids_by_producer)
 
-    check_corroboration(report, where, findings, by_id)
+    # A mark is *active* only where it is legal: a version-2 artifact whose
+    # check ran. Everywhere else the mark is itself the defect, and the checks
+    # below must not interpret it -- honouring an illegal mark would have one
+    # message demand its removal while others instruct the repair loop to
+    # strip valid corroboration links and let a blocking finding stop
+    # blocking, and fixing the mark would then surface a second round of
+    # problems the first validation owed the loop up front.
+    run = merged.get("run")
+    state = run.get("falsification") if isinstance(run, dict) else None
+    marks_active = version >= 2 and state == "ran"
+
+    check_corroboration(report, where, findings, by_id, marks_active)
 
     # A 'falsified' mark is the falsification check's output, so a run whose
     # check was skipped or whose reply could not be read cannot carry marks:
     # either state alongside one is the artifact contradicting itself about
     # what happened.
-    run = merged.get("run")
-    state = run.get("falsification") if isinstance(run, dict) else None
     if state in ("skipped", "failed"):
         marked = sorted(
             (f.get("id") for f in findings if isinstance(f, dict) and f.get("falsified") is True),
@@ -625,7 +634,7 @@ def validate_merged(report, path, repo=None):
                 ),
             )
 
-    check_verdict(report, where, merged.get("verdict"), findings)
+    check_verdict(report, where, merged.get("verdict"), findings, marks_active)
     check_passes(report, where, merged.get("passes"), findings)
 
 
@@ -677,11 +686,16 @@ def check_run(report, where, run, version):
             _int(report, at, scope, "untracked")
 
 
-def check_corroboration(report, where, findings, by_id):
+def check_corroboration(report, where, findings, by_id, marks_active):
     """Links resolve, are mutual, and never cross a disposition.
 
     A link across dispositions means a pass mis-tagged one of the two, and a
     unit spanning dispositions would break the one ordering the page has.
+
+    `marks_active` is whether a 'falsified' mark is legal on this artifact at
+    all. Where it is not, the mark was already reported as the defect, and
+    treating it as a withdrawal here would demand the removal of links that
+    are valid once the mark is gone.
     """
     for finding in findings:
         if not isinstance(finding, dict):
@@ -691,7 +705,7 @@ def check_corroboration(report, where, findings, by_id):
         # in either direction. The reverse arm is checked at the partner
         # lookup below, so a one-sided link to a falsified finding is named
         # too, not just the mutual case.
-        if finding.get("falsified") is True and finding.get("corroborated_by"):
+        if marks_active and finding.get("falsified") is True and finding.get("corroborated_by"):
             report.add(
                 "{} {}".format(where, source),
                 "a falsified finding carries no corroboration links -- it was withdrawn at the merge",
@@ -710,7 +724,7 @@ def check_corroboration(report, where, findings, by_id):
             if partner is None:
                 report.add(at, "corroborated_by names {!r}, which is not in this artifact".format(target))
                 continue
-            if partner.get("falsified") is True:
+            if marks_active and partner.get("falsified") is True:
                 report.add(
                     at,
                     "corroborates {!r}, which is falsified -- a withdrawn finding cannot promote one that stands".format(
@@ -742,13 +756,16 @@ def check_corroboration(report, where, findings, by_id):
                 )
 
 
-def check_verdict(report, where, verdict, findings):
+def check_verdict(report, where, verdict, findings, marks_active):
     """The verdict agrees with its own list.
 
     This is what makes "derived, so it cannot contradict" checked rather than
     trusted. Falsified findings are outside the derivation entirely: the diff
     contradicts them, so a "blocking" tag on one is a claim the merge has
-    already answered.
+    already answered. Only while `marks_active`, though -- an illegal mark
+    was already reported as the defect, and letting it excuse a blocking
+    finding here would hand the repair loop a verdict problem that only
+    appears after the mark is fixed.
     """
     if verdict not in VERDICTS:
         report.add(where, "'verdict' must be 'blocked' or 'clear'")
@@ -756,7 +773,9 @@ def check_verdict(report, where, verdict, findings):
     blocking = [
         f.get("id")
         for f in findings
-        if isinstance(f, dict) and f.get("disposition") == "blocking" and f.get("falsified") is not True
+        if isinstance(f, dict)
+        and f.get("disposition") == "blocking"
+        and not (marks_active and f.get("falsified") is True)
     ]
     if blocking and verdict != "blocked":
         report.add(
@@ -764,7 +783,7 @@ def check_verdict(report, where, verdict, findings):
             "verdict is 'clear' but {} finding(s) block: {}".format(len(blocking), ", ".join(str(b) for b in blocking)),
         )
     if not blocking and verdict != "clear":
-        fell = any(
+        fell = marks_active and any(
             isinstance(f, dict) and f.get("disposition") == "blocking" and f.get("falsified") is True
             for f in findings
         )

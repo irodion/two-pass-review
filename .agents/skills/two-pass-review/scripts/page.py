@@ -401,6 +401,11 @@ def render_run_panel(run, passes):
         rows.append(("Head", '<span class="chip">{}</span>'.format(esc(scope["head"])), True))
     rows.append(("Diff size", "{:,} bytes".format(scope["diff_bytes"]), False))
     rows.append(("Passes", esc(run["mode"]), False))
+    # Only when the run recorded it: an artifact from before the check existed
+    # has nothing to say here, and "not recorded" would read as an omission by
+    # a run that never had the field to fill in.
+    if run.get("falsification"):
+        rows.append(("Falsification", esc(run["falsification"]), False))
 
     recorded, agreed, _ = provenance_state(passes)
     if recorded and agreed:
@@ -459,6 +464,11 @@ def render_warnings(run, passes):
         warnings.append(
             "Both rubrics ran in one context window rather than side by side. A sequential run is "
             "the weaker run."
+        )
+    if run.get("falsification") == "skipped":
+        warnings.append(
+            "The falsification check was skipped: nothing tried to disprove these findings against "
+            "the diff, so a finding the diff contradicts would still be standing."
         )
     if provenance_state(passes)[2]:
         warnings.append(

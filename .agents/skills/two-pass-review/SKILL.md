@@ -99,9 +99,11 @@ correlated, and only a checker that saw none of what they saw can catch what bot
 host offers no fresh subagent, skip the check: running it in your own window, which has read the
 repository and both pass files, checks nothing. Run it at the model and effort the passes ran at.
 
-**Record which way it went.** That becomes `run.falsification`, `"ran"` or `"skipped"` — because on the
-page a run where nothing tried to disprove the findings is indistinguishable from one where something
-tried and everything held, and the reader is owed that, the same way they are owed a sequential run.
+**Record which way it went.** That becomes `run.falsification`: `"ran"` when the check ran and its
+reply was read, `"failed"` when it ran and no reply could be read, `"skipped"` when it never ran —
+because on the page a run where nothing disproved the findings is indistinguishable from one where
+something tried and everything held, and the reader is owed that, the same way they are owed a
+sequential run. `"ran"` is a claim about the reply, not the verdict: a run that read `[]` ran.
 
 Its instruction is to falsify, never verify:
 
@@ -116,7 +118,8 @@ Its instruction is to falsify, never verify:
 - Reply with a JSON array of the flagged ids and nothing else; `[]` when nothing is contradicted.
 
 **Fail open.** If no JSON array can be extracted from the reply, nothing is falsified — this check must
-never cost a true finding. Mark each flagged finding `"falsified": true` in the merged artifact and
+never cost a true finding — and `run.falsification` records `"failed"`, because a reply nobody could
+read is not a check that held. Mark each flagged finding `"falsified": true` in the merged artifact and
 **never delete it**: ids stay contiguous, the record stays whole, and the page renders the finding as
 withdrawn. A falsified finding does not block, is never linked in corroboration, and needs no repair —
 it is not an invalid artifact, it is a recorded disagreement the diff settles.
@@ -125,7 +128,9 @@ it is not an invalid artifact, it is a recorded disagreement the diff settles.
 
 Write `<run_dir>/findings.json`:
 
-- `schema_version` 1, `kind` `"merged"`
+- `schema_version` 2, `kind` `"merged"` — version 2 is where the falsification check exists, and it
+  makes `run.falsification` required; version 1 is the shape from before the check, still valid so old
+  artifacts re-render, and never what a new merge writes
 - `run` — your `mode` from step 2, `falsification` from the check above, `generated_at`, and `scope`
   exactly as `scope.py` printed it.
   `generated_at` is the moment you merged, in UTC, shaped like `2026-08-08T14:02:11Z` — that string is

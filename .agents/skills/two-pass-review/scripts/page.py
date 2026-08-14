@@ -470,6 +470,11 @@ def render_warnings(run, passes):
             "The falsification check was skipped: nothing tried to disprove these findings against "
             "the diff, so a finding the diff contradicts would still be standing."
         )
+    if run.get("falsification") == "failed":
+        warnings.append(
+            "The falsification check ran but its reply could not be read, so every finding was kept "
+            "unexamined &mdash; a finding the diff contradicts would still be standing."
+        )
     if provenance_state(passes)[2]:
         warnings.append(
             "The passes were not asked for the same model and effort. Corroboration between them "

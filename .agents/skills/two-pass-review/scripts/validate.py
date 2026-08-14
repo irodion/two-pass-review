@@ -49,6 +49,7 @@ CATEGORIES = (
 )
 SCOPE_MODES = ("revisions", "local-patch")
 RUN_MODES = ("parallel", "sequential")
+FALSIFICATIONS = ("ran", "skipped")
 VERDICTS = ("blocked", "clear")
 
 TIER_MAX = 64
@@ -91,7 +92,7 @@ PASS_FIELDS = frozenset(
 )
 EMBEDDED_PASS_FIELDS = PASS_FIELDS - frozenset(["schema_version", "kind"])
 MERGED_FIELDS = frozenset(["schema_version", "kind", "run", "verdict", "passes", "findings"])
-RUN_FIELDS = frozenset(["mode", "generated_at", "scope"])
+RUN_FIELDS = frozenset(["mode", "falsification", "generated_at", "scope"])
 SCOPE_FIELDS = frozenset(["repo", "mode", "base", "head", "files_changed", "diff_bytes", "untracked"])
 
 
@@ -579,6 +580,23 @@ def validate_merged(report, path, repo=None):
     check_ids_contiguous(report, where, ids_by_producer)
 
     check_corroboration(report, where, findings, by_id)
+
+    # A 'falsified' mark is the falsification check's output, so a run that
+    # says the check was skipped and carries marks anyway is contradicting
+    # itself about what happened.
+    run = merged.get("run")
+    if isinstance(run, dict) and run.get("falsification") == "skipped":
+        marked = sorted(
+            (f.get("id") for f in findings if isinstance(f, dict) and f.get("falsified") is True),
+            key=str,
+        )
+        if marked:
+            report.add(
+                where,
+                "run.falsification is 'skipped' but {} finding(s) carry 'falsified': {} -- "
+                "a skipped check withdrew nothing".format(len(marked), ", ".join(str(m) for m in marked)),
+            )
+
     check_verdict(report, where, merged.get("verdict"), findings)
     check_passes(report, where, merged.get("passes"), findings)
 
@@ -590,6 +608,11 @@ def check_run(report, where, run):
     at = "{} run".format(where)
     _check_unknown(report, at, run, RUN_FIELDS, "run")
     _enum(report, at, run, "mode", RUN_MODES)
+    # Optional, because artifacts written before the falsification check
+    # existed have no way to say which way it went -- absence means the run
+    # predates the record, not that the check was skipped.
+    if "falsification" in run:
+        _enum(report, at, run, "falsification", FALSIFICATIONS)
     generated_at = _nonempty_str(report, at, run, "generated_at")
     if generated_at and not TIMESTAMP_RE.match(generated_at):
         report.add(at, "'generated_at' must look like 2026-08-08T14:02:11Z")

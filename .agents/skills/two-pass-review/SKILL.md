@@ -98,6 +98,8 @@ The starvation is the mechanism. Both passes read the repository as peers, so th
 correlated, and only a checker that saw none of what they saw can catch what both misread. Where the
 host offers no fresh subagent, skip the check: running it in your own window, which has read the
 repository and both pass files, checks nothing. Run it at the model and effort the passes ran at.
+A split run has no single such tier, so there the falsifier's tier is the user's to name — ask in
+the same exchange that ordered the split, never pick one yourself.
 
 **Record which way it went.** That becomes `run.falsification`: `"ran"` when the check ran and its
 reply was read, `"failed"` when it ran and no reply could be read, `"skipped"` when it never ran —

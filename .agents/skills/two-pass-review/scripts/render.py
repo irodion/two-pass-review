@@ -31,6 +31,12 @@ from page import render_page  # noqa: E402
 # --- delivery ----------------------------------------------------------------
 
 
+# Long enough for a cold powershell.exe start, short enough that a wedged
+# opener cannot make the render look like it died. The open is a convenience;
+# no convenience is worth stalling the mechanism.
+OPENER_TIMEOUT = 10
+
+
 def launch(command, cwd=None):
     """Run an opener to completion. None if it never started at all.
 
@@ -38,11 +44,21 @@ def launch(command, cwd=None):
     of the WSL ladder needs to tell them apart: explorer.exe's exit code is not
     evidence either way, but a binary that could not be executed has certainly
     opened nothing.
+
+    A rung that outlives the timeout gets killed and reported as success, not
+    failure, because it certainly started and may well have opened the report
+    before wedging -- xdg-open blocks until the application it launched exits
+    on some desktops. Calling that a failure would fire the rung below and
+    risk a second window, the exact double-open the ladder is built to avoid.
     """
     try:
-        completed = subprocess.run(command, cwd=cwd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        completed = subprocess.run(
+            command, cwd=cwd, check=False, timeout=OPENER_TIMEOUT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
     except OSError:
         return None
+    except subprocess.TimeoutExpired:
+        return 0
     return completed.returncode
 
 
@@ -85,10 +101,19 @@ def translate_path(*arguments):
     Decoded explicitly rather than with text=True, which follows the locale --
     and a POSIX-locale shell is exactly where a repository slug outside ASCII
     would come back mangled.
+
+    Timed out like the openers, and for the same reason: wslpath answers
+    instantly or the interop channel is wedged, and a wedged channel hanging
+    here would stall the render before any opener even ran. No translation
+    means falling through, which is the honest outcome of no answer.
     """
     try:
-        completed = subprocess.run(["wslpath"] + list(arguments), check=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        completed = subprocess.run(
+            ["wslpath"] + list(arguments), check=False, timeout=OPENER_TIMEOUT, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+        )
     except OSError:
+        return None
+    except subprocess.TimeoutExpired:
         return None
     if completed.returncode != 0:
         return None
@@ -203,11 +228,16 @@ def main(argv):
     if args.latest:
         shutil.copyfile(target, os.path.abspath(args.latest))
 
-    if not args.no_open:
-        open_in_browser(target)
-
+    # The path goes out before any opener runs, flushed past stdout's buffer,
+    # because the printed path is the mechanism and the open is the
+    # convenience: a harness that kills a stalled render must still find the
+    # report named in what already reached it.
     sys.stdout.write("{}\n".format(target))
     sys.stdout.write("file://{}\n".format(target))
+    sys.stdout.flush()
+
+    if not args.no_open:
+        open_in_browser(target)
     return 0
 
 

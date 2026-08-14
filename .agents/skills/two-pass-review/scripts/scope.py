@@ -264,10 +264,15 @@ def build_diff(repo, mode, base, head):
     # source file as "Binary files differ" and withhold every line from the
     # passes; a genuine binary renders as text rather than as a hidden change,
     # which for a review is the safe direction. --no-ext-diff and --no-textconv
-    # refuse the attribute's other two forms. Together with the worktree
-    # neutralization above, the patch is the bytes as they sit in git and on
-    # disk, not a repository-chosen account of them.
-    code, raw, error = git(repo, *overrides + ["diff", "--no-ext-diff", "--no-textconv", "--text"] + selector)
+    # refuse the attribute's other two forms. --ignore-submodules=none overrides
+    # an `ignore = all` in .gitmodules or config, under which a changed submodule
+    # gitlink -- a pointer to whole other-repo commits -- would drop out of the
+    # patch silently; it is a no-op wherever no such suppression is configured.
+    # Together with the worktree neutralization above, the patch is the bytes as
+    # they sit in git and on disk, not a repository-chosen account of them.
+    code, raw, error = git(
+        repo, *overrides + ["diff", "--no-ext-diff", "--no-textconv", "--text", "--ignore-submodules=none"] + selector
+    )
     if code != 0:
         return None, error
     text = raw.decode("utf-8", "replace")

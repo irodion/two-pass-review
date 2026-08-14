@@ -34,6 +34,15 @@ from collections import Counter
 
 SCHEMA_VERSION = 1
 
+# The merged artifact is versioned apart from the pass files, whose shape has
+# not changed. Version 2 is where the falsification check exists: it requires
+# 'run.falsification' -- on a v2 artifact, absence would be indistinguishable
+# from the ambiguity the field was added to remove -- and it is the only
+# version where a finding can carry 'falsified'. Version 1 is the shape from
+# before the check existed, kept so every artifact already on disk validates
+# and re-renders exactly as it always did.
+MERGED_SCHEMA_VERSIONS = (1, 2)
+
 PRODUCERS = ("security", "quality")
 ID_PREFIX = {"security": "sec", "quality": "qa"}
 DISPOSITIONS = ("blocking", "follow-up", "note")
@@ -49,7 +58,10 @@ CATEGORIES = (
 )
 SCOPE_MODES = ("revisions", "local-patch")
 RUN_MODES = ("parallel", "sequential")
-FALSIFICATIONS = ("ran", "skipped")
+# 'ran' means the check ran and its reply was read -- a run where the reply
+# could not be parsed records 'failed', because fail-open kept every finding
+# and a reader shown 'ran' would take that for everything having held.
+FALSIFICATIONS = ("ran", "failed", "skipped")
 VERDICTS = ("blocked", "clear")
 
 TIER_MAX = 64
@@ -217,7 +229,7 @@ def _conditional(report, where, obj, key, required_when, condition, advice=None)
 # --- findings ----------------------------------------------------------------
 
 
-def check_finding(report, where, finding, in_merged, repo=None):
+def check_finding(report, where, finding, in_merged, repo=None, falsified_ok=False):
     if not isinstance(finding, dict):
         report.add(where, "a finding must be a JSON object")
         return None
@@ -292,9 +304,13 @@ def check_finding(report, where, finding, in_merged, repo=None):
     # check -- which a pass never sees -- can set it. True or absent, never
     # false: a finding that stands says so by carrying no mark, and a second
     # way to say the same thing is a fork readers would have to reconcile.
+    # Version-gated on top: a v1 merged artifact predates the check, so the
+    # mark there is as unknown as it was before the check existed.
     if "falsified" in finding:
         if not in_merged:
             report.add(where, "'falsified' is written by the merge step; a pass file records findings only")
+        elif not falsified_ok:
+            report.add(where, "'falsified' does not exist in schema version 1; a withdrawal is a version-2 claim")
         elif finding["falsified"] is not True:
             report.add(where, "'falsified' must be true when present -- a finding that stands omits the field")
 
@@ -549,12 +565,20 @@ def validate_merged(report, path, repo=None):
         return
 
     _check_unknown(report, where, merged, MERGED_FIELDS, "artifact")
-    if merged.get("schema_version") != SCHEMA_VERSION:
-        report.add(where, "'schema_version' must be {}".format(SCHEMA_VERSION))
+    version = merged.get("schema_version")
+    if version not in MERGED_SCHEMA_VERSIONS:
+        report.add(
+            where,
+            "'schema_version' must be one of {}".format(", ".join(str(v) for v in MERGED_SCHEMA_VERSIONS)),
+        )
+        # Check the rest under the current rules: an unknown version is its own
+        # problem, and hiding every other one behind it would make the repair
+        # loop fix this artifact one refusal at a time.
+        version = MERGED_SCHEMA_VERSIONS[-1]
     if merged.get("kind") != "merged":
         report.add(where, "'kind' must be \"merged\"")
 
-    check_run(report, where, merged.get("run"))
+    check_run(report, where, merged.get("run"), version)
 
     findings = merged.get("findings")
     if not isinstance(findings, list):
@@ -566,7 +590,7 @@ def validate_merged(report, path, repo=None):
     producers_seen = set()
     for index, finding in enumerate(findings):
         at = "{} findings[{}]".format(where, index)
-        finding_id = check_finding(report, at, finding, in_merged=True, repo=repo)
+        finding_id = check_finding(report, at, finding, in_merged=True, repo=repo, falsified_ok=version >= 2)
         if not isinstance(finding, dict):
             continue
         producers_seen.add(finding.get("producer"))
@@ -581,38 +605,45 @@ def validate_merged(report, path, repo=None):
 
     check_corroboration(report, where, findings, by_id)
 
-    # A 'falsified' mark is the falsification check's output, so a run that
-    # says the check was skipped and carries marks anyway is contradicting
-    # itself about what happened.
+    # A 'falsified' mark is the falsification check's output, so a run whose
+    # check was skipped or whose reply could not be read cannot carry marks:
+    # either state alongside one is the artifact contradicting itself about
+    # what happened.
     run = merged.get("run")
-    if isinstance(run, dict) and run.get("falsification") == "skipped":
+    state = run.get("falsification") if isinstance(run, dict) else None
+    if state in ("skipped", "failed"):
         marked = sorted(
             (f.get("id") for f in findings if isinstance(f, dict) and f.get("falsified") is True),
             key=str,
         )
         if marked:
+            reason = "a skipped check withdrew nothing" if state == "skipped" else "a reply nobody could read withdrew nothing"
             report.add(
                 where,
-                "run.falsification is 'skipped' but {} finding(s) carry 'falsified': {} -- "
-                "a skipped check withdrew nothing".format(len(marked), ", ".join(str(m) for m in marked)),
+                "run.falsification is {!r} but {} finding(s) carry 'falsified': {} -- {}".format(
+                    state, len(marked), ", ".join(str(m) for m in marked), reason
+                ),
             )
 
     check_verdict(report, where, merged.get("verdict"), findings)
     check_passes(report, where, merged.get("passes"), findings)
 
 
-def check_run(report, where, run):
+def check_run(report, where, run, version):
     if not isinstance(run, dict):
         report.add(where, "'run' must be a JSON object")
         return
     at = "{} run".format(where)
     _check_unknown(report, at, run, RUN_FIELDS, "run")
     _enum(report, at, run, "mode", RUN_MODES)
-    # Optional, because artifacts written before the falsification check
-    # existed have no way to say which way it went -- absence means the run
-    # predates the record, not that the check was skipped.
-    if "falsification" in run:
+    # Required at v2 and forbidden at v1, never optional: on a v2 artifact an
+    # absent field would be exactly the ambiguity it exists to remove -- a run
+    # nobody can tell apart from one where the check ran and everything held --
+    # and on a v1 artifact the field predates its own meaning.
+    if version >= 2:
         _enum(report, at, run, "falsification", FALSIFICATIONS)
+    elif "falsification" in run:
+        report.add(at, "'falsification' does not exist in schema version 1")
     generated_at = _nonempty_str(report, at, run, "generated_at")
     if generated_at and not TIMESTAMP_RE.match(generated_at):
         report.add(at, "'generated_at' must look like 2026-08-08T14:02:11Z")

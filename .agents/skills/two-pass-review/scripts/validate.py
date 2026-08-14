@@ -67,6 +67,10 @@ VERDICTS = ("blocked", "clear")
 TIER_MAX = 64
 
 ID_RE = re.compile(r"^(sec|qa)-([0-9]+)$")
+# Finding ids as they appear inside running text -- a self-check question names
+# the findings it is about, and this is how the naming is checked. Bounded on
+# both sides so 'sec-3' never matches inside 'sec-31'.
+NAMED_ID_RE = re.compile(r"\b(?:sec|qa)-[0-9]+\b")
 TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 FINDING_FIELDS = frozenset(
@@ -866,6 +870,24 @@ def check_self_check(report, where, self_check, by_id, marks_active):
         if not isinstance(anchors, list) or not anchors or not all(isinstance(a, str) for a in anchors):
             report.add(at_item, "'anchors' must be an array holding at least one finding id")
             continue
+        # The question says which findings it is about, in its own text: a
+        # reader should never have to open the answer to learn what is being
+        # asked. Named-but-unanchored is the reverse defect -- a question
+        # citing a finding its own answer is not grounded in.
+        if question:
+            named = set(NAMED_ID_RE.findall(question))
+            if not named & set(anchors):
+                report.add(
+                    at_item,
+                    "the question names none of its anchors -- a self-check question says which "
+                    "findings it is about, by id, in the question itself",
+                )
+            for name in sorted(named - set(anchors)):
+                report.add(
+                    at_item,
+                    "the question names {!r}, which is not among its anchors -- every finding a "
+                    "question cites is one its answer is grounded in".format(name),
+                )
         seen = set()
         for anchor in anchors:
             if anchor in seen:

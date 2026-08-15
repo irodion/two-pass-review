@@ -478,7 +478,7 @@ def render_run_panel(run, passes):
     )
 
 
-def render_warnings(run, passes):
+def render_warnings(run, passes, findings):
     """What the reader has to know before believing the report, in the masthead.
 
     These went to the sidebar's neighbours in the old scope section, under the
@@ -497,12 +497,16 @@ def render_warnings(run, passes):
             "Both rubrics ran in one context window rather than side by side, and the second pass "
             "reviewed with whatever window the first left it. A sequential run is the weaker run."
         )
-    if run.get("falsification") == "skipped":
+    # Both falsification warnings qualify findings the reader is about to
+    # believe. With none on the page there is nothing a missed contradiction
+    # could leave standing, and the callout would alarm over a check that had
+    # no subject -- the run facts still record the state, neutrally.
+    if findings and run.get("falsification") == "skipped":
         warnings.append(
             "The falsification check was skipped: nothing tried to disprove these findings against "
             "the diff, so a finding the diff contradicts would still be standing."
         )
-    if run.get("falsification") == "failed":
+    if findings and run.get("falsification") == "failed":
         warnings.append(
             "The falsification check ran but its reply could not be read, so every finding was kept "
             "unexamined &mdash; a finding the diff contradicts would still be standing."
@@ -866,7 +870,7 @@ def render_page(merged):
         scope_line=scope_line,
         nav="\n".join(nav),
         prose_links="".join(prose_links),
-        warnings=render_warnings(merged["run"], merged["passes"]),
+        warnings=render_warnings(merged["run"], merged["passes"], merged["findings"]),
         run_panel=render_run_panel(merged["run"], merged["passes"]),
         groups="\n".join(main),
         withdrawn=render_withdrawn(withdrawn, markdown),

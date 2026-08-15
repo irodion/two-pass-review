@@ -494,8 +494,8 @@ def render_warnings(run, passes):
         )
     if run["mode"] == "sequential":
         warnings.append(
-            "Both rubrics ran in one context window rather than side by side. A sequential run is "
-            "the weaker run."
+            "Both rubrics ran in one context window rather than side by side, and the second pass "
+            "reviewed with whatever window the first left it. A sequential run is the weaker run."
         )
     if run.get("falsification") == "skipped":
         warnings.append(

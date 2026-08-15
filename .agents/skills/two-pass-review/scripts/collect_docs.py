@@ -161,11 +161,13 @@ def collect(repo, diff_path):
             continue
         # CLAUDE.md as a symlink to AGENTS.md is the convention this repo's own
         # README recommends, and collecting both would hand the checker the
-        # same text twice under two names.
+        # same text twice under two names. `seen` records only what was
+        # actually collected -- see the assignment below the ceilings -- so an
+        # alias of a document the ceilings refused is re-checked and gets the
+        # ceiling's own reason, never a claim that something was collected.
         if resolved in seen:
             skipped.append({"path": path, "reason": "the same file as {}, already collected".format(seen[resolved])})
             continue
-        seen[resolved] = path
         size = os.path.getsize(absolute)
         if size > FILE_CEILING:
             skipped.append({"path": path, "reason": "larger than the {:,}-byte per-file ceiling".format(FILE_CEILING)})
@@ -175,6 +177,7 @@ def collect(repo, diff_path):
             continue
         total += size
         docs.append({"path": path, "bytes": size})
+        seen[resolved] = path
     return {"docs": docs, "skipped": skipped}
 
 

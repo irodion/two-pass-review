@@ -191,8 +191,8 @@ Write `<run_dir>/findings.json`:
   corroboration links below
 - `docs_check` — present exactly when `run.docs_check` is `"ran"`, absent otherwise: `examined` (the
   collected paths, exactly as handed to the subagent — empty when there was nothing to collect),
-  `skipped` (the collector's refusals, as printed), and `notes` (the subagent's reply, `[]` when
-  nothing conflicted). A doc note is not a finding — no id, no disposition, never corroborated, never
+  `skipped` (the collector's refusals exactly as printed — the empty array when it refused nothing,
+  never omitted), and `notes` (the subagent's reply, `[]` when nothing conflicted). A doc note is not a finding — no id, no disposition, never corroborated, never
   falsified, and the verdict never reads it
 - `verdict` — **derived, never authored**: any finding tagged `blocking` that is not falsified makes it
   `"blocked"`, otherwise `"clear"`. `clear` means nothing blocks, not that nothing was found.

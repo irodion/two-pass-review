@@ -589,7 +589,14 @@ def render_docs_check(docs_check, markdown):
     skipped = docs_check.get("skipped") or []
 
     if not examined:
-        coverage = "No agent-facing documents to check &mdash; nothing shaped like an AGENTS.md, CLAUDE.md or README applies to this diff."
+        # Two different empties. Candidates the collector refused are not
+        # documents that do not exist, and claiming "nothing applies" above a
+        # list of refusals would be the section contradicting itself.
+        coverage = (
+            "No agent-facing documents were read &mdash; every candidate was refused at collection."
+            if skipped
+            else "No agent-facing documents to check &mdash; nothing shaped like an AGENTS.md, CLAUDE.md or README applies to this diff."
+        )
     else:
         chips = ", ".join('<span class="chip">{}</span>'.format(esc(p)) for p in examined)
         told = "The diff was read against {}.".format(chips)

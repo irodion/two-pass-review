@@ -989,7 +989,14 @@ def check_docs_check(report, where, docs_check, repo=None):
         if repo is not None:
             _check_doc_path(report, at, path, repo)
 
-    if "skipped" in docs_check:
+    # Required, empty allowed, never optional: the collector always prints its
+    # refusals, and an artifact allowed to drop the array could state fuller
+    # coverage than the collection had. Absence must stay distinguishable from
+    # "nothing was refused".
+    if "skipped" not in docs_check:
+        report.add(at, "'skipped' must be present -- the collector's refusals, an empty array when it refused nothing")
+        skipped = []
+    else:
         skipped = docs_check["skipped"]
         if not isinstance(skipped, list):
             report.add(at, "'skipped' must be an array")

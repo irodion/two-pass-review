@@ -48,12 +48,12 @@ The relationship between two findings from different passes that argue the same 
 _Avoid_: duplicate, dedupe, merge
 
 **Falsification**:
-The merge-time check that tries to disprove each finding from the pinned diff alone. A filter, not a third pass: it sees only the diff and the findings — none of the passes' context — and it can only withdraw, never add or edit. Fails open, because it must never cost a true finding.
-_Avoid_: verification, reflection, third pass
+The merge-time check that tries to disprove each finding from the pinned diff alone. A filter, not a third pass: it sees only the diff and the findings — none of the passes' context — and it can only contest, never add, edit, remove, or demote. Fails open, because it must never cost a true finding.
+_Avoid_: verification, reflection, third pass, veto
 
-**Falsified**:
-Of a finding, directly contradicted by the diff itself and withdrawn at the merge. Marked, never deleted: it stays in the artifact and on the page, blocks nothing, and corroborates nothing.
-_Avoid_: deleted, dropped, rejected, false positive
+**Contested**:
+Of a finding, disputed by the falsification check: the diff appears to contradict its key claim. An annotation, never a withdrawal — the finding keeps its disposition, blocks and corroborates exactly as tagged, and carries the check's counter-evidence on the card and in both copy payloads, so whoever verifies holds claim and counter-claim together. Schema versions 2 and 3 instead *withdrew* such findings; those artifacts still render with the old semantics.
+_Avoid_: falsified, withdrawn, suspicious, untrusted, false positive
 
 **Docs check**:
 The advisory check that asks whether any agent-facing document — AGENTS.md, CLAUDE.md, a README — states something the pinned diff makes false, or omits something it now owes. Not a third pass: no rubric, no findings, and nothing it reports blocks. The documents are collected deterministically by script; one subagent reads them against the diff, for explicit conflict only. Fails toward silence.

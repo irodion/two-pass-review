@@ -113,14 +113,17 @@ loudly they shout, derived from severity for security findings and from category
   it. The validator enforces that.
 - **Findings that corroborate each other** sit together with a banner, rather than being merged. Two
   passes reaching one defect from two directions is evidence, and collapsing it would throw that away.
-- **A withdrawn finding stays on the page.** Before the merge, a falsification check that sees only the
+- **A contested finding is still a finding.** Before the merge, a falsification check that sees only the
   diff — none of the passes' context — tries to disprove each finding, and one whose key claim the diff
-  itself contradicts is withdrawn rather than deleted. It renders at the bottom, blocks nothing and
-  corroborates nothing; it is kept because a report that silently lost a finding would be lying about
-  what the passes wrote. The check only ever falsifies: a claim it cannot check from the diff passes
-  unchallenged, so it costs no true findings. A run where the check could not run — or where it ran
-  and its reply could not be read — says so in the masthead, because a report where nothing disproved
-  the findings should not read like one where something tried and everything held.
+  appears to contradict is marked *contested*: it keeps its place, its disposition and its force — a
+  contested blocking finding still blocks — and the check's counter-evidence renders on the card and
+  travels in both copy buttons, so whoever verifies receives the claim and the objection together and
+  adjudicates from the code. The check never removes anything, because it is measurably wrong about
+  true findings often enough that its word is a lead, not a ruling. A claim it cannot check from the
+  diff passes unchallenged. A run where the check could not run — or where it ran and its reply could
+  not be read — says so in the masthead, because a report where nothing disputed the findings should
+  not read like one where something tried and everything held. (Reports from older runs may instead
+  show a *withdrawn* section; that was this check's earlier, harsher form.)
 - **What the run was pointed at is in the sidebar**, under `Run`: repository, scope mode, the two object
   ids, the diff size, and the model and effort when the run chose them. They are what was asked for
   rather than a measurement — nothing in the pipeline can confirm which model answered — and the page

@@ -166,6 +166,15 @@ def copy_payload(finding, partners):
         rationale = finding.get("confidence_rationale") or ""
         lines.append("{} confidence{}".format(finding["confidence"], " — " + rationale if rationale else ""))
 
+    # The dispute travels with the claim. Whoever pastes this payload is the
+    # adjudicator the contest exists for -- an agent with repository access the
+    # diff-starved check never had -- so the payload carries both sides and
+    # says which is which, and pre-judges neither.
+    if finding.get("contested_md"):
+        lines.append("")
+        lines.append("Contested by a diff-only falsification check — verify which side the code supports:")
+        lines.append("> " + finding["contested_md"].replace("\n", "\n> "))
+
     for location in finding.get("locations") or []:
         start, end = location.get("start_line"), location.get("end_line")
         if start and end and end != start:
@@ -283,6 +292,15 @@ def render_finding(finding, markdown, partners):
             esc(finding.get("confidence_rationale") or ""), esc(finding["confidence"])
         )
 
+    # A label, not a strike or a fold: the finding keeps its place, its
+    # disposition and its force, and the label points at the dispute rendered
+    # below the body. Naming the check rather than a judgment -- "contested",
+    # never "suspicious" -- because the check is the wrong party often enough
+    # that the badge must not say who loses.
+    contested = ""
+    if finding.get("contested_md"):
+        contested = '<span class="meta-label meta-contested">contested</span>'
+
     # The metadata reads above the title rather than under it. Under it, the eye
     # left the title, crossed a row of tags and arrived at the claim -- so the two
     # sentences that carry the finding were separated by the labels that describe
@@ -290,7 +308,7 @@ def render_finding(finding, markdown, partners):
     bits.append(
         '<header class="finding-head">'
         '<div class="meta"><span class="fid">{fid}</span>'
-        '<span class="meta-label">{prod}</span>{axis}{conf}</div>'
+        '<span class="meta-label">{prod}</span>{axis}{conf}{contested}</div>'
         "<h3>{title}</h3>"
         "</header>".format(
             fid=esc(finding_id),
@@ -298,6 +316,7 @@ def render_finding(finding, markdown, partners):
             prod=producer_label(finding["producer"]),
             axis=axis,
             conf=confidence,
+            contested=contested,
         )
     )
 
@@ -317,6 +336,17 @@ def render_finding(finding, markdown, partners):
         )
 
     bits.append('<div class="body">{}</div>'.format(markdown.render(finding["body_md"], self_id=finding_id)))
+    # After the body, not before it: the card argues first and the dispute
+    # reads as the reply it is. The finding's own force is untouched -- the
+    # contest is the one voice on the card that is not the pass's, and the
+    # reader adjudicates with both in view.
+    if finding.get("contested_md"):
+        bits.append(
+            '<div class="contested"><p class="contested-label">Contested by the falsification check '
+            "&mdash; the diff-only check disputes this claim:</p>{}</div>".format(
+                markdown.render(finding["contested_md"], self_id=finding_id)
+            )
+        )
     # One strip, not two. The copy controls were already across the foot when
     # dismissal arrived, and a second full-width row would cost every card --
     # dismissed or not -- a second line of vertical space to say one word.
@@ -802,6 +832,14 @@ def render_page(merged):
             "The only finding was withdrawn at the merge; nothing stands."
             if len(withdrawn) == 1
             else "All {} findings were withdrawn at the merge; nothing stands.".format(len(withdrawn))
+        )
+    # Said in the masthead because it qualifies the sentence just made: some of
+    # the findings counted there are disputed, and a reader who never scrolls
+    # is owed that before the number settles in.
+    contested_count = sum(1 for f in live if f.get("contested_md"))
+    if contested_count:
+        sentence += " The falsification check contests {} of {}.".format(
+            contested_count, "them" if contested_count > 1 else "these"
         )
     # Advisory, so it joins the sentence only when it has something to say: a
     # clean docs check is coverage detail, and the section states it.
@@ -1391,6 +1429,17 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
 .corroboration { border-left: 2px solid var(--accent); padding-left: 11px; margin: 13px 0 0;
   font-size: 13.5px; line-height: 1.5; color: var(--muted); }
 .corroboration strong { color: var(--accent); font-weight: 600; }
+
+/* The contest reads like the corroboration banner -- a voice about the
+   finding, not a second finding -- in the follow-up amber, which is the
+   page's colour for `attend to this, it does not block`. Never the blocking
+   red: red would say the finding lost, and the check is wrong often enough
+   that the card must not pre-judge the winner. */
+.contested { border-left: 2px solid var(--follow); padding-left: 11px; margin: 13px 0 0;
+  font-size: 13.5px; line-height: 1.5; color: var(--muted); }
+.contested p { margin: 4px 0 0; }
+.contested-label { color: var(--follow); font-weight: 600; margin: 0; }
+.meta-contested { color: var(--follow); }
 /* No margin of its own: the first block inside carries the gap, and which block
    that is depends on what the pass wrote. */
 .body { margin-top: 0; }

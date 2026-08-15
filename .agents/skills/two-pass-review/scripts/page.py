@@ -1392,6 +1392,7 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
 .finding.dismissed .meta > :not(.fid),
 .finding.dismissed .locations,
 .finding.dismissed .corroboration,
+.finding.dismissed .contested,
 .finding.dismissed .body,
 .finding.dismissed .copy,
 .finding.dismissed .dm-open,

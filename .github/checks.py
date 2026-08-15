@@ -30,7 +30,7 @@ SCRIPTS = os.path.join(SKILL, "scripts")
 # The scripts import each other by bare name, because they are run as files from
 # a directory the skill does not control and sys.path[0] is the only thing that
 # reliably points at their siblings.
-SIBLINGS = {"validate", "page", "markdown_subset", "render", "scope"}
+SIBLINGS = {"validate", "page", "markdown_subset", "render", "scope", "collect_docs"}
 
 
 def stdlib_only(problems):

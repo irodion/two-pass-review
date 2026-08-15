@@ -144,6 +144,14 @@ loudly they shout, derived from severity for security findings and from category
   run's own number. It is a mark on your reading, not on the finding: it does not touch the verdict, and
   none of it survives a reload — a report is a snapshot of one diff, and a stale mark against a
   regenerated one would mislead.
+- **A `Documentation` section may follow the findings.** An advisory docs check reads the diff against
+  the agent-facing documents — `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, a README, `CONTRIBUTING.md` and
+  `GUIDE.md` at the root, plus nested `AGENTS.md`, `CLAUDE.md` and READMEs on the changed paths — and
+  quotes any claim the diff
+  explicitly makes false or coverage it now owes. It is not a third pass and it never blocks: the notes
+  carry no ids and no dispositions, the section names exactly which documents were read and which the
+  collector refused, and it catches explicit contradiction only — drift a change merely implies is
+  beyond it, and the section says so.
 - **The report may end with a self-check** — up to four questions, each about one specific standing
   finding it names by id, with its answer folded underneath and linked to the findings it rests on. It is a
   nudge to engage before acting on the verdict, not a gate: the answers live on the page, nothing is

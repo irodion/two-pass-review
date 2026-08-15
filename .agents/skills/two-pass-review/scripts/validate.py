@@ -48,10 +48,12 @@ SCHEMA_VERSION = 1
 # not changed. Version 2 is where the falsification check exists: it requires
 # 'run.falsification' -- on a v2 artifact, absence would be indistinguishable
 # from the ambiguity the field was added to remove -- and it is the only
-# version where a finding can carry 'falsified'. Version 1 is the shape from
-# before the check existed, kept so every artifact already on disk validates
-# and re-renders exactly as it always did.
-MERGED_SCHEMA_VERSIONS = (1, 2)
+# version where a finding can carry 'falsified'. Version 3 is where the docs
+# check exists, on the same terms: it requires 'run.docs_check' and is the
+# only version that may carry the 'docs_check' object. Older versions are the
+# shapes from before each check existed, kept so every artifact already on
+# disk validates and re-renders exactly as it always did.
+MERGED_SCHEMA_VERSIONS = (1, 2, 3)
 
 PRODUCERS = ("security", "quality")
 ID_PREFIX = {"security": "sec", "quality": "qa"}
@@ -72,6 +74,10 @@ RUN_MODES = ("parallel", "sequential")
 # could not be parsed records 'failed', because fail-open kept every finding
 # and a reader shown 'ran' would take that for everything having held.
 FALSIFICATIONS = ("ran", "failed", "skipped")
+# The docs check records the same three states at the same bar: 'ran' is a
+# claim its reply was read, not that anything came of it.
+DOCS_CHECKS = FALSIFICATIONS
+DOC_NOTE_KINDS = ("stale", "missing")
 VERDICTS = ("blocked", "clear")
 
 TIER_MAX = 64
@@ -117,8 +123,13 @@ PASS_FIELDS = frozenset(
     ]
 )
 EMBEDDED_PASS_FIELDS = PASS_FIELDS - frozenset(["schema_version", "kind"])
-MERGED_FIELDS = frozenset(["schema_version", "kind", "run", "verdict", "passes", "findings", "self_check"])
-RUN_FIELDS = frozenset(["mode", "falsification", "generated_at", "scope"])
+MERGED_FIELDS = frozenset(
+    ["schema_version", "kind", "run", "verdict", "passes", "findings", "self_check", "docs_check"]
+)
+RUN_FIELDS = frozenset(["mode", "falsification", "docs_check", "generated_at", "scope"])
+DOCS_CHECK_FIELDS = frozenset(["examined", "skipped", "notes"])
+DOC_NOTE_FIELDS = frozenset(["path", "kind", "claim_md", "why_md", "owed_md"])
+DOC_SKIP_FIELDS = frozenset(["path", "reason"])
 SELF_CHECK_FIELDS = frozenset(["question", "answer_md", "anchors"])
 # Enough to prompt reflection, few enough that the reader is not being examined.
 SELF_CHECK_MAX = 4
@@ -665,6 +676,27 @@ def validate_merged(report, path, repo=None):
     if "self_check" in merged:
         check_self_check(report, where, merged["self_check"], by_id, marks_active=marks == "active")
 
+    # The docs check's object exists exactly while the run says its reply was
+    # read: absent under "skipped" and "failed" because a check that never
+    # answered has no examined set or notes to record, and required under
+    # "ran" because a run claiming a reply was read owes what it said. Where
+    # the state itself is missing or unrecognisable, presence is not judged --
+    # the state error is already on the list, and either instruction here
+    # would invert once it is repaired.
+    docs_state = run.get("docs_check") if isinstance(run, dict) else None
+    if "docs_check" in merged and version < 3:
+        report.add(where, "'docs_check' does not exist before schema version 3")
+    elif version >= 3 and docs_state == "ran" and "docs_check" not in merged:
+        report.add(where, "run.docs_check is 'ran' but there is no 'docs_check' object -- a read reply is recorded")
+    elif docs_state in ("skipped", "failed") and "docs_check" in merged:
+        report.add(
+            where,
+            "run.docs_check is {!r} but a 'docs_check' object is present -- a check that never answered "
+            "recorded nothing".format(docs_state),
+        )
+    if "docs_check" in merged and version >= 3 and docs_state == "ran":
+        check_docs_check(report, where, merged["docs_check"], repo)
+
 
 def check_run(report, where, run, version):
     if not isinstance(run, dict):
@@ -681,6 +713,11 @@ def check_run(report, where, run, version):
         _enum(report, at, run, "falsification", FALSIFICATIONS)
     elif "falsification" in run:
         report.add(at, "'falsification' does not exist in schema version 1")
+    # Same bargain, one version later.
+    if version >= 3:
+        _enum(report, at, run, "docs_check", DOCS_CHECKS)
+    elif "docs_check" in run:
+        report.add(at, "'docs_check' does not exist before schema version 3")
     generated_at = _nonempty_str(report, at, run, "generated_at")
     if generated_at and not TIMESTAMP_RE.match(generated_at):
         report.add(at, "'generated_at' must look like 2026-08-08T14:02:11Z")
@@ -922,6 +959,103 @@ def check_self_check(report, where, self_check, by_id, marks_active):
                     "anchor {!r} is falsified -- a self-check question addresses findings that stand, "
                     "not ones the merge withdrew".format(anchor),
                 )
+
+
+def check_docs_check(report, where, docs_check, repo=None):
+    """The docs check's record: what it read, what it refused, what conflicted.
+
+    A doc note is not a finding, and nothing here resembles the finding rules
+    on purpose: no ids, no dispositions, no corroboration, and the verdict
+    never reads any of it. What the block owes instead is honesty about
+    coverage -- 'examined' is the whole of what the check saw, so every note
+    points into it, and an empty 'examined' with an empty 'notes' is a valid
+    record of a repository with nothing to check.
+    """
+    at = "{} docs_check".format(where)
+    if not isinstance(docs_check, dict):
+        report.add(at, "'docs_check' must be a JSON object")
+        return
+    _check_unknown(report, at, docs_check, DOCS_CHECK_FIELDS, "docs_check")
+
+    examined = docs_check.get("examined")
+    if not isinstance(examined, list) or not all(isinstance(p, str) and p.strip() for p in examined):
+        report.add(at, "'examined' must be an array of repository-relative paths, possibly empty")
+        examined = []
+    seen = set()
+    for path in examined:
+        if path in seen:
+            report.add(at, "examined path {!r} is repeated".format(path))
+        seen.add(path)
+        if repo is not None:
+            _check_doc_path(report, at, path, repo)
+
+    if "skipped" in docs_check:
+        skipped = docs_check["skipped"]
+        if not isinstance(skipped, list):
+            report.add(at, "'skipped' must be an array")
+            skipped = []
+        for index, entry in enumerate(skipped):
+            at_skip = "{} skipped[{}]".format(at, index)
+            if not isinstance(entry, dict):
+                report.add(at_skip, "a skip entry must be a JSON object")
+                continue
+            _check_unknown(report, at_skip, entry, DOC_SKIP_FIELDS, "skip")
+            _nonempty_str(report, at_skip, entry, "path")
+            _nonempty_str(report, at_skip, entry, "reason")
+
+    notes = docs_check.get("notes")
+    if not isinstance(notes, list):
+        report.add(at, "'notes' must be an array -- empty when nothing conflicted")
+        return
+    for index, note in enumerate(notes):
+        at_note = "{} notes[{}]".format(at, index)
+        if not isinstance(note, dict):
+            report.add(at_note, "a doc note must be a JSON object")
+            continue
+        _check_unknown(report, at_note, note, DOC_NOTE_FIELDS, "doc note")
+        path = _nonempty_str(report, at_note, note, "path")
+        if path is not None and path not in seen:
+            report.add(
+                at_note,
+                "path {!r} is not in 'examined' -- a note is about a document the check read".format(path),
+            )
+        kind = _enum(report, at_note, note, "kind", DOC_NOTE_KINDS)
+        # The quote is what makes a stale claim checkable against the document,
+        # and what a missing-coverage note by definition cannot have.
+        if kind is not None:
+            if _conditional(
+                report,
+                at_note,
+                note,
+                "claim_md",
+                kind == "stale",
+                "on a 'stale' note, quoting the document's own words",
+            ):
+                _nonempty_str(report, at_note, note, "claim_md")
+        _nonempty_str(report, at_note, note, "why_md")
+        if "owed_md" in note:
+            _nonempty_str(report, at_note, note, "owed_md")
+
+
+def _check_doc_path(report, at, path, repo):
+    """A document the check states it read: confined, and a real file.
+
+    Confined exactly as _check_location_in_repo confines a location, and for
+    the same reason -- the path was written into an artifact a hostile
+    repository can influence. Stricter after that: a location may be
+    prospective, but 'examined' is a claim about files that were read, and a
+    path that is not a file is a claim nothing can have read.
+    """
+    if os.path.isabs(path):
+        report.add(at, "examined path {!r} must be relative to the repository root".format(path))
+        return
+    root = os.path.realpath(repo)
+    target = os.path.realpath(os.path.join(root, path))
+    if target != root and not target.startswith(root + os.sep):
+        report.add(at, "examined path {!r} resolves outside the repository".format(path))
+        return
+    if not os.path.isfile(target):
+        report.add(at, "examined path {!r} is not a file in the repository".format(path))
 
 
 def check_passes(report, where, passes, findings):

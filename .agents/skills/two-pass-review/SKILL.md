@@ -50,7 +50,9 @@ Both rubrics run over the same pinned diff:
 - code quality → [`references/code-quality.md`](references/code-quality.md)
 
 **Run them as parallel subagents where your host offers them and the user approves.** Otherwise run them
-one after the other, to the same standard, and hold the second to the same depth as the first.
+one after the other — **security and correctness first, then code quality** — to the same standard, and
+hold the second to the same depth as the first. The order is fixed because the second seat is the weaker
+one — the next paragraph says why — and the fresh window belongs to the pass whose findings block.
 
 **Which model, and at what effort, is the user's to say.** If the request named either, spawn the passes
 with it. If it did not, they inherit the session's, and you do not raise or lower that on your own

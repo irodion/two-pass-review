@@ -47,13 +47,19 @@ SCHEMA_VERSION = 1
 # The merged artifact is versioned apart from the pass files, whose shape has
 # not changed. Version 2 is where the falsification check exists: it requires
 # 'run.falsification' -- on a v2 artifact, absence would be indistinguishable
-# from the ambiguity the field was added to remove -- and it is the only
-# version where a finding can carry 'falsified'. Version 3 is where the docs
-# check exists, on the same terms: it requires 'run.docs_check' and is the
-# only version that may carry the 'docs_check' object. Older versions are the
-# shapes from before each check existed, kept so every artifact already on
-# disk validates and re-renders exactly as it always did.
-MERGED_SCHEMA_VERSIONS = (1, 2, 3)
+# from the ambiguity the field was added to remove -- and versions 2 and 3 are
+# the only ones where a finding can carry 'falsified'. Version 3 is where the
+# docs check exists, on the same terms: it requires 'run.docs_check' and is
+# the first version that may carry the 'docs_check' object. Version 4 is where
+# falsification stopped withdrawing and started contesting: 'falsified' does
+# not exist there, a finding may instead carry the merge-written
+# 'contested_md', and the verdict derives from dispositions alone -- measured
+# grounds, not taste: the check's wrong-withdrawal rate on true findings ran
+# near one in five at the weak tier, so its word became an annotation the
+# reader adjudicates rather than a verdict-moving act. Older versions are the
+# shapes from before each change, kept so every artifact already on disk
+# validates and re-renders exactly as it always did.
+MERGED_SCHEMA_VERSIONS = (1, 2, 3, 4)
 
 PRODUCERS = ("security", "quality")
 ID_PREFIX = {"security": "sec", "quality": "qa"}
@@ -103,6 +109,7 @@ FINDING_FIELDS = frozenset(
         "confidence_rationale",
         "corroborated_by",
         "falsified",
+        "contested_md",
     ]
 )
 LOCATION_FIELDS = frozenset(["path", "start_line", "end_line"])
@@ -257,7 +264,7 @@ def _conditional(report, where, obj, key, required_when, condition, advice=None)
 # --- findings ----------------------------------------------------------------
 
 
-def check_finding(report, where, finding, in_merged, repo=None, falsified_ok=False):
+def check_finding(report, where, finding, in_merged, repo=None, falsified_ok=False, contested_ok=False):
     if not isinstance(finding, dict):
         report.add(where, "a finding must be a JSON object")
         return None
@@ -338,9 +345,25 @@ def check_finding(report, where, finding, in_merged, repo=None, falsified_ok=Fal
         if not in_merged:
             report.add(where, "'falsified' is written by the merge step; a pass file records findings only")
         elif not falsified_ok:
-            report.add(where, "'falsified' does not exist in schema version 1; a withdrawal is a version-2 claim")
+            report.add(
+                where,
+                "'falsified' exists only in schema versions 2 and 3 -- a version-4 merge records a "
+                "contest in 'contested_md', and version 1 predates the check",
+            )
         elif finding["falsified"] is not True:
             report.add(where, "'falsified' must be true when present -- a finding that stands omits the field")
+
+    # The contest mark, merge-written like 'falsified' before it -- but an
+    # annotation, not a withdrawal: it carries the check's counter-evidence and
+    # changes nothing structural. Prose, not a boolean, because the whole point
+    # of the mark is what travels to the reader and the verifying agent.
+    if "contested_md" in finding:
+        if not in_merged:
+            report.add(where, "'contested_md' is written by the merge step; a pass file records findings only")
+        elif not contested_ok:
+            report.add(where, "'contested_md' does not exist before schema version 4")
+        else:
+            _nonempty_str(report, where, finding, "contested_md")
 
     return finding_id
 
@@ -618,7 +641,15 @@ def validate_merged(report, path, repo=None):
     producers_seen = set()
     for index, finding in enumerate(findings):
         at = "{} findings[{}]".format(where, index)
-        finding_id = check_finding(report, at, finding, in_merged=True, repo=repo, falsified_ok=version >= 2)
+        finding_id = check_finding(
+            report,
+            at,
+            finding,
+            in_merged=True,
+            repo=repo,
+            falsified_ok=version in (2, 3),
+            contested_ok=version >= 4,
+        )
         if not isinstance(finding, dict):
             continue
         producers_seen.add(finding.get("producer"))
@@ -632,42 +663,55 @@ def validate_merged(report, path, repo=None):
     check_ids_contiguous(report, where, ids_by_producer)
 
     # How the 'falsified' marks read on this artifact. "active" only where
-    # they are legal -- a version-2 artifact whose check ran. On a v1
-    # artifact, or beside a skipped or unreadable check, the mark is itself
-    # the reported defect and reads "inactive": honouring it would have one
-    # message demand its removal while others instruct the repair loop to
-    # strip valid corroboration links and let a blocking finding stop
-    # blocking. And where the state itself is missing or unrecognisable, the
-    # marks are "undecided" -- not inactive, because asserting either reading
-    # writes diagnostics that invert once the state is repaired, and a repair
-    # loop obeying both rounds would burn its bounded attempts flipping the
-    # verdict back and forth.
+    # they are legal -- a version-2 or -3 artifact whose check ran. On a v1
+    # artifact, a v4 one -- where the mark itself was already refused, because
+    # falsification contests there and withdraws nothing -- or beside a
+    # skipped or unreadable check, the mark is itself the reported defect and
+    # reads "inactive": honouring it would have one message demand its removal
+    # while others instruct the repair loop to strip valid corroboration links
+    # and let a blocking finding stop blocking. And where the state itself is
+    # missing or unrecognisable, the marks are "undecided" -- not inactive,
+    # because asserting either reading writes diagnostics that invert once the
+    # state is repaired, and a repair loop obeying both rounds would burn its
+    # bounded attempts flipping the verdict back and forth.
     run = merged.get("run")
     state = run.get("falsification") if isinstance(run, dict) else None
-    if version >= 2 and state == "ran":
+    if version in (2, 3) and state == "ran":
         marks = "active"
-    elif version >= 2 and state not in FALSIFICATIONS:
+    elif version in (2, 3) and state not in FALSIFICATIONS:
         marks = "undecided"
     else:
         marks = "inactive"
 
     check_corroboration(report, where, findings, by_id, marks_active=marks == "active")
 
-    # A 'falsified' mark is the falsification check's output, so a run whose
-    # check was skipped or whose reply could not be read cannot carry marks:
-    # either state alongside one is the artifact contradicting itself about
-    # what happened.
+    # A mark is the falsification check's output -- 'falsified' on versions 2
+    # and 3, 'contested_md' on version 4 -- so a run whose check was skipped
+    # or whose reply could not be read cannot carry either: the state
+    # alongside one is the artifact contradicting itself about what happened.
     if state in ("skipped", "failed"):
         marked = sorted(
             (f.get("id") for f in findings if isinstance(f, dict) and f.get("falsified") is True),
             key=str,
         )
-        if marked:
+        if version in (2, 3) and marked:
             reason = "a skipped check withdrew nothing" if state == "skipped" else "a reply nobody could read withdrew nothing"
             report.add(
                 where,
                 "run.falsification is {!r} but {} finding(s) carry 'falsified': {} -- {}".format(
                     state, len(marked), ", ".join(str(m) for m in marked), reason
+                ),
+            )
+        contested = sorted(
+            (f.get("id") for f in findings if isinstance(f, dict) and f.get("contested_md")),
+            key=str,
+        )
+        if version >= 4 and contested:
+            reason = "a skipped check contested nothing" if state == "skipped" else "a reply nobody could read contested nothing"
+            report.add(
+                where,
+                "run.falsification is {!r} but {} finding(s) carry 'contested_md': {} -- {}".format(
+                    state, len(contested), ", ".join(str(c) for c in contested), reason
                 ),
             )
 

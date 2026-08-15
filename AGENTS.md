@@ -112,7 +112,7 @@ anything about reviewing code:
 
 - **`python 3.9` and `python 3.13`** — every script compiles on both, and on the modern one both imports
   *and runs* with `DeprecationWarning` and `SyntaxWarning` fatal: `scope.py` over a real revision range,
-  `validate.py` and `render.py` down their refusal paths. Importing alone was not enough — a deprecation
+  `collect_docs.py` over that range's diff, `validate.py` and `render.py` down their refusal paths. Importing alone was not enough — a deprecation
   inside a `main()` is invisible to it, which is how `datetime.utcnow()` would have got through.
 - **`constraints`** — `.github/checks.py`: every import is stdlib; `page.py`'s `SCRIPT` constant parses as
   JavaScript; `markdown_subset` refuses `javascript:`, `data:` and `vbscript:` when actually run on them;

@@ -42,7 +42,7 @@ jobs:
         run: |
           python -W error::DeprecationWarning \
                  -W error::SyntaxWarning \
-                 -c "import markdown_subset, page, validate, render, scope"
+                 -c "import markdown_subset, page, validate, render, scope, collect_docs"
       - name: run the entry points, with warnings fatal
         # Importing a module does not execute its main(), so a deprecation inside
         # one stays invisible to the step above -- datetime.utcnow() in scope.py
@@ -58,6 +58,14 @@ jobs:
           python -W error::DeprecationWarning -W error::SyntaxWarning \
                  "$S/scope.py" --repo . --base HEAD~1 --mode revisions --head HEAD > scope.json
           python -c "import json,sys; d=json.load(open('scope.json')); sys.exit(0 if d['scope']['files_changed'] else 1)"
+          # Doc collection over the same real range. The assertion is on
+          # README.md because this repository certainly has one: an empty list
+          # here means the collector stopped finding anything, not that there
+          # was nothing to find.
+          python -W error::DeprecationWarning -W error::SyntaxWarning \
+                 "$S/collect_docs.py" --repo . \
+                 --diff "$(python -c "import json;print(json.load(open('scope.json'))['context_diff'])")" > docs.json
+          python -c "import json,sys; d=json.load(open('docs.json')); sys.exit(0 if any(x['path']=='README.md' for x in d['docs']) else 1)"
           # Both refuse-and-explain paths, which is where argparse and the error
           # formatting live.
           #

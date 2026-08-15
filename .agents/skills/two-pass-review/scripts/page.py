@@ -406,6 +406,8 @@ def render_run_panel(run, passes):
     # a run that never had the field to fill in.
     if run.get("falsification"):
         rows.append(("Falsification", esc(run["falsification"]), False))
+    if run.get("docs_check"):
+        rows.append(("Docs check", esc(run["docs_check"]), False))
 
     recorded, agreed, _ = provenance_state(passes)
     if recorded and agreed:
@@ -566,6 +568,81 @@ def render_withdrawn(withdrawn, markdown):
     )
 
 
+DOC_NOTE_KIND_LABEL = {"stale": "stale claim", "missing": "missing coverage"}
+
+
+def render_docs_check(docs_check, markdown):
+    """The docs check's record: what was read, and any conflict it reported.
+
+    Advisory, and drawn that way: a doc note is not a finding -- no id, no
+    disposition, no controls, no filter reaches it -- so the cards are quiet
+    and the section sits after the passes' prose. What the section must not be
+    quiet about is coverage: it names exactly what was read and what the
+    collector refused, because "nothing flagged" over an unstated set is a
+    reassurance nobody can check -- and even over a stated set it only means
+    no explicit contradiction, which the standing note says in so many words.
+    """
+    if docs_check is None:
+        return ""
+    examined = docs_check.get("examined") or []
+    notes = docs_check.get("notes") or []
+    skipped = docs_check.get("skipped") or []
+
+    if not examined:
+        coverage = "No agent-facing documents to check &mdash; nothing shaped like an AGENTS.md, CLAUDE.md or README applies to this diff."
+    else:
+        chips = ", ".join('<span class="chip">{}</span>'.format(esc(p)) for p in examined)
+        told = "The diff was read against {}.".format(chips)
+        flagged = {note["path"] for note in notes}
+        if flagged:
+            told += " {} of these documents {} an explicit conflict.".format(
+                len(flagged), "carries" if len(flagged) == 1 else "carry"
+            )
+        else:
+            told += " None of them states anything the diff explicitly contradicts."
+        coverage = told
+    if skipped:
+        coverage += " Not read: {}.".format(
+            "; ".join("<span class=\"chip\">{}</span> ({})".format(esc(s["path"]), esc(s["reason"])) for s in skipped)
+        )
+
+    cards = []
+    for note in notes:
+        body = []
+        if note.get("claim_md"):
+            body.append('<blockquote class="doc-claim">{}</blockquote>'.format(markdown.render(note["claim_md"])))
+        body.append(markdown.render(note["why_md"]))
+        if note.get("owed_md"):
+            body.append('<p class="doc-owed-label">Edit owed</p>{}'.format(markdown.render(note["owed_md"])))
+        cards.append(
+            '<article class="finding doc-note">'
+            '<header class="finding-head">'
+            '<div class="meta"><span class="chip chip-primary">{path}</span>'
+            '<span class="meta-label">{kind}</span></div>'
+            "</header>"
+            '<div class="body">{body}</div>'
+            "</article>".format(
+                path=esc(note["path"]),
+                kind=esc(DOC_NOTE_KIND_LABEL.get(note["kind"], note["kind"])),
+                body="".join(body),
+            )
+        )
+
+    disclaimer = (
+        "An advisory check, outside the verdict: it reads the named documents against the diff for "
+        "explicit contradiction only, so a clean result does not promise the documents are current "
+        "&mdash; drift a change merely implies is beyond it."
+    )
+    return (
+        '<section class="docscheck"><h2 id="docscheck">Documentation '
+        '<span class="counts">&middot; {count}</span></h2>'
+        '<p class="docs-note">{disclaimer}</p>'
+        '<p class="docs-coverage">{coverage}</p>\n{cards}</section>'.format(
+            count=len(notes), disclaimer=disclaimer, coverage=coverage, cards="\n".join(cards)
+        )
+    )
+
+
 def render_self_check(self_check, markdown):
     """The reader's self-check, last on the page.
 
@@ -694,6 +771,12 @@ def render_page(merged):
                 )
             )
 
+    docs_check = merged.get("docs_check")
+    if docs_check is not None:
+        prose_links.append(
+            '<li><a href="#docscheck">Documentation &middot; {}</a></li>'.format(len(docs_check.get("notes") or []))
+        )
+
     self_check = merged.get("self_check") or []
     if self_check:
         prose_links.append('<li><a href="#selfcheck">Self-check &middot; {}</a></li>'.format(len(self_check)))
@@ -712,6 +795,14 @@ def render_page(merged):
             "The only finding was withdrawn at the merge; nothing stands."
             if len(withdrawn) == 1
             else "All {} findings were withdrawn at the merge; nothing stands.".format(len(withdrawn))
+        )
+    # Advisory, so it joins the sentence only when it has something to say: a
+    # clean docs check is coverage detail, and the section states it.
+    doc_notes = (docs_check.get("notes") or []) if docs_check is not None else []
+    flagged_docs = {note["path"] for note in doc_notes}
+    if flagged_docs:
+        sentence += " The docs check flagged {} document{}.".format(
+            len(flagged_docs), "" if len(flagged_docs) == 1 else "s"
         )
     scope = merged["run"]["scope"]
     scope_line = "{} &middot; {} &middot; {} files".format(
@@ -735,6 +826,7 @@ def render_page(merged):
         groups="\n".join(main),
         withdrawn=render_withdrawn(withdrawn, markdown),
         prose=render_pass_prose(merged["passes"], markdown),
+        docscheck=render_docs_check(docs_check, markdown),
         selfcheck=render_self_check(self_check, markdown),
         script=SCRIPT,
     )
@@ -804,6 +896,7 @@ PAGE = """<!doctype html>
     {groups}
     {withdrawn}
     {prose}
+    {docscheck}
     {selfcheck}
   </main>
 </div>
@@ -1325,6 +1418,17 @@ a { color: var(--accent); }
 .sc-answer p { margin: 12px 0 0; font-size: 15px; line-height: 1.55; color: var(--ink-2); }
 .sc-answer ul, .sc-answer ol { margin: 12px 0 0; padding-left: 22px; }
 .sc-anchors { color: var(--muted); font-size: 13px; margin: 10px 0 14px; }
+
+/* Doc notes borrow the finding card and stay off every filter's axis: no
+   data- attributes, so no selector reaches them, like the withdrawn cards --
+   but at full opacity, because these are live leads, just not findings. The
+   neutral left edge is the default; a disposition colour would claim a
+   disposition they do not have. */
+.docs-note, .docs-coverage { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.docs-note { margin: -8px 0 12px; }
+.docs-coverage { margin: 0 0 16px; }
+.doc-owed-label { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+  margin: 12px 0 0; }
 
 .prose details { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 0 18px; }
 .prose summary { cursor: pointer; padding: 12px 0; font-size: 13px; letter-spacing: .06em;

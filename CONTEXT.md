@@ -55,6 +55,14 @@ _Avoid_: verification, reflection, third pass
 Of a finding, directly contradicted by the diff itself and withdrawn at the merge. Marked, never deleted: it stays in the artifact and on the page, blocks nothing, and corroborates nothing.
 _Avoid_: deleted, dropped, rejected, false positive
 
+**Docs check**:
+The advisory check that asks whether any agent-facing document — AGENTS.md, CLAUDE.md, a README — states something the pinned diff makes false, or omits something it now owes. Not a third pass: no rubric, no findings, and nothing it reports blocks. The documents are collected deterministically by script; one subagent reads them against the diff, for explicit conflict only. Fails toward silence.
+_Avoid_: docs pass, documentation review, third pass
+
+**Doc note**:
+One conflict the docs check reports — a stale claim quoted from the document, or coverage the diff now owes. Never a finding: no id, no disposition, no corroboration, and the verdict never reads it.
+_Avoid_: finding, docs finding
+
 **Verdict**:
 The single blocked-or-not judgment for a run. Derived from the findings' dispositions, never authored, so it cannot contradict the list beneath it.
 _Avoid_: summary, conclusion, recommendation

@@ -264,7 +264,13 @@ def _conditional(report, where, obj, key, required_when, condition, advice=None)
 # --- findings ----------------------------------------------------------------
 
 
-def check_finding(report, where, finding, in_merged, repo=None, falsified_ok=False, contested_ok=False):
+def check_finding(report, where, finding, in_merged, repo=None, version=None):
+    # `version` is the merged artifact's schema version, None for a pass file.
+    # The version-to-legality mapping for the merge-written mark fields lives
+    # here, in one place, rather than as one boolean parameter per field --
+    # the next mark field reads its legality from the same line these do.
+    falsified_ok = version in (2, 3)
+    contested_ok = version is not None and version >= 4
     if not isinstance(finding, dict):
         report.add(where, "a finding must be a JSON object")
         return None
@@ -641,15 +647,7 @@ def validate_merged(report, path, repo=None):
     producers_seen = set()
     for index, finding in enumerate(findings):
         at = "{} findings[{}]".format(where, index)
-        finding_id = check_finding(
-            report,
-            at,
-            finding,
-            in_merged=True,
-            repo=repo,
-            falsified_ok=version in (2, 3),
-            contested_ok=version >= 4,
-        )
+        finding_id = check_finding(report, at, finding, in_merged=True, repo=repo, version=version)
         if not isinstance(finding, dict):
             continue
         producers_seen.add(finding.get("producer"))

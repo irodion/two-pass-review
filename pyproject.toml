@@ -1,0 +1,34 @@
+# Dev-side tooling only. Nothing here ships: the skill under
+# .agents/skills/two-pass-review/ remains stdlib-only and is copied into other
+# repositories without this file. Versions are pinned where the tools run --
+# in checks.yml and the pre-push hook -- so a tool release cannot change what
+# passes.
+
+[tool.ruff]
+target-version = "py310"
+# 100 is the width the repository's prose already wraps at.
+line-length = 100
+
+[tool.ruff.lint]
+# The defaults plus modernisation (UP), bugbear (B), simplification (SIM),
+# comprehensions (C4) and ruff's own rules (RUF). Deliberately absent:
+#   ANN -- annotation coverage is mypy --strict's job, one enforcer per rule;
+#   D   -- a docstring mandate contradicts "comments explain why, not what";
+#   PTH -- the scripts use os.path consistently, and a pathlib rewrite is
+#          churn with no behaviour change to show for it.
+select = ["E", "W", "F", "UP", "B", "SIM", "C4", "RUF"]
+
+[tool.ruff.lint.pycodestyle]
+# The formatter holds code to 100, but the page's HTML and CSS live inside
+# string literals, where rewrapping changes the shipped bytes and a noqa
+# comment would become page content. E501 is therefore only the backstop for
+# egregious lines, not the enforcer of the working width.
+max-line-length = 140
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = [
+    ".agents/skills/two-pass-review/scripts",
+    ".github/checks.py",
+]

@@ -6,6 +6,7 @@ up, and nothing here parses markdown -- that is `markdown_subset`.
 """
 
 import html
+from typing import Any
 
 # Imported by render.py, which is the only file here run directly and the only
 # one that puts this directory on sys.path. A library module that mutates global
@@ -20,7 +21,7 @@ DISPOSITION_LABEL = {"blocking": "Blocking", "follow-up": "Follow-up", "note": "
 PRODUCER_LABEL = {"security": "Security & correctness", "quality": "Code quality"}
 SCOPE_MODE_LABEL = {"revisions": "revision range", "local-patch": "local working patch"}
 
-CATEGORY_LABEL = {
+CATEGORY_LABEL: dict[str | None, str] = {
     "structural-regression": "Structural code-quality regressions",
     "simplification-missed": "Missed opportunities for dramatic simplification / code-judo restructuring",
     "branching-complexity": "Spaghetti / branching complexity increases",
@@ -32,8 +33,8 @@ CATEGORY_LABEL = {
 # How loudly a finding shouts inside its disposition. Severity and category are
 # not comparable to each other, but both were always answering this one
 # question, so the renderer holds the table and the artifact stays unchanged.
-SEVERITY_RANK = {"critical": 0, "high": 0, "medium": 1, "low": 2}
-CATEGORY_RANK = {
+SEVERITY_RANK: dict[str | None, int] = {"critical": 0, "high": 0, "medium": 1, "low": 2}
+CATEGORY_RANK: dict[str | None, int] = {
     "structural-regression": 0,
     "simplification-missed": 1,
     "branching-complexity": 1,
@@ -47,29 +48,29 @@ UNRANKED = 3  # a security note carries no severity, so it has nothing to rank b
 # --- ordering ----------------------------------------------------------------
 
 
-def id_sort_key(finding_id):
+def id_sort_key(finding_id: str) -> tuple[str, int]:
     match = validate.ID_RE.match(finding_id or "")
     if not match:
         return ("", 0)
     return (match.group(1), int(match.group(2)))
 
 
-def rank_of(finding):
+def rank_of(finding: dict[str, Any]) -> int:
     if finding.get("producer") == "security":
         return SEVERITY_RANK.get(finding.get("severity"), UNRANKED)
     return CATEGORY_RANK.get(finding.get("category"), UNRANKED)
 
 
-def build_units(findings):
+def build_units(findings: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     """Group corroborating findings so partners always render adjacent.
 
     Union-find rather than pairing, so a future three-way link needs no change
     here. Two cards arguing one defect from two angles read as the page
     repeating itself unless they sit together.
     """
-    parent = {f["id"]: f["id"] for f in findings}
+    parent: dict[str, str] = {f["id"]: f["id"] for f in findings}
 
-    def find(key):
+    def find(key: str) -> str:
         while parent[key] != key:
             parent[key] = parent[parent[key]]
             key = parent[key]
@@ -82,13 +83,13 @@ def build_units(findings):
                 if a != b:
                     parent[a] = b
 
-    grouped = {}
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for finding in findings:
         grouped.setdefault(find(finding["id"]), []).append(finding)
     return list(grouped.values())
 
 
-def ordered_units(findings):
+def ordered_units(findings: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     units = build_units(findings)
     for unit in units:
         unit.sort(key=lambda f: (rank_of(f), id_sort_key(f["id"])))
@@ -106,21 +107,21 @@ def ordered_units(findings):
 # --- page --------------------------------------------------------------------
 
 
-def producer_label(producer):
+def producer_label(producer: str) -> str:
     """Escaped at the point of use, like every other string on the page."""
     return esc(PRODUCER_LABEL.get(producer, producer))
 
 
-def esc(value):
+def esc(value: object) -> str:
     return html.escape(str(value), quote=True)
 
 
-def truncate(text, limit=58):
+def truncate(text: str, limit: int = 58) -> str:
     text = " ".join(text.split())
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
-def location_chip(location, primary):
+def location_chip(location: dict[str, Any], primary: bool) -> str:
     path = esc(location["path"])
     start, end = location.get("start_line"), location.get("end_line")
     if start and end and end != start:
@@ -143,7 +144,7 @@ PROMPT_WRAPPER = (
 )
 
 
-def copy_payload(finding, partners):
+def copy_payload(finding: dict[str, Any], partners: list[dict[str, Any]]) -> str:
     """The markdown one copy button puts on the clipboard, for one finding.
 
     Composed from the finding dict rather than scraped from the rendered card:
@@ -207,7 +208,7 @@ def copy_payload(finding, partners):
 # asset and this file has none, and the page is read over file:// and out of a
 # mail client. `aria-hidden`, because every one of these sits beside the word it
 # illustrates -- a screen reader that announces both hears the label twice.
-def icon(paths, size=13, stroke="1.5"):
+def icon(paths: str, size: int = 13, stroke: str = "1.5") -> str:
     return (
         f'<svg class="icon" width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" '
         f'stroke="currentColor" stroke-width="{stroke}" stroke-linecap="round" stroke-linejoin="round" '
@@ -231,7 +232,7 @@ ICON_NO_ENTRY = icon(
 )
 
 
-def copy_controls(payload):
+def copy_controls(payload: str) -> str:
     """Two buttons, one payload, carried in an attribute.
 
     `esc` gives `quote=True`, which is what makes the value safe in an attribute;
@@ -244,10 +245,10 @@ def copy_controls(payload):
     the button is in and never has to know what that state looks like.
     """
 
-    def attr(text):
+    def attr(text: str) -> str:
         return esc(text).replace("\n", "&#10;")
 
-    def button(text, idle, payload_text):
+    def button(text: str, idle: str, payload_text: str) -> str:
         return (
             f'<button type="button" class="copy-btn" data-copy="{attr(payload_text)}">'
             f'<span class="icon-idle">{idle}</span><span class="icon-done">{ICON_CHECK}</span>'
@@ -260,7 +261,7 @@ def copy_controls(payload):
     )
 
 
-def dismiss_control():
+def dismiss_control() -> str:
     """The reader's `I have dealt with this` mark.
 
     It sits in the card foot, not the header: you know a finding is dealt with once
@@ -279,7 +280,9 @@ def dismiss_control():
     )
 
 
-def render_finding(finding, markdown, partners):
+def render_finding(
+    finding: dict[str, Any], markdown: Markdown, partners: list[dict[str, Any]]
+) -> str:
     finding_id = finding["id"]
     # `data-severity` only where there is one. Its absence is what the severity
     # filter reads to leave a card alone: a quality finding is not rated on this
@@ -383,11 +386,11 @@ def render_finding(finding, markdown, partners):
     return "\n".join(bits)
 
 
-def verdict_sentence(verdict, findings):
+def verdict_sentence(verdict: str, findings: list[dict[str, Any]]) -> str:
     blocking = [f for f in findings if f["disposition"] == "blocking"]
     total = len(findings)
     if verdict == "blocked":
-        by_producer = {}
+        by_producer: dict[str, int] = {}
         for finding in blocking:
             by_producer[finding["producer"]] = by_producer.get(finding["producer"], 0) + 1
         parts = [f"{count} from the {name} pass" for name, count in sorted(by_producer.items())]
@@ -410,11 +413,11 @@ def verdict_sentence(verdict, findings):
 PROVENANCE = (("requested_model", "Model", "model"), ("requested_effort", "Effort", "effort"))
 
 
-def provenance_value(value):
+def provenance_value(value: str | None) -> str:
     return esc(value) if value else '<span class="muted">not recorded</span>'
 
 
-def provenance_state(passes):
+def provenance_state(passes: list[dict[str, Any]]) -> tuple[bool, bool, bool]:
     """What the passes recorded about model and effort, as three answers.
 
     Read by the sidebar, which lists the fields, and by the masthead, which warns
@@ -433,7 +436,7 @@ def provenance_state(passes):
     return recorded, agreed, differ
 
 
-def render_run_panel(run, passes):
+def render_run_panel(run: dict[str, Any], passes: list[dict[str, Any]]) -> str:
     """The run's facts, in the sidebar rather than in the reading column.
 
     They are what the run was pointed at, not something a pass found, and between
@@ -506,7 +509,9 @@ def render_run_panel(run, passes):
     )
 
 
-def render_warnings(run, passes, findings):
+def render_warnings(
+    run: dict[str, Any], passes: list[dict[str, Any]], findings: list[dict[str, Any]]
+) -> str:
     """What the reader has to know before believing the report, in the masthead.
 
     These went to the sidebar's neighbours in the old scope section, under the
@@ -514,7 +519,7 @@ def render_warnings(run, passes, findings):
     findings are worth below the fold. A warning is not reference material.
     """
     scope = run["scope"]
-    warnings = []
+    warnings: list[str] = []
     if scope.get("untracked"):
         warnings.append(
             "{} file(s) in this working tree are untracked and were not reviewed. Git can only "
@@ -552,8 +557,8 @@ def render_warnings(run, passes, findings):
     )
 
 
-def render_pass_prose(passes, markdown):
-    out = []
+def render_pass_prose(passes: list[dict[str, Any]], markdown: Markdown) -> str:
+    out: list[str] = []
     for envelope in passes:
         producer = envelope["producer"]
         for key, heading in (
@@ -578,7 +583,7 @@ def render_pass_prose(passes, markdown):
     return "\n".join(out)
 
 
-def render_withdrawn(withdrawn, markdown):
+def render_withdrawn(withdrawn: list[dict[str, Any]], markdown: Markdown) -> str:
     """The findings the falsification check withdrew, kept on the page.
 
     Marked, never deleted, is the artifact's rule, and this is the page keeping
@@ -590,7 +595,7 @@ def render_withdrawn(withdrawn, markdown):
     """
     if not withdrawn:
         return ""
-    cards = []
+    cards: list[str] = []
     for finding in withdrawn:
         finding_id = finding["id"]
         chips = "".join(
@@ -632,7 +637,7 @@ def render_withdrawn(withdrawn, markdown):
 DOC_NOTE_KIND_LABEL = {"stale": "stale claim", "missing": "missing coverage"}
 
 
-def render_docs_check(docs_check, markdown):
+def render_docs_check(docs_check: dict[str, Any] | None, markdown: Markdown) -> str:
     """The docs check's record: what was read, and any conflict it reported.
 
     Advisory, and drawn that way: a doc note is not a finding -- no id, no
@@ -677,9 +682,9 @@ def render_docs_check(docs_check, markdown):
             )
         )
 
-    cards = []
+    cards: list[str] = []
     for note in notes:
-        body = []
+        body: list[str] = []
         if note.get("claim_md"):
             body.append(
                 '<blockquote class="doc-claim">{}</blockquote>'.format(
@@ -720,7 +725,7 @@ def render_docs_check(docs_check, markdown):
     )
 
 
-def render_self_check(self_check, markdown):
+def render_self_check(self_check: list[dict[str, Any]], markdown: Markdown) -> str:
     """The reader's self-check, last on the page.
 
     Each answer sits collapsed under its question in a native <details>, so the
@@ -738,7 +743,7 @@ def render_self_check(self_check, markdown):
     """
     if not self_check:
         return ""
-    items = []
+    items: list[str] = []
     for entry in self_check:
         anchors = ", ".join(
             '<a class="xref" href="#finding-{0}">{0}</a>'.format(esc(anchor))
@@ -766,7 +771,7 @@ def render_self_check(self_check, markdown):
     )
 
 
-def render_page(merged):
+def render_page(merged: dict[str, Any]) -> str:
     findings = merged["findings"]
     # Standing findings drive everything the reader acts on -- ordering, counts,
     # nav, the verdict sentence. Withdrawn ones render once, in their own
@@ -780,12 +785,12 @@ def render_page(merged):
     by_id = {f["id"]: f for f in live}
     units = ordered_units(live)
 
-    groups = {d: [] for d in DISPOSITION_ORDER}
+    groups: dict[str, list[list[dict[str, Any]]]] = {d: [] for d in DISPOSITION_ORDER}
     for unit in units:
         groups[unit[0]["disposition"]].append(unit)
 
-    main = []
-    nav = []
+    main: list[str] = []
+    nav: list[str] = []
     for disposition in DISPOSITION_ORDER:
         unit_list = groups[disposition]
         if not unit_list:
@@ -833,7 +838,7 @@ def render_page(merged):
             f'<span class="counts">&middot; {counts}</span></p><ul>{entries}</ul></div>'
         )
 
-    prose_links = []
+    prose_links: list[str] = []
     if withdrawn:
         prose_links.append(
             f'<li><a href="#group-withdrawn">Withdrawn at merge &middot; {len(withdrawn)}</a></li>'

@@ -8,6 +8,8 @@ well-known package of that name for anything else running in the process.
 
 import html
 import re
+from collections.abc import Collection
+from typing import cast
 
 # The page runs a fixed script of its own -- a clipboard handler and a dismissal
 # toggle -- and nothing it *renders* may run anything. Neither handler is what
@@ -28,7 +30,7 @@ import re
 SAFE_URL_SCHEMES = ("http://", "https://", "mailto:")
 
 
-def is_safe_url(url):
+def is_safe_url(url: str) -> bool:
     return url.lower().startswith(SAFE_URL_SCHEMES)
 
 
@@ -51,20 +53,20 @@ class Markdown:
     into silent rendering bugs; unreadable is recoverable, missing is not.
     """
 
-    def __init__(self, known_ids):
+    def __init__(self, known_ids: Collection[str]) -> None:
         self.known_ids = known_ids
-        self.id_re = None
+        self.id_re: re.Pattern[str] | None = None
         if known_ids:
             alternatives = "|".join(re.escape(i) for i in sorted(known_ids, key=len, reverse=True))
             self.id_re = re.compile(r"\b(" + alternatives + r")\b")
 
-    def render(self, text, self_id=None):
+    def render(self, text: str, self_id: str | None = None) -> str:
         if not text:
             return ""
         escaped = html.escape(text, quote=True)
         return self._blocks(escaped.split("\n"), self_id)
 
-    def inline(self, text, self_id=None):
+    def inline(self, text: str, self_id: str | None = None) -> str:
         """One line, inline markers only -- for titles.
 
         Titles are not block markdown, but the passes reach for inline code in
@@ -76,7 +78,7 @@ class Markdown:
         return self._inline(html.escape(text, quote=True), self_id)
 
     @staticmethod
-    def plain(text):
+    def plain(text: str) -> str:
         """Strip inline markers for places that cannot carry markup."""
         text = re.sub(r"`([^`]+)`", r"\1", text)
         text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
@@ -85,8 +87,8 @@ class Markdown:
 
     # -- blocks --
 
-    def _blocks(self, lines, self_id):
-        out = []
+    def _blocks(self, lines: list[str], self_id: str | None) -> str:
+        out: list[str] = []
         index = 0
         while index < len(lines):
             line = lines[index]
@@ -107,9 +109,9 @@ class Markdown:
                 out.append(block)
         return "\n".join(out)
 
-    def _fence(self, lines, index):
+    def _fence(self, lines: list[str], index: int) -> tuple[str, int]:
         language = lines[index].strip()[3:].strip()
-        body = []
+        body: list[str] = []
         index += 1
         while index < len(lines) and not lines[index].strip().startswith("```"):
             body.append(lines[index])
@@ -120,21 +122,21 @@ class Markdown:
             attribute = ' class="language-{}"'.format(re.sub(r"[^A-Za-z0-9_+-]", "", language))
         return "<pre><code{}>{}</code></pre>".format(attribute, "\n".join(body)), index + 1
 
-    def _quote(self, lines, index, self_id):
-        body = []
+    def _quote(self, lines: list[str], index: int, self_id: str | None) -> tuple[str, int]:
+        body: list[str] = []
         while index < len(lines) and lines[index].lstrip().startswith(QUOTE):
             stripped = lines[index].lstrip()[len(QUOTE) :]
             body.append(stripped[1:] if stripped.startswith(" ") else stripped)
             index += 1
         return f"<blockquote>{self._blocks(body, self_id)}</blockquote>", index
 
-    def _paragraph(self, lines, index, self_id):
+    def _paragraph(self, lines: list[str], index: int, self_id: str | None) -> tuple[str, int]:
         """Consecutive non-blank lines are one paragraph.
 
         Bodies arrive hard-wrapped at ~150 words, so breaking per line would
         fragment nearly every finding on the page.
         """
-        body = []
+        body: list[str] = []
         while index < len(lines):
             line = lines[index]
             if not line.strip():
@@ -147,14 +149,14 @@ class Markdown:
             index += 1
         return "<p>{}</p>".format(self._inline("\n".join(body), self_id)), index
 
-    def _list(self, lines, index, self_id):
+    def _list(self, lines: list[str], index: int, self_id: str | None) -> tuple[str, int]:
         first = NUMBER_RE.match(lines[index])
         ordered = first is not None
         matcher = NUMBER_RE if ordered else BULLET_RE
         other = BULLET_RE if ordered else NUMBER_RE
-        indent = len((first or BULLET_RE.match(lines[index])).group(1))
+        indent = len(cast("re.Match[str]", first or BULLET_RE.match(lines[index])).group(1))
 
-        items = []
+        items: list[list[str]] = []
         while index < len(lines):
             line = lines[index]
             match = matcher.match(line)
@@ -174,7 +176,10 @@ class Markdown:
                     index = following
                     continue
                 break
-            if other.match(line) and len(other.match(line).group(1)) == indent:
+            if (
+                other.match(line)
+                and len(cast("re.Match[str]", other.match(line)).group(1)) == indent
+            ):
                 break
             if not items:
                 break
@@ -186,7 +191,7 @@ class Markdown:
             items[-1].append(line.strip())  # lazy continuation of the current item
             index += 1
 
-        rendered = []
+        rendered: list[str] = []
         for item in items:
             structured = any(
                 BULLET_RE.match(line)
@@ -208,10 +213,10 @@ class Markdown:
 
     # -- inline --
 
-    def _inline(self, text, self_id):
-        held = []
+    def _inline(self, text: str, self_id: str | None) -> str:
+        held: list[str] = []
 
-        def hold(markup):
+        def hold(markup: str) -> str:
             held.append(markup)
             return f"\x00{len(held) - 1}\x00"
 
@@ -221,7 +226,7 @@ class Markdown:
             text,
         )
 
-        def link(match):
+        def link(match: re.Match[str]) -> str:
             if not is_safe_url(match.group(2)):
                 # Outside the subset is escaped and passed through, never dropped:
                 # the reader still sees exactly what the pass wrote, inert.
@@ -235,7 +240,7 @@ class Markdown:
         text = self._link_ids(text, self_id)
         return re.sub(r"\x00(\d+)\x00", lambda m: held[int(m.group(1))], text)
 
-    def _link_ids(self, text, self_id):
+    def _link_ids(self, text: str, self_id: str | None) -> str:
         """Turn in-prose ids into anchors, firing only on ids that exist.
 
         Both passes cross-reference their own findings while arguing, so this is
@@ -245,7 +250,7 @@ class Markdown:
         if self.id_re is None:
             return text
 
-        def link(match):
+        def link(match: re.Match[str]) -> str:
             target = match.group(1)
             if target == self_id:
                 return target

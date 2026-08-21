@@ -37,7 +37,7 @@ from page import render_page
 OPENER_TIMEOUT = 10
 
 
-def launch(command, cwd=None):
+def launch(command: list[str], cwd: str | None = None) -> int | None:
     """Run an opener to completion. None if it never started at all.
 
     Failing to start and starting badly are different answers, and the bottom
@@ -67,7 +67,7 @@ def launch(command, cwd=None):
     return completed.returncode
 
 
-def ran_ok(command, cwd=None):
+def ran_ok(command: list[str], cwd: str | None = None) -> bool:
     """Whether the opener reported success, not merely that it started.
 
     The distinction only matters under WSL, where openers are tried in order:
@@ -77,7 +77,7 @@ def ran_ok(command, cwd=None):
     return launch(command, cwd=cwd) == 0
 
 
-def is_wsl():
+def is_wsl() -> bool:
     """WSL reports itself as Linux, and the browser it can reach is Windows'.
 
     Either interop variable is conclusive; /proc/version is the fallback for a
@@ -93,7 +93,7 @@ def is_wsl():
         return False
 
 
-def translate_path(*arguments):
+def translate_path(*arguments: str) -> str | None:
     """Ask wslpath, in either direction. Nothing here composes a path by hand.
 
     Composing \\\\wsl.localhost\\<distro>\\... means guessing the distro when
@@ -129,7 +129,7 @@ def translate_path(*arguments):
     return completed.stdout.decode("utf-8", "replace").strip() or None
 
 
-def open_in_wsl(path):
+def open_in_wsl(path: str) -> bool:
     """Hand the report to Windows, which owns the browser on this host.
 
     A WSL box usually has no Linux browser and often no xdg-open, so the Linux
@@ -181,7 +181,7 @@ def open_in_wsl(path):
     return False
 
 
-def open_in_browser(path):
+def open_in_browser(path: str) -> bool:
     """Best effort, never fatal. The printed path is always the real mechanism."""
     for variable in ("CODEX_SANDBOX", "CI", "SSH_CONNECTION"):
         if os.environ.get(variable):
@@ -208,7 +208,7 @@ def open_in_browser(path):
     return ran_ok([*opener, path])
 
 
-def main(argv):
+def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("findings", metavar="FINDINGS_JSON")
     parser.add_argument("--no-open", action="store_true")

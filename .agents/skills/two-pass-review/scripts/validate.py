@@ -31,6 +31,7 @@ import os
 import re
 import sys
 from collections import Counter
+from typing import Any, cast
 
 # The one sibling import here, and it is deliberate: the self-check naming rule
 # is a claim about what the reader *sees*, and markdown_subset owns the page's
@@ -148,18 +149,18 @@ SCOPE_FIELDS = frozenset(
 class Report:
     """Collects problems as addressed lines, in the order they were found."""
 
-    def __init__(self):
-        self.problems = []
+    def __init__(self) -> None:
+        self.problems: list[str] = []
 
-    def add(self, where, message):
+    def add(self, where: str, message: str) -> None:
         self.problems.append(f"{where}: {message}")
 
     @property
-    def ok(self):
+    def ok(self) -> bool:
         return not self.problems
 
 
-def _where(path, line=None):
+def _where(path: str, line: int | None = None) -> str:
     name = os.path.basename(path)
     if line is None:
         return name
@@ -169,12 +170,16 @@ def _where(path, line=None):
 # --- field helpers -----------------------------------------------------------
 
 
-def _check_unknown(report, where, obj, allowed, what):
+def _check_unknown(
+    report: Report, where: str, obj: dict[str, Any], allowed: frozenset[str], what: str
+) -> None:
     for key in sorted(set(obj) - allowed):
         report.add(where, f"unknown {what} field {key!r} -- the schema has no such field")
 
 
-def _nonempty_str(report, where, obj, key, required=True):
+def _nonempty_str(
+    report: Report, where: str, obj: dict[str, Any], key: str, required: bool = True
+) -> str | None:
     if key not in obj:
         if required:
             report.add(where, f"missing required field {key!r}")
@@ -186,7 +191,14 @@ def _nonempty_str(report, where, obj, key, required=True):
     return value
 
 
-def _enum(report, where, obj, key, allowed, required=True):
+def _enum(
+    report: Report,
+    where: str,
+    obj: dict[str, Any],
+    key: str,
+    allowed: tuple[str, ...],
+    required: bool = True,
+) -> str | None:
     if key not in obj:
         if required:
             report.add(where, f"missing required field {key!r}")
@@ -200,10 +212,10 @@ def _enum(report, where, obj, key, allowed, required=True):
             ),
         )
         return None
-    return value
+    return cast(str, value)
 
 
-def _int(report, where, obj, key):
+def _int(report: Report, where: str, obj: dict[str, Any], key: str) -> int | None:
     if key not in obj:
         report.add(where, f"missing required field {key!r}")
         return None
@@ -215,7 +227,7 @@ def _int(report, where, obj, key):
     return value
 
 
-def _prose_or_null(report, where, obj, key):
+def _prose_or_null(report: Report, where: str, obj: dict[str, Any], key: str) -> str | None:
     value = obj.get(key)
     if value is None:
         return None
@@ -225,7 +237,7 @@ def _prose_or_null(report, where, obj, key):
     return value
 
 
-def _tier_or_null(report, where, obj, key):
+def _tier_or_null(report: Report, where: str, obj: dict[str, Any], key: str) -> str | None:
     """A model or effort label: one short line, or null for 'not recorded'.
 
     Deliberately not an enum. Both the level names and the model names differ
@@ -246,7 +258,15 @@ def _tier_or_null(report, where, obj, key):
     return value
 
 
-def _conditional(report, where, obj, key, required_when, condition, advice=None):
+def _conditional(
+    report: Report,
+    where: str,
+    obj: dict[str, Any],
+    key: str,
+    required_when: bool,
+    condition: str,
+    advice: str | None = None,
+) -> bool:
     """A field required under a condition and forbidden outside it.
 
     The two axes are conditional rather than optional so that absence is fully
@@ -270,7 +290,14 @@ def _conditional(report, where, obj, key, required_when, condition, advice=None)
 # --- findings ----------------------------------------------------------------
 
 
-def check_finding(report, where, finding, in_merged, repo=None, version=None):
+def check_finding(
+    report: Report,
+    where: str,
+    finding: Any,
+    in_merged: bool,
+    repo: str | None = None,
+    version: int | None = None,
+) -> str | None:
     # `version` is the merged artifact's schema version, None for a pass file.
     # The version-to-legality mapping for the merge-written mark fields lives
     # here, in one place, rather than as one boolean parameter per field --
@@ -395,7 +422,7 @@ def check_finding(report, where, finding, in_merged, repo=None, version=None):
     return finding_id
 
 
-def check_locations(report, where, locations, repo=None):
+def check_locations(report: Report, where: str, locations: Any, repo: str | None = None) -> None:
     if not isinstance(locations, list) or not locations:
         report.add(where, "'locations' must be an array holding at least one location")
         return
@@ -406,7 +433,8 @@ def check_locations(report, where, locations, repo=None):
             continue
         _check_unknown(report, at, location, LOCATION_FIELDS, "location")
         path = _nonempty_str(report, at, location, "path")
-        start = end = None
+        start: int | None = None
+        end: int | None = None
         for key in ("start_line", "end_line"):
             if key not in location:
                 continue
@@ -425,7 +453,9 @@ def check_locations(report, where, locations, repo=None):
             _check_location_in_repo(report, at, path, start, end, repo)
 
 
-def _check_location_in_repo(report, at, path, start, end, repo):
+def _check_location_in_repo(
+    report: Report, at: str, path: str, start: int | None, end: int | None, repo: str
+) -> None:
     """The half of a location only the checkout can judge.
 
     Everything in check_locations above the call is JSON shape and touches no
@@ -494,7 +524,7 @@ def _check_location_in_repo(report, at, path, start, end, repo):
         )
 
 
-def _line_count(path):
+def _line_count(path: str) -> int:
     # Bytes, not text: the located file can be anything the repository holds,
     # and an encoding error here would turn a valid finding into a traceback.
     # Streamed, for the same reason: validating one artifact should not cost
@@ -513,7 +543,7 @@ def _line_count(path):
     return count
 
 
-def check_ids_contiguous(report, where, ids_by_producer):
+def check_ids_contiguous(report: Report, where: str, ids_by_producer: dict[str, list[int]]) -> None:
     """Ids run from 1 with no gaps, per pass.
 
     They are assigned at emission and never renumbered, so a gap means a
@@ -529,10 +559,10 @@ def check_ids_contiguous(report, where, ids_by_producer):
         if not missing and not duplicated:
             continue
 
-        def label(number, prefix=ID_PREFIX[producer]):
+        def label(number: int, prefix: str = ID_PREFIX[producer]) -> str:
             return f"{prefix}-{number}"
 
-        detail = []
+        detail: list[str] = []
         if missing:
             detail.append("missing " + ", ".join(label(n) for n in missing))
         if duplicated:
@@ -545,9 +575,9 @@ def check_ids_contiguous(report, where, ids_by_producer):
 # --- pass files --------------------------------------------------------------
 
 
-def load_jsonl(report, path):
+def load_jsonl(report: Report, path: str) -> list[tuple[int, Any]]:
     """Returns [(line_number, object)] for every line that parsed."""
-    parsed = []
+    parsed: list[tuple[int, Any]] = []
     with open(path, encoding="utf-8") as handle:
         for number, raw in enumerate(handle, start=1):
             if not raw.strip():
@@ -559,7 +589,7 @@ def load_jsonl(report, path):
     return parsed
 
 
-def load_json(report, path):
+def load_json(report: Report, path: str) -> Any:
     try:
         with open(path, encoding="utf-8") as handle:
             return json.load(handle)
@@ -568,9 +598,15 @@ def load_json(report, path):
         return None
 
 
-def validate_pass(report, producer, findings_path, envelope_path, repo=None):
-    findings = []
-    ids_by_producer = {}
+def validate_pass(
+    report: Report,
+    producer: str,
+    findings_path: str | None,
+    envelope_path: str | None,
+    repo: str | None = None,
+) -> None:
+    findings: list[Any] = []
+    ids_by_producer: dict[str, list[int]] = {}
     if findings_path is not None:
         for number, finding in load_jsonl(report, findings_path):
             where = _where(findings_path, number)
@@ -624,7 +660,13 @@ def validate_pass(report, producer, findings_path, envelope_path, repo=None):
     )
 
 
-def check_empty_reason(report, where, envelope, has_findings, known_findings=True):
+def check_empty_reason(
+    report: Report,
+    where: str,
+    envelope: dict[str, Any],
+    has_findings: bool,
+    known_findings: bool = True,
+) -> None:
     """A pass carries findings or an account of why it has none -- never neither."""
     if not known_findings:
         return
@@ -641,7 +683,7 @@ def check_empty_reason(report, where, envelope, has_findings, known_findings=Tru
 # --- merged artifact ---------------------------------------------------------
 
 
-def validate_merged(report, path, repo=None):
+def validate_merged(report: Report, path: str, repo: str | None = None) -> None:
     merged = load_json(report, path)
     if merged is None:
         return
@@ -673,9 +715,9 @@ def validate_merged(report, path, repo=None):
         report.add(where, "'findings' must be an array")
         findings = []
 
-    by_id = {}
-    ids_by_producer = {}
-    producers_seen = set()
+    by_id: dict[str, dict[str, Any]] = {}
+    ids_by_producer: dict[str, list[int]] = {}
+    producers_seen: set[Any] = set()
     for index, finding in enumerate(findings):
         at = f"{where} findings[{index}]"
         finding_id = check_finding(report, at, finding, in_merged=True, repo=repo, version=version)
@@ -782,7 +824,7 @@ def validate_merged(report, path, repo=None):
         check_docs_check(report, where, merged["docs_check"], repo)
 
 
-def check_run(report, where, run, version):
+def check_run(report: Report, where: str, run: Any, version: int) -> None:
     if not isinstance(run, dict):
         report.add(where, "'run' must be a JSON object")
         return
@@ -836,7 +878,13 @@ def check_run(report, where, run, version):
             _int(report, at, scope, "untracked")
 
 
-def check_corroboration(report, where, findings, by_id, marks_active):
+def check_corroboration(
+    report: Report,
+    where: str,
+    findings: list[Any],
+    by_id: dict[str, dict[str, Any]],
+    marks_active: bool,
+) -> None:
     """Links resolve, are mutual, and never cross a disposition.
 
     A link across dispositions means a pass mis-tagged one of the two, and a
@@ -906,7 +954,9 @@ def check_corroboration(report, where, findings, by_id, marks_active):
                 )
 
 
-def check_verdict(report, where, verdict, findings, marks):
+def check_verdict(
+    report: Report, where: str, verdict: Any, findings: list[Any], marks: str
+) -> None:
     """The verdict agrees with its own list.
 
     This is what makes "derived, so it cannot contradict" checked rather than
@@ -966,7 +1016,13 @@ def check_verdict(report, where, verdict, findings, marks):
             report.add(where, "verdict is 'blocked' but no finding is tagged 'blocking'")
 
 
-def check_self_check(report, where, self_check, by_id, marks_active):
+def check_self_check(
+    report: Report,
+    where: str,
+    self_check: Any,
+    by_id: dict[str, dict[str, Any]],
+    marks_active: bool,
+) -> None:
     """The reader's self-check: at most four questions, grounded in the findings.
 
     Optional and inert: it asserts nothing about the findings, promotes
@@ -1039,7 +1095,7 @@ def check_self_check(report, where, self_check, by_id, marks_active):
                     f"the question names {name!r}, which is not among its anchors -- every finding a "
                     "question cites is one its answer is grounded in",
                 )
-        seen = set()
+        seen: set[str] = set()
         for anchor in anchors:
             if anchor in seen:
                 report.add(at_item, f"anchor {anchor!r} is repeated")
@@ -1058,7 +1114,7 @@ def check_self_check(report, where, self_check, by_id, marks_active):
                 )
 
 
-def check_docs_check(report, where, docs_check, repo=None):
+def check_docs_check(report: Report, where: str, docs_check: Any, repo: str | None = None) -> None:
     """The docs check's record: what it read, what it refused, what conflicted.
 
     A doc note is not a finding, and nothing here resembles the finding rules
@@ -1080,7 +1136,7 @@ def check_docs_check(report, where, docs_check, repo=None):
     ):
         report.add(at, "'examined' must be an array of repository-relative paths, possibly empty")
         examined = []
-    seen = set()
+    seen: set[str] = set()
     for path in examined:
         if path in seen:
             report.add(at, f"examined path {path!r} is repeated")
@@ -1097,7 +1153,7 @@ def check_docs_check(report, where, docs_check, repo=None):
             at,
             "'skipped' must be present -- the collector's refusals, an empty array when it refused nothing",
         )
-        skipped = []
+        skipped: list[Any] = []
     else:
         skipped = docs_check["skipped"]
         if not isinstance(skipped, list):
@@ -1145,7 +1201,7 @@ def check_docs_check(report, where, docs_check, repo=None):
             _nonempty_str(report, at_note, note, "owed_md")
 
 
-def _check_doc_path(report, at, path, repo):
+def _check_doc_path(report: Report, at: str, path: str, repo: str) -> None:
     """A document the check states it read: confined, and a real file.
 
     Confined exactly as _check_location_in_repo confines a location, and for
@@ -1166,11 +1222,11 @@ def _check_doc_path(report, at, path, repo):
         report.add(at, f"examined path {path!r} is not a file in the repository")
 
 
-def check_passes(report, where, passes, findings):
+def check_passes(report: Report, where: str, passes: Any, findings: list[Any]) -> None:
     if not isinstance(passes, list) or not passes:
         report.add(where, "'passes' must be an array holding at least one pass")
         return
-    seen = set()
+    seen: set[str | None] = set()
     for index, envelope in enumerate(passes):
         at = f"{where} passes[{index}]"
         if not isinstance(envelope, dict):
@@ -1191,14 +1247,13 @@ def check_passes(report, where, passes, findings):
         has_findings = any(isinstance(f, dict) and f.get("producer") == producer for f in findings)
         check_empty_reason(report, at, envelope, has_findings=has_findings)
 
-    orphans = sorted(
-        {
-            f.get("producer")
-            for f in findings
-            if isinstance(f, dict) and f.get("producer") not in seen
-        }
-        - {None}
-    )
+    # Declared rather than inferred: .get() on an Any-valued dict yields
+    # Any | None, and a set of that is not sortable as far as the checker is
+    # concerned even though the very next operation removes the None.
+    producers: set[Any] = {
+        f.get("producer") for f in findings if isinstance(f, dict) and f.get("producer") not in seen
+    }
+    orphans = sorted(producers - {None})
     for producer in orphans:
         report.add(
             where,
@@ -1209,7 +1264,7 @@ def check_passes(report, where, passes, findings):
 # --- entry point -------------------------------------------------------------
 
 
-def validate_paths(paths, repo=None):
+def validate_paths(paths: list[str], repo: str | None = None) -> list[str]:
     """Validate the given artifacts. Returns a list of addressed problems.
 
     `repo` is the checkout the findings are about; when given, locations are
@@ -1219,9 +1274,9 @@ def validate_paths(paths, repo=None):
     """
     report = Report()
 
-    merged = []
-    pass_findings = {}
-    pass_envelopes = {}
+    merged: list[str] = []
+    pass_findings: dict[str, str] = {}
+    pass_envelopes: dict[str, str] = {}
     for path in paths:
         if not os.path.exists(path):
             report.add(_where(path), "no such file")
@@ -1255,7 +1310,7 @@ def validate_paths(paths, repo=None):
     return report.problems
 
 
-def main(argv):
+def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("paths", metavar="FILE", nargs="+")
     parser.add_argument("--repo")

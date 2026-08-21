@@ -49,7 +49,7 @@ FILE_CEILING = 128 * 1024
 TOTAL_CEILING = 384 * 1024
 
 
-def unquote(token):
+def unquote(token: str) -> str:
     """Undo git's C-style quoting of unusual paths.
 
     git writes `"b/\\303\\244.md"` for a path it considers unusual. Decoded at
@@ -90,7 +90,7 @@ def unquote(token):
     return out.decode("utf-8", "replace")
 
 
-def changed_paths(diff_path):
+def changed_paths(diff_path: str) -> set[str]:
     """Every repository-relative path the diff names, old side and new side.
 
     Both sides, because a deleted file's directory can still hold a document
@@ -100,10 +100,10 @@ def changed_paths(diff_path):
     and the cost is a nested document not collected -- never a crash, and the
     root documents are collected regardless.
     """
-    paths = set()
+    paths: set[str] = set()
     with open(diff_path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
-            token = None
+            token: str | None = None
             for prefix in ("--- ", "+++ "):
                 if line.startswith(prefix):
                     token = line[len(prefix) :].rstrip("\n").rstrip("\t")
@@ -123,10 +123,10 @@ def changed_paths(diff_path):
     return paths
 
 
-def candidate_paths(repo, diff_path):
+def candidate_paths(repo: str, diff_path: str) -> list[str]:
     """ROOT_DOCS at the root, NESTED_DOCS up every changed file's ancestry."""
     candidates = list(ROOT_DOCS)
-    nested = set()
+    nested: set[str] = set()
     for changed in changed_paths(diff_path):
         directory = os.path.dirname(changed)
         while directory:
@@ -137,7 +137,7 @@ def candidate_paths(repo, diff_path):
     return candidates
 
 
-def collect(repo, diff_path):
+def collect(repo: str, diff_path: str) -> dict[str, object]:
     """Build the docs/skipped lists for the parsed candidates.
 
     Confinement mirrors validate.py: the realpath of every collected document
@@ -147,9 +147,9 @@ def collect(repo, diff_path):
     silently dropped -- the skip list is part of what the report states.
     """
     root = os.path.realpath(repo)
-    docs = []
-    skipped = []
-    seen = {}
+    docs: list[dict[str, str | int]] = []
+    skipped: list[dict[str, str]] = []
+    seen: dict[str, str] = {}
     total = 0
     for path in candidate_paths(repo, diff_path):
         absolute = os.path.join(root, path)
@@ -196,7 +196,7 @@ def collect(repo, diff_path):
     return {"docs": docs, "skipped": skipped}
 
 
-def main(argv):
+def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("--repo", required=True)
     parser.add_argument("--diff", required=True)

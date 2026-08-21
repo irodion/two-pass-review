@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect the agent-facing documents the docs check reads. Stdlib only, 3.9 syntax.
+"""Collect the agent-facing documents the docs check reads. Stdlib only, 3.10 syntax.
 
 Usage:
     collect_docs.py --repo PATH --diff CONTEXT_DIFF

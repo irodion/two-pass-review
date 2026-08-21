@@ -17,8 +17,8 @@ permissions:
 
 jobs:
   interpreters:
-    # The floor is 3.9 because macOS /usr/bin/python3 is 3.9.6, and that is the
-    # interpreter a stock Mac runs these with. The modern leg is not redundant:
+    # The floor is 3.10 -- see AGENTS.md for why it moved off the macOS system
+    # interpreter's 3.9. The modern leg is not redundant:
     # it catches deprecations written to stderr, which the orchestrator reads as
     # though the script failed.
     name: python ${{ matrix.python }}
@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.9", "3.13"]
+        python: ["3.10", "3.13"]
     steps:
       - uses: actions/checkout@v4
         with:

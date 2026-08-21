@@ -24,8 +24,8 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import validate  # noqa: E402  (sibling script, same directory)
-from page import render_page  # noqa: E402
+import validate  # sibling script, same directory
+from page import render_page
 
 
 # --- delivery ----------------------------------------------------------------
@@ -87,7 +87,7 @@ def is_wsl():
     if os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"):
         return True
     try:
-        with open("/proc/version", "r", encoding="utf-8") as handle:
+        with open("/proc/version", encoding="utf-8") as handle:
             return "microsoft" in handle.read().lower()
     except OSError:
         return False
@@ -114,7 +114,7 @@ def translate_path(*arguments):
     """
     try:
         completed = subprocess.run(
-            ["wslpath"] + list(arguments),
+            ["wslpath", *arguments],
             check=False,
             timeout=OPENER_TIMEOUT,
             stdout=subprocess.PIPE,
@@ -205,7 +205,7 @@ def open_in_browser(path):
     if not shutil.which(opener[0]):
         return False
     # A plain path, never a file:// URL -- a '#' in the path truncates the URL.
-    return ran_ok(opener + [path])
+    return ran_ok([*opener, path])
 
 
 def main(argv):
@@ -223,11 +223,11 @@ def main(argv):
     if problems:
         sys.stderr.write("Refusing to render an invalid artifact:\n\n")
         for problem in problems:
-            sys.stderr.write("  {}\n".format(problem))
+            sys.stderr.write(f"  {problem}\n")
         sys.stderr.write("\nRepair the artifact and render again.\n")
         return 1
 
-    with open(source, "r", encoding="utf-8") as handle:
+    with open(source, encoding="utf-8") as handle:
         merged = json.load(handle)
 
     target = os.path.join(os.path.dirname(source), "report.html")
@@ -241,8 +241,8 @@ def main(argv):
     # because the printed path is the mechanism and the open is the
     # convenience: a harness that kills a stalled render must still find the
     # report named in what already reached it.
-    sys.stdout.write("{}\n".format(target))
-    sys.stdout.write("file://{}\n".format(target))
+    sys.stdout.write(f"{target}\n")
+    sys.stdout.write(f"file://{target}\n")
     sys.stdout.flush()
 
     if not args.no_open:

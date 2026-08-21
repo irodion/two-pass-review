@@ -64,10 +64,9 @@ def git(repo, *arguments, input=None, max_bytes=None):
     """
     if max_bytes is None:
         result = subprocess.run(
-            ["git", "-C", repo] + list(arguments),
+            ["git", "-C", repo, *arguments],
             input=input,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
         )
         return result.returncode, result.stdout, result.stderr.decode("utf-8", "replace").strip()
 
@@ -76,7 +75,7 @@ def git(repo, *arguments, input=None, max_bytes=None):
     # after, which is safe because git's diff stderr is a few lines at most and
     # cannot fill its pipe while we read stdout.
     proc = subprocess.Popen(
-        ["git", "-C", repo] + list(arguments), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        ["git", "-C", repo, *arguments], stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
     chunks, total = [], 0
     while True:
@@ -106,14 +105,12 @@ def git_text(repo, *arguments):
 
 
 def fail(message, status=4):
-    sys.stderr.write("Cannot resolve the review scope: {}\n".format(message))
+    sys.stderr.write(f"Cannot resolve the review scope: {message}\n")
     return status
 
 
 def resolve_commit(repo, revision):
-    code, out, _ = git_text(
-        repo, "rev-parse", "--verify", "--quiet", "{}^{{commit}}".format(revision)
-    )
+    code, out, _ = git_text(repo, "rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}")
     return out.strip() if code == 0 else None
 
 
@@ -121,7 +118,7 @@ def repo_slug(root):
     name = os.path.basename(os.path.abspath(root)) or "repo"
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-").lower() or "repo"
     digest = hashlib.sha256(os.path.abspath(root).encode("utf-8")).hexdigest()[:8]
-    return "{}-{}".format(slug, digest)
+    return f"{slug}-{digest}"
 
 
 def make_private_dir(path):
@@ -148,28 +145,24 @@ def make_private_dir(path):
     except FileExistsError:
         pass
     except OSError as error:
-        return fail("cannot create {}: {}".format(path, error))
+        return fail(f"cannot create {path}: {error}")
 
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY)
     except OSError:
-        return fail(
-            "{} is a symlink or not a directory; refusing to write reports through it".format(path)
-        )
+        return fail(f"{path} is a symlink or not a directory; refusing to write reports through it")
     try:
         info = os.fstat(descriptor)
         if info.st_uid != os.getuid():
-            return fail(
-                "{} is owned by another user; refusing to write reports into it".format(path)
-            )
+            return fail(f"{path} is owned by another user; refusing to write reports into it")
         if created:
             # mkdir's mode is masked by the umask, so set it on the descriptor.
             os.fchmod(descriptor, 0o700)
         elif info.st_mode & 0o077:
             # Somebody chose this mode. Say so rather than silently undoing it.
             return fail(
-                "{} is readable by other users. Reports are written here, so either "
-                "`chmod 700` it or remove it and let this run recreate it".format(path)
+                f"{path} is readable by other users. Reports are written here, so either "
+                "`chmod 700` it or remove it and let this run recreate it"
             )
     finally:
         os.close(descriptor)
@@ -215,17 +208,17 @@ def filter_overrides(repo):
     for name in sorted(names):
         if "=" in name:
             return None, (
-                "the configured git filter driver {!r} has an equals sign in its name, "
+                f"the configured git filter driver {name!r} has an equals sign in its name, "
                 "which the -c override that keeps filters out of the review diff cannot "
-                "express. Rename or remove that filter configuration and run again".format(name)
+                "express. Rename or remove that filter configuration and run again"
             )
         arguments += [
             "-c",
-            "filter.{}.clean=".format(name),
+            f"filter.{name}.clean=",
             "-c",
-            "filter.{}.process=".format(name),
+            f"filter.{name}.process=",
             "-c",
-            "filter.{}.required=false".format(name),
+            f"filter.{name}.required=false",
         ]
     return arguments, None
 
@@ -299,7 +292,7 @@ def build_diff(repo, mode, base, head):
     # comparison depend on worktree filter config it never invokes, and refuse
     # a range over an unrepresentable filter name that could not matter.
     if mode == "revisions":
-        selector = ["{}..{}".format(base, head)]
+        selector = [f"{base}..{head}"]
         overrides = []
     else:
         # Working tree against the base, which covers staged and unstaged alike.
@@ -322,16 +315,20 @@ def build_diff(repo, mode, base, head):
     # they sit in git and on disk, not a repository-chosen account of them.
     code, raw, error = git(
         repo,
-        *overrides
-        + ["diff", "--no-ext-diff", "--no-textconv", "--text", "--ignore-submodules=none"]
-        + selector,
+        *overrides,
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--text",
+        "--ignore-submodules=none",
+        *selector,
         max_bytes=CAPTURE_CEILING,
     )
     if raw is None:
         return None, (
-            "the diff exceeded {} bytes and capture was stopped before it could exhaust memory. "
+            f"the diff exceeded {CAPTURE_CEILING} bytes and capture was stopped before it could exhaust memory. "
             "This usually means a large binary was forced to a textual patch; review a committed "
-            "range or narrow the scope".format(CAPTURE_CEILING)
+            "range or narrow the scope"
         )
     if code != 0:
         return None, error
@@ -371,10 +368,10 @@ def main(argv):
 
     repo = os.path.abspath(os.path.expanduser(args.repo))
     if not os.path.isdir(repo):
-        return fail("{} is not a directory".format(repo))
+        return fail(f"{repo} is not a directory")
     code, root, _ = git_text(repo, "rev-parse", "--show-toplevel")
     if code != 0:
-        return fail("{} is not inside a git repository".format(repo))
+        return fail(f"{repo} is not inside a git repository")
     root = root.strip()
 
     if args.mode == "revisions" and not args.head:
@@ -384,12 +381,12 @@ def main(argv):
 
     base = resolve_commit(root, args.base)
     if base is None:
-        return fail("{!r} does not name a commit in this repository".format(args.base))
+        return fail(f"{args.base!r} does not name a commit in this repository")
     head = None
     if args.mode == "revisions":
         head = resolve_commit(root, args.head)
         if head is None:
-            return fail("{!r} does not name a commit in this repository".format(args.head))
+            return fail(f"{args.head!r} does not name a commit in this repository")
 
     patch, error = build_diff(root, args.mode, base, head)
     if patch is None:

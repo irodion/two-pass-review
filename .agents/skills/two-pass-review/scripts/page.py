@@ -124,9 +124,9 @@ def location_chip(location, primary):
     path = esc(location["path"])
     start, end = location.get("start_line"), location.get("end_line")
     if start and end and end != start:
-        label = "{}:{}-{}".format(path, start, end)
+        label = f"{path}:{start}-{end}"
     elif start:
-        label = "{}:{}".format(path, start)
+        label = f"{path}:{start}"
     else:
         label = path
     # One element, no interior markup, no interior whitespace: the reader's
@@ -158,7 +158,7 @@ def copy_payload(finding, partners):
     )
     meta = "{} pass · {}".format(finding["producer"], finding["disposition"])
     if axis:
-        meta += " · {}".format(axis)
+        meta += f" · {axis}"
     lines.append(meta)
 
     # Stated only when it is not high, matching the card. The rationale names the
@@ -209,10 +209,10 @@ def copy_payload(finding, partners):
 # illustrates -- a screen reader that announces both hears the label twice.
 def icon(paths, size=13, stroke="1.5"):
     return (
-        '<svg class="icon" width="{s}" height="{s}" viewBox="0 0 24 24" fill="none" '
-        'stroke="currentColor" stroke-width="{w}" stroke-linecap="round" stroke-linejoin="round" '
-        'aria-hidden="true" focusable="false">{p}</svg>'
-    ).format(s=size, w=stroke, p=paths)
+        f'<svg class="icon" width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" '
+        f'stroke="currentColor" stroke-width="{stroke}" stroke-linecap="round" stroke-linejoin="round" '
+        f'aria-hidden="true" focusable="false">{paths}</svg>'
+    )
 
 
 ICON_CLIPBOARD = icon(
@@ -249,10 +249,10 @@ def copy_controls(payload):
 
     def button(text, idle, payload_text):
         return (
-            '<button type="button" class="copy-btn" data-copy="{copy}">'
-            '<span class="icon-idle">{idle}</span><span class="icon-done">{done}</span>'
-            '<span class="copy-label">{text}</span></button>'
-        ).format(copy=attr(payload_text), idle=idle, done=ICON_CHECK, text=text)
+            f'<button type="button" class="copy-btn" data-copy="{attr(payload_text)}">'
+            f'<span class="icon-idle">{idle}</span><span class="icon-done">{ICON_CHECK}</span>'
+            f'<span class="copy-label">{text}</span></button>'
+        )
 
     return '<div class="copy">{}{}</div>'.format(
         button("Copy", ICON_CLIPBOARD, payload),
@@ -347,7 +347,7 @@ def render_finding(finding, markdown, partners):
         location_chip(location, index == 0)
         for index, location in enumerate(finding.get("locations") or [])
     )
-    bits.append('<div class="locations">{}</div>'.format(chips))
+    bits.append(f'<div class="locations">{chips}</div>')
 
     if partners:
         links = ", ".join(
@@ -355,8 +355,8 @@ def render_finding(finding, markdown, partners):
         )
         quoted = esc(truncate(Markdown.plain(partners[0]["title"]), 96))
         bits.append(
-            '<p class="corroboration"><strong>Corroborated by {links}</strong> '
-            "&mdash; “{quoted}”</p>".format(links=links, quoted=quoted)
+            f'<p class="corroboration"><strong>Corroborated by {links}</strong> '
+            f"&mdash; “{quoted}”</p>"
         )
 
     bits.append(
@@ -377,9 +377,7 @@ def render_finding(finding, markdown, partners):
     # dismissal arrived, and a second full-width row would cost every card --
     # dismissed or not -- a second line of vertical space to say one word.
     bits.append(
-        '<div class="card-foot">{copy}{dismiss}</div>'.format(
-            copy=copy_controls(copy_payload(finding, partners)), dismiss=dismiss_control()
-        )
+        f'<div class="card-foot">{copy_controls(copy_payload(finding, partners))}{dismiss_control()}</div>'
     )
     bits.append("</article>")
     return "\n".join(bits)
@@ -392,14 +390,12 @@ def verdict_sentence(verdict, findings):
         by_producer = {}
         for finding in blocking:
             by_producer[finding["producer"]] = by_producer.get(finding["producer"], 0) + 1
-        parts = [
-            "{} from the {} pass".format(count, name) for name, count in sorted(by_producer.items())
-        ]
+        parts = [f"{count} from the {name} pass" for name, count in sorted(by_producer.items())]
         return "{} of {} findings block this change &mdash; {}.".format(
             len(blocking), total, " and ".join(parts)
         )
     if total:
-        return "{} findings, none of which block this change.".format(total)
+        return f"{total} findings, none of which block this change."
     return "Neither pass found anything to report."
 
 
@@ -505,8 +501,8 @@ def render_run_panel(run, passes):
     if recorded:
         note += " Model and effort are what this run asked for, not a measurement."
     return (
-        '<section class="run"><p class="run-title">Run</p><dl class="run-facts">{}</dl>'
-        '<p class="run-note">{}</p></section>'.format(body, note)
+        f'<section class="run"><p class="run-title">Run</p><dl class="run-facts">{body}</dl>'
+        f'<p class="run-note">{note}</p></section>'
     )
 
 
@@ -551,7 +547,7 @@ def render_warnings(run, passes, findings):
         )
     return "".join(
         '<p class="callout"><span class="callout-mark" aria-hidden="true">!</span>'
-        "<span>{}</span></p>".format(text)
+        f"<span>{text}</span></p>"
         for text in warnings
     )
 
@@ -568,13 +564,8 @@ def render_pass_prose(passes, markdown):
                 continue
             anchor = "prose-{}-{}".format(producer, key.split("_")[0])
             out.append(
-                '<section id="{anchor}" class="prose"><h2>{heading} &mdash; {label}</h2>'
-                "<details open><summary>{label}</summary>{body}</details></section>".format(
-                    anchor=anchor,
-                    heading=esc(heading),
-                    label=producer_label(producer),
-                    body=markdown.render(envelope[key]),
-                )
+                f'<section id="{anchor}" class="prose"><h2>{esc(heading)} &mdash; {producer_label(producer)}</h2>'
+                f"<details open><summary>{producer_label(producer)}</summary>{markdown.render(envelope[key])}</details></section>"
             )
         if envelope.get("empty_reason_md"):
             out.append(
@@ -668,8 +659,8 @@ def render_docs_check(docs_check, markdown):
             else "No agent-facing documents to check &mdash; nothing shaped like an AGENTS.md, CLAUDE.md or README applies to this diff."
         )
     else:
-        chips = ", ".join('<span class="chip">{}</span>'.format(esc(p)) for p in examined)
-        told = "The diff was read against {}.".format(chips)
+        chips = ", ".join(f'<span class="chip">{esc(p)}</span>' for p in examined)
+        told = f"The diff was read against {chips}."
         flagged = {note["path"] for note in notes}
         if flagged:
             told += " {} of these documents {} an explicit conflict.".format(
@@ -808,9 +799,7 @@ def render_page(merged):
             )
             for key in ("all", "security", "quality")
         )
-        heading = '{} <span class="counts">&middot; {}</span>'.format(
-            DISPOSITION_LABEL[disposition], counts
-        )
+        heading = f'{DISPOSITION_LABEL[disposition]} <span class="counts">&middot; {counts}</span>'
 
         main.append(
             '<section class="{cls}" data-disposition="{d}"><h2 id="group-{d}">{heading}</h2>{cards}</section>'.format(
@@ -839,22 +828,15 @@ def render_page(merged):
             for f in flat
         )
         nav.append(
-            '<div class="{cls}" data-disposition="{d}"><p class="nav-group"><a href="#group-{d}">{label}</a> '
-            '<span class="counts">&middot; {counts}</span></p><ul>{entries}</ul></div>'.format(
-                cls=classes,
-                d=disposition,
-                label=DISPOSITION_LABEL[disposition].upper(),
-                counts=counts,
-                entries=entries,
-            )
+            f'<div class="{classes}" data-disposition="{disposition}"><p class="nav-group">'
+            f'<a href="#group-{disposition}">{DISPOSITION_LABEL[disposition].upper()}</a> '
+            f'<span class="counts">&middot; {counts}</span></p><ul>{entries}</ul></div>'
         )
 
     prose_links = []
     if withdrawn:
         prose_links.append(
-            '<li><a href="#group-withdrawn">Withdrawn at merge &middot; {}</a></li>'.format(
-                len(withdrawn)
-            )
+            f'<li><a href="#group-withdrawn">Withdrawn at merge &middot; {len(withdrawn)}</a></li>'
         )
     for envelope in merged["passes"]:
         producer = envelope["producer"]
@@ -873,9 +855,7 @@ def render_page(merged):
                 )
         if envelope.get("empty_reason_md"):
             prose_links.append(
-                '<li><a href="#prose-{p}-empty">Nothing reported &mdash; {label}</a></li>'.format(
-                    p=esc(producer), label=producer_label(producer)
-                )
+                f'<li><a href="#prose-{esc(producer)}-empty">Nothing reported &mdash; {producer_label(producer)}</a></li>'
             )
 
     docs_check = merged.get("docs_check")
@@ -889,7 +869,7 @@ def render_page(merged):
     self_check = merged.get("self_check") or []
     if self_check:
         prose_links.append(
-            '<li><a href="#selfcheck">Self-check &middot; {}</a></li>'.format(len(self_check))
+            f'<li><a href="#selfcheck">Self-check &middot; {len(self_check)}</a></li>'
         )
 
     verdict = merged["verdict"]
@@ -905,9 +885,7 @@ def render_page(merged):
         sentence = (
             "The only finding was withdrawn at the merge; nothing stands."
             if len(withdrawn) == 1
-            else "All {} findings were withdrawn at the merge; nothing stands.".format(
-                len(withdrawn)
-            )
+            else f"All {len(withdrawn)} findings were withdrawn at the merge; nothing stands."
         )
     # Said in the masthead because it qualifies the sentence just made: some of
     # the findings counted there are disputed, and a reader who never scrolls

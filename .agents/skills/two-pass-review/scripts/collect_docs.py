@@ -101,7 +101,7 @@ def changed_paths(diff_path):
     root documents are collected regardless.
     """
     paths = set()
-    with open(diff_path, "r", encoding="utf-8", errors="replace") as handle:
+    with open(diff_path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
             token = None
             for prefix in ("--- ", "+++ "):
@@ -169,7 +169,7 @@ def collect(repo, diff_path):
             skipped.append(
                 {
                     "path": path,
-                    "reason": "the same file as {}, already collected".format(seen[resolved]),
+                    "reason": f"the same file as {seen[resolved]}, already collected",
                 }
             )
             continue
@@ -178,7 +178,7 @@ def collect(repo, diff_path):
             skipped.append(
                 {
                     "path": path,
-                    "reason": "larger than the {:,}-byte per-file ceiling".format(FILE_CEILING),
+                    "reason": f"larger than the {FILE_CEILING:,}-byte per-file ceiling",
                 }
             )
             continue
@@ -186,7 +186,7 @@ def collect(repo, diff_path):
             skipped.append(
                 {
                     "path": path,
-                    "reason": "would exceed the {:,}-byte total ceiling".format(TOTAL_CEILING),
+                    "reason": f"would exceed the {TOTAL_CEILING:,}-byte total ceiling",
                 }
             )
             continue
@@ -207,11 +207,11 @@ def main(argv):
 
     repo = os.path.abspath(os.path.expanduser(args.repo))
     if not os.path.isdir(repo):
-        sys.stderr.write("--repo {!r} is not a directory\n".format(args.repo))
+        sys.stderr.write(f"--repo {args.repo!r} is not a directory\n")
         return 2
     diff = os.path.abspath(os.path.expanduser(args.diff))
     if not os.path.isfile(diff):
-        sys.stderr.write("--diff {!r} is not a file\n".format(args.diff))
+        sys.stderr.write(f"--diff {args.diff!r} is not a file\n")
         return 2
 
     result = collect(repo, diff)

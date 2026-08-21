@@ -43,7 +43,7 @@ def stdlib_only(problems):
         if not name.endswith(".py"):
             continue
         path = os.path.join(SCRIPTS, name)
-        with open(path, "r", encoding="utf-8") as handle:
+        with open(path, encoding="utf-8") as handle:
             tree = ast.parse(handle.read(), filename=path)
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -57,7 +57,7 @@ def stdlib_only(problems):
                 top = module.split(".")[0]
                 if top in SIBLINGS or top in sys.stdlib_module_names:
                     continue
-                problems.append("{}: imports {!r}, which is not in the stdlib".format(name, top))
+                problems.append(f"{name}: imports {top!r}, which is not in the stdlib")
 
 
 def page_script_parses(problems):
@@ -76,7 +76,7 @@ def page_script_parses(problems):
     CI always runs it; a contributor without node loses the check and is told so,
     which is the same bargain stdlib_only strikes on Python 3.10."""
     path = os.path.join(SCRIPTS, "page.py")
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         tree = ast.parse(handle.read(), filename=path)
 
     source = None
@@ -98,15 +98,14 @@ def page_script_parses(problems):
         sys.stdout.write("  skipped: no node on PATH, so page.py's SCRIPT was not parsed\n")
         return
 
-    handle = tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False)
-    try:
+    with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as handle:
         handle.write(source)
-        handle.close()
+    try:
         result = subprocess.run(
             [node_bin, "--check", handle.name],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            universal_newlines=True,
+            text=True,
         )
         if result.returncode != 0:
             # The temp path is in node's message and means nothing to a reader, so
@@ -119,7 +118,7 @@ def page_script_parses(problems):
             for name in sorted({handle.name, os.path.realpath(handle.name)}, key=len, reverse=True):
                 detail = detail.replace(name, "page.py:SCRIPT")
             detail = detail.strip()
-            problems.append("page.py: SCRIPT is not valid JavaScript --\n    {}".format(detail))
+            problems.append(f"page.py: SCRIPT is not valid JavaScript --\n    {detail}")
     finally:
         os.unlink(handle.name)
 
@@ -162,7 +161,7 @@ def sanitiser_holds(problems):
     try:
         from markdown_subset import Markdown
     except ImportError as error:  # pragma: no cover - a broken import is the floor job's problem
-        problems.append("cannot import markdown_subset: {}".format(error))
+        problems.append(f"cannot import markdown_subset: {error}")
         return
 
     renderer = Markdown(known_ids=set())
@@ -171,10 +170,10 @@ def sanitiser_holds(problems):
         lowered = rendered.lower()
         for tag in ("<script", "<img", "<iframe", "<svg"):
             if tag in lowered:
-                problems.append("markdown_subset: {!r} survived {!r} unescaped".format(tag, source))
+                problems.append(f"markdown_subset: {tag!r} survived {source!r} unescaped")
         for url in HREF.findall(rendered):
             if not url.lower().startswith(SAFE_PREFIXES):
-                problems.append("markdown_subset: emitted href={!r} from {!r}".format(url, source))
+                problems.append(f"markdown_subset: emitted href={url!r} from {source!r}")
 
     # The opposite failure -- a sanitiser that strips everything -- would satisfy
     # every assertion above while making the report's cross-references dead text.
@@ -191,9 +190,7 @@ def _git(problems, *args):
     the exit status therefore reports success when git is missing, when the tree
     is not a repository, or when the index is locked -- the check passes loudest
     exactly when it saw nothing. Returning None makes the caller choose."""
-    result = subprocess.run(
-        ["git"] + list(args), cwd=ROOT, capture_output=True, text=True, check=False
-    )
+    result = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         problems.append(
             "git {} failed ({}): {}".format(
@@ -214,16 +211,16 @@ def committed_symlink(problems):
         return
     out = listing.strip()
     if not out:
-        problems.append("{} is not tracked".format(rel))
+        problems.append(f"{rel} is not tracked")
         return
     if not out.startswith("120000"):
-        problems.append("{} is committed as a regular file, not a symlink".format(rel))
+        problems.append(f"{rel} is committed as a regular file, not a symlink")
         return
     target = os.readlink(os.path.join(ROOT, rel))
     if os.path.isabs(target):
-        problems.append("{} points at an absolute path ({})".format(rel, target))
+        problems.append(f"{rel} points at an absolute path ({target})")
     if not os.path.isdir(os.path.join(ROOT, rel)):
-        problems.append("{} does not resolve to a directory".format(rel))
+        problems.append(f"{rel} does not resolve to a directory")
 
 
 def no_build_artifacts(problems):
@@ -246,7 +243,7 @@ def no_build_artifacts(problems):
         if not path:
             continue
         if "__pycache__" in path or path.endswith((".pyc", ".pyo")):
-            problems.append("{}: build artifact is tracked".format(path))
+            problems.append(f"{path}: build artifact is tracked")
 
 
 def links_resolve(problems):
@@ -261,7 +258,7 @@ def links_resolve(problems):
         os.path.join(SKILL, "NOTICE.md"),
     ]
     for doc in docs:
-        with open(doc, "r", encoding="utf-8") as handle:
+        with open(doc, encoding="utf-8") as handle:
             text = handle.read()
         for target in _markdown_targets(text):
             if target.startswith(("http://", "https://", "mailto:", "#")):
@@ -271,9 +268,7 @@ def links_resolve(problems):
             path = os.path.normpath(os.path.join(os.path.dirname(doc), target.split("#")[0]))
             if not os.path.exists(path):
                 problems.append(
-                    "{}: links to {!r}, which a clone does not have".format(
-                        os.path.relpath(doc, ROOT), target
-                    )
+                    f"{os.path.relpath(doc, ROOT)}: links to {target!r}, which a clone does not have"
                 )
 
 
@@ -305,9 +300,9 @@ def main():
     for check in checks:
         check(problems)
     for problem in problems:
-        sys.stderr.write("  {}\n".format(problem))
+        sys.stderr.write(f"  {problem}\n")
     if problems:
-        sys.stderr.write("\n{} problem(s).\n".format(len(problems)))
+        sys.stderr.write(f"\n{len(problems)} problem(s).\n")
         return 1
     # Says what it checked, not what it hopes. It parsed the page's script; it did
     # not click the button, and it did not open a report. Saying more than that is

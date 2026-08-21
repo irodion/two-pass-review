@@ -43,7 +43,7 @@ NUMBER_RE = re.compile(r"^(\s*)\d+[.)]\s+(.*)$")
 QUOTE = "&gt;"
 
 
-class Markdown(object):
+class Markdown:
     """The permitted subset, and only it.
 
     Anything outside the subset is escaped and passed through as text. A
@@ -126,7 +126,7 @@ class Markdown(object):
             stripped = lines[index].lstrip()[len(QUOTE) :]
             body.append(stripped[1:] if stripped.startswith(" ") else stripped)
             index += 1
-        return "<blockquote>{}</blockquote>".format(self._blocks(body, self_id)), index
+        return f"<blockquote>{self._blocks(body, self_id)}</blockquote>", index
 
     def _paragraph(self, lines, index, self_id):
         """Consecutive non-blank lines are one paragraph.
@@ -189,20 +189,20 @@ class Markdown(object):
         rendered = []
         for item in items:
             structured = any(
-                BULLET_RE.match(l)
-                or NUMBER_RE.match(l)
-                or l.strip().startswith("```")
-                or l.lstrip().startswith(QUOTE)
-                for l in item[1:]
+                BULLET_RE.match(line)
+                or NUMBER_RE.match(line)
+                or line.strip().startswith("```")
+                or line.lstrip().startswith(QUOTE)
+                for line in item[1:]
             )
             if structured:
                 inner = self._blocks(item, self_id)
                 # A single leading paragraph inside a list item is noise.
                 inner = re.sub(r"^<p>(.*?)</p>", r"\1", inner, count=1, flags=re.S)
-                rendered.append("<li>{}</li>".format(inner))
+                rendered.append(f"<li>{inner}</li>")
             else:
-                text = "\n".join(l for l in item if l.strip())
-                rendered.append("<li>{}</li>".format(self._inline(text, self_id)))
+                text = "\n".join(line for line in item if line.strip())
+                rendered.append(f"<li>{self._inline(text, self_id)}</li>")
         tag = "ol" if ordered else "ul"
         return "<{0}>{1}</{0}>".format(tag, "".join(rendered)), index
 
@@ -213,11 +213,11 @@ class Markdown(object):
 
         def hold(markup):
             held.append(markup)
-            return "\x00{}\x00".format(len(held) - 1)
+            return f"\x00{len(held) - 1}\x00"
 
         text = re.sub(
             r"`([^`]+)`",
-            lambda m: hold("<code>{}</code>".format(self._link_ids(m.group(1), self_id))),
+            lambda m: hold(f"<code>{self._link_ids(m.group(1), self_id)}</code>"),
             text,
         )
 
@@ -226,9 +226,7 @@ class Markdown(object):
                 # Outside the subset is escaped and passed through, never dropped:
                 # the reader still sees exactly what the pass wrote, inert.
                 return match.group(0)
-            return hold(
-                '<a href="{}" rel="noreferrer">{}</a>'.format(match.group(2), match.group(1))
-            )
+            return hold(f'<a href="{match.group(2)}" rel="noreferrer">{match.group(1)}</a>')
 
         text = re.sub(r"\[([^\]\n]+)\]\(([^)\s]+)\)", link, text)
         text = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", text)
@@ -251,6 +249,6 @@ class Markdown(object):
             target = match.group(1)
             if target == self_id:
                 return target
-            return '<a class="xref" href="#finding-{0}">{0}</a>'.format(target)
+            return f'<a class="xref" href="#finding-{target}">{target}</a>'
 
         return self.id_re.sub(link, text)

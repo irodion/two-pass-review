@@ -293,7 +293,7 @@ def _conditional(
 def check_finding(
     report: Report,
     where: str,
-    finding: Any,
+    finding: object,
     in_merged: bool,
     repo: str | None = None,
     version: int | None = None,
@@ -422,7 +422,7 @@ def check_finding(
     return finding_id
 
 
-def check_locations(report: Report, where: str, locations: Any, repo: str | None = None) -> None:
+def check_locations(report: Report, where: str, locations: object, repo: str | None = None) -> None:
     if not isinstance(locations, list) or not locations:
         report.add(where, "'locations' must be an array holding at least one location")
         return
@@ -589,7 +589,7 @@ def load_jsonl(report: Report, path: str) -> list[tuple[int, Any]]:
     return parsed
 
 
-def load_json(report: Report, path: str) -> Any:
+def load_json(report: Report, path: str) -> object:
     try:
         with open(path, encoding="utf-8") as handle:
             return json.load(handle)
@@ -824,7 +824,7 @@ def validate_merged(report: Report, path: str, repo: str | None = None) -> None:
         check_docs_check(report, where, merged["docs_check"], repo)
 
 
-def check_run(report: Report, where: str, run: Any, version: int) -> None:
+def check_run(report: Report, where: str, run: object, version: int) -> None:
     if not isinstance(run, dict):
         report.add(where, "'run' must be a JSON object")
         return
@@ -955,7 +955,7 @@ def check_corroboration(
 
 
 def check_verdict(
-    report: Report, where: str, verdict: Any, findings: list[Any], marks: str
+    report: Report, where: str, verdict: object, findings: list[Any], marks: str
 ) -> None:
     """The verdict agrees with its own list.
 
@@ -1019,7 +1019,7 @@ def check_verdict(
 def check_self_check(
     report: Report,
     where: str,
-    self_check: Any,
+    self_check: object,
     by_id: dict[str, dict[str, Any]],
     marks_active: bool,
 ) -> None:
@@ -1114,7 +1114,9 @@ def check_self_check(
                 )
 
 
-def check_docs_check(report: Report, where: str, docs_check: Any, repo: str | None = None) -> None:
+def check_docs_check(
+    report: Report, where: str, docs_check: object, repo: str | None = None
+) -> None:
     """The docs check's record: what it read, what it refused, what conflicted.
 
     A doc note is not a finding, and nothing here resembles the finding rules
@@ -1222,7 +1224,7 @@ def _check_doc_path(report: Report, at: str, path: str, repo: str) -> None:
         report.add(at, f"examined path {path!r} is not a file in the repository")
 
 
-def check_passes(report: Report, where: str, passes: Any, findings: list[Any]) -> None:
+def check_passes(report: Report, where: str, passes: object, findings: list[Any]) -> None:
     if not isinstance(passes, list) or not passes:
         report.add(where, "'passes' must be an array holding at least one pass")
         return

@@ -166,14 +166,29 @@ def collect(repo, diff_path):
         # alias of a document the ceilings refused is re-checked and gets the
         # ceiling's own reason, never a claim that something was collected.
         if resolved in seen:
-            skipped.append({"path": path, "reason": "the same file as {}, already collected".format(seen[resolved])})
+            skipped.append(
+                {
+                    "path": path,
+                    "reason": "the same file as {}, already collected".format(seen[resolved]),
+                }
+            )
             continue
         size = os.path.getsize(absolute)
         if size > FILE_CEILING:
-            skipped.append({"path": path, "reason": "larger than the {:,}-byte per-file ceiling".format(FILE_CEILING)})
+            skipped.append(
+                {
+                    "path": path,
+                    "reason": "larger than the {:,}-byte per-file ceiling".format(FILE_CEILING),
+                }
+            )
             continue
         if total + size > TOTAL_CEILING:
-            skipped.append({"path": path, "reason": "would exceed the {:,}-byte total ceiling".format(TOTAL_CEILING)})
+            skipped.append(
+                {
+                    "path": path,
+                    "reason": "would exceed the {:,}-byte total ceiling".format(TOTAL_CEILING),
+                }
+            )
             continue
         total += size
         docs.append({"path": path, "bytes": size})

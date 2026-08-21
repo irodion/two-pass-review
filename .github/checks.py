@@ -171,14 +171,10 @@ def sanitiser_holds(problems):
         lowered = rendered.lower()
         for tag in ("<script", "<img", "<iframe", "<svg"):
             if tag in lowered:
-                problems.append(
-                    "markdown_subset: {!r} survived {!r} unescaped".format(tag, source)
-                )
+                problems.append("markdown_subset: {!r} survived {!r} unescaped".format(tag, source))
         for url in HREF.findall(rendered):
             if not url.lower().startswith(SAFE_PREFIXES):
-                problems.append(
-                    "markdown_subset: emitted href={!r} from {!r}".format(url, source)
-                )
+                problems.append("markdown_subset: emitted href={!r} from {!r}".format(url, source))
 
     # The opposite failure -- a sanitiser that strips everything -- would satisfy
     # every assertion above while making the report's cross-references dead text.

@@ -108,6 +108,11 @@ Any `findings.json` from a previous run works as the input for (2); they accumul
 `<temp-root>/two-pass-review/<repo-slug>-<hash>/`. A larger artifact is a better test, so prefer a real
 review over a hand-made one.
 
+Style and types are the one automated layer above the floor: `ruff check`, `ruff format --check` and
+`mypy --strict` run in CI (pinned versions, configured in `pyproject.toml`), and
+`git config core.hooksPath .githooks` installs the pre-push mirror so the same three commands run
+before anything leaves the machine. The hook skips, loudly, where `uvx` is absent.
+
 Negative checks for `validate.py` are written ad-hoc and thrown away. Do the same — a committed test
 corpus is out of scope.
 
@@ -135,6 +140,9 @@ anything about reviewing code:
   intact — arguably it matters more now. A pass quotes the code under review, so a hostile repository can
   get a string of its choosing into `body_md`, and the `href` allowlist is what stops that string
   becoming a `javascript:` link. That was never the same thing as the page carrying no script of its own.
+- **`lint and types`** — ruff's configured rule set, the formatter, and `mypy --strict`, pinned.
+  The rule set and its exclusions are argued in `pyproject.toml`'s comments; the job only runs what
+  that file declares.
 - **`readme install`** — `.github/replay-readme-install.sh` extracts the `sh` blocks from `README.md` and
   runs them. It does not keep its own copy of the commands, because a copy would have passed every time
   the real ones were broken, which by then was three commands across two reviews.

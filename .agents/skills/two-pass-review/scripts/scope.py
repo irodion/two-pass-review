@@ -28,6 +28,7 @@ import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
+from typing import TypedDict, cast, overload
 
 LARGE_BYTES = 500_000
 LARGE_FILES = 150
@@ -42,7 +43,28 @@ LARGE_FILES = 150
 CAPTURE_CEILING = 256 * 1024 * 1024
 
 
-def git(repo, *arguments, input=None, max_bytes=None):
+class Patch(TypedDict):
+    text: str
+    bytes: int
+    files: int
+    untracked: int | None
+
+
+@overload
+def git(
+    repo: str, *arguments: str, input: bytes | None = ..., max_bytes: None = ...
+) -> tuple[int, bytes, str]: ...
+
+
+@overload
+def git(
+    repo: str, *arguments: str, input: bytes | None = ..., max_bytes: int
+) -> tuple[int, bytes | None, str]: ...
+
+
+def git(
+    repo: str, *arguments: str, input: bytes | None = None, max_bytes: int | None = None
+) -> tuple[int, bytes | None, str]:
     """Raw bytes out.
 
     Git's output is not guaranteed to be UTF-8. `git diff` calls a file text on
@@ -77,7 +99,11 @@ def git(repo, *arguments, input=None, max_bytes=None):
     proc = subprocess.Popen(
         ["git", "-C", repo, *arguments], stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
-    chunks, total = [], 0
+    # Both pipes exist because both were asked for on the line above; the
+    # assertion states that to the checker rather than guarding against it.
+    assert proc.stdout is not None and proc.stderr is not None
+    chunks: list[bytes] = []
+    total = 0
     while True:
         chunk = proc.stdout.read(1024 * 1024)
         if not chunk:
@@ -86,14 +112,14 @@ def git(repo, *arguments, input=None, max_bytes=None):
         if total > max_bytes:
             proc.kill()
             proc.wait()
-            return proc.returncode, None, ""
+            return cast(int, proc.returncode), None, ""
         chunks.append(chunk)
     error = proc.stderr.read().decode("utf-8", "replace").strip()
     proc.wait()
-    return proc.returncode, b"".join(chunks), error
+    return cast(int, proc.returncode), b"".join(chunks), error
 
 
-def git_text(repo, *arguments):
+def git_text(repo: str, *arguments: str) -> tuple[int, str, str]:
     """Git output as text, with undecodable bytes replaced rather than fatal.
 
     The replacement character is the honest answer: it says "this byte was not
@@ -104,24 +130,24 @@ def git_text(repo, *arguments):
     return code, out.decode("utf-8", "replace"), error
 
 
-def fail(message, status=4):
+def fail(message: str, status: int = 4) -> int:
     sys.stderr.write(f"Cannot resolve the review scope: {message}\n")
     return status
 
 
-def resolve_commit(repo, revision):
+def resolve_commit(repo: str, revision: str) -> str | None:
     code, out, _ = git_text(repo, "rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}")
     return out.strip() if code == 0 else None
 
 
-def repo_slug(root):
+def repo_slug(root: str) -> str:
     name = os.path.basename(os.path.abspath(root)) or "repo"
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-").lower() or "repo"
     digest = hashlib.sha256(os.path.abspath(root).encode("utf-8")).hexdigest()[:8]
     return f"{slug}-{digest}"
 
 
-def make_private_dir(path):
+def make_private_dir(path: str) -> int:
     """Create one directory readable only by its owner. Returns an exit status.
 
     Call it on each component the tool creates, outermost first: the security of
@@ -169,7 +195,7 @@ def make_private_dir(path):
     return 0
 
 
-def filter_overrides(repo):
+def filter_overrides(repo: str) -> tuple[list[str] | None, str | None]:
     """(overrides, problem): one -c per configured filter driver, emptied.
 
     A .gitattributes line in the reviewed worktree selects a filter by name,
@@ -193,7 +219,7 @@ def filter_overrides(repo):
     filter that way, so refusing is a message to an attacker, not a user.
     """
     code, out, _ = git_text(repo, "config", "--list", "--null")
-    names = set()
+    names: set[str] = set()
     if code == 0:
         # --null ends each entry with NUL and splits key from value with the
         # first newline, so a value carrying either character cannot fake a key.
@@ -204,7 +230,7 @@ def filter_overrides(repo):
             name, _, attribute = key[len("filter.") :].rpartition(".")
             if name and attribute in ("clean", "smudge", "process", "required"):
                 names.add(name)
-    arguments = []
+    arguments: list[str] = []
     for name in sorted(names):
         if "=" in name:
             return None, (
@@ -233,7 +259,7 @@ def filter_overrides(repo):
 CONVERTING_ATTRS = ("ident", "working-tree-encoding")
 
 
-def worktree_conversion_block(repo):
+def worktree_conversion_block(repo: str) -> str | None:
     """A message when a built-in conversion could hide a local change, else None.
 
     local-patch diffs the working tree, and git cleans each file through its
@@ -279,7 +305,9 @@ def worktree_conversion_block(repo):
     return None
 
 
-def build_diff(repo, mode, base, head):
+def build_diff(
+    repo: str, mode: str, base: str, head: str | None
+) -> tuple[Patch | None, str | None]:
     """The patch both passes see. One pinned input is what makes them comparable."""
     # Two axes of repository-controlled conversion, and they divide by data
     # source. The `diff` attribute -- custom diff driver, textconv, or `-diff`
@@ -291,6 +319,7 @@ def build_diff(repo, mode, base, head):
     # local-patch's alone -- applying it to a revision range would make blob
     # comparison depend on worktree filter config it never invokes, and refuse
     # a range over an unrepresentable filter name that could not matter.
+    overrides: list[str] | None
     if mode == "revisions":
         selector = [f"{base}..{head}"]
         overrides = []
@@ -303,6 +332,10 @@ def build_diff(repo, mode, base, head):
         overrides, problem = filter_overrides(repo)
         if problem:
             return None, problem
+        # filter_overrides returns the list or the problem, never neither, and
+        # the problem returned above. Stated for the checker, which cannot see
+        # that the two returns are exclusive.
+        assert overrides is not None
     # --text forces textual diffing so a `-diff` attribute cannot pin a changed
     # source file as "Binary files differ" and withhold every line from the
     # passes; a genuine binary renders as text rather than as a hidden change,
@@ -344,7 +377,7 @@ def build_diff(repo, mode, base, head):
     # Files git has never been told about cannot appear in any diff. Reviewing
     # them is out of scope; counting them is not, because a review that skips
     # new code without saying so is the one thing a review must not do.
-    untracked = None
+    untracked: int | None = None
     if mode == "local-patch":
         code, others, _ = git_text(repo, "ls-files", "--others", "--exclude-standard")
         untracked = (
@@ -354,7 +387,7 @@ def build_diff(repo, mode, base, head):
     return {"text": text, "bytes": len(raw), "files": files, "untracked": untracked}, None
 
 
-def main(argv):
+def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("--repo", required=True)
     parser.add_argument("--base", required=True)
@@ -427,7 +460,7 @@ def main(argv):
     with open(context, "w", encoding="utf-8") as handle:
         handle.write(patch["text"])
 
-    scope = {
+    scope: dict[str, str | int | None] = {
         "repo": os.path.basename(root),
         "mode": args.mode,
         "base": base,

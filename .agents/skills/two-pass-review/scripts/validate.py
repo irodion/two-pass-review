@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate two-pass-review artifacts. Stdlib only, Python 3.9 syntax.
+"""Validate two-pass-review artifacts. Stdlib only, Python 3.10 syntax.
 
 Usage:
     validate.py [--repo PATH] FILE [FILE ...]

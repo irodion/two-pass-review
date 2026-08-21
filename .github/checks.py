@@ -12,7 +12,7 @@ report -- see AGENTS.md. Nothing here substitutes for that.
 Needs Python 3.10+ for sys.stdlib_module_names, so it runs on the modern
 interpreter only. That is fine: it is a check *about* the scripts, not one of
 them, and nothing ships it to a user. The scripts themselves still have to
-compile on 3.9, which is a separate job.
+compile on 3.10, which is a separate job.
 """
 
 import ast
@@ -62,7 +62,7 @@ def stdlib_only(problems):
 
 def page_script_parses(problems):
     """The page's one script lives inside a Python string, so nothing on the
-    Python side ever looks at it. `py_compile` sees a string literal; the 3.9 and
+    Python side ever looks at it. `py_compile` sees a string literal; the 3.10 and
     3.13 jobs see a string literal. A typo in it therefore ships a page that
     renders perfectly and a button that silently does nothing.
 
@@ -74,7 +74,7 @@ def page_script_parses(problems):
 
     Skips where node is absent rather than failing. ubuntu-latest ships node, so
     CI always runs it; a contributor without node loses the check and is told so,
-    which is the same bargain stdlib_only strikes on Python 3.9."""
+    which is the same bargain stdlib_only strikes on Python 3.10."""
     path = os.path.join(SCRIPTS, "page.py")
     with open(path, "r", encoding="utf-8") as handle:
         tree = ast.parse(handle.read(), filename=path)

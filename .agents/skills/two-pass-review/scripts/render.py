@@ -4,7 +4,7 @@
 Usage:
     render.py FINDINGS_JSON
 
-Stdlib only, Python 3.9 syntax. The page carries no embedded JSON, no network
+Stdlib only, Python 3.10 syntax. The page carries no embedded JSON, no network
 requests and no sibling assets -- everything it needs is in the single file it
 writes. Its script is fixed -- a clipboard handler behind the copy buttons and a
 class toggle behind `Mark dealt with` -- and nothing a pass wrote is ever

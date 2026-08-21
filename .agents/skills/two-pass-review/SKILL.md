@@ -13,7 +13,8 @@ list, and a script renders a single self-contained HTML file the user opens.
 
 A fork of Cursor's `thermos` plugin — see [`NOTICE.md`](NOTICE.md).
 
-**Scripts live beside this file.** Invoke them as `python3 <skill-dir>/scripts/<name>.py`, where
+**Scripts live beside this file.** They need Python 3.10 or newer — macOS's system
+`/usr/bin/python3` (3.9) will not run them. Invoke them as `python3 <skill-dir>/scripts/<name>.py`, where
 `<skill-dir>` is the directory holding this `SKILL.md`. In Claude Code that is `${CLAUDE_SKILL_DIR}`.
 Never show that variable to the user — [re-rendering](#re-rendering) has one literal path that works
 everywhere.

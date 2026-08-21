@@ -4,18 +4,24 @@ This repo *is* the `two-pass-review` skill. The shipping artifact is
 `.agents/skills/two-pass-review/`; everything at the root is scaffolding. `README.md` describes the skill
 for the people who use it — this file is for whoever is changing it.
 
-## Test with `/usr/bin/python3`, not `python3`
+## The floor is Python 3.10
 
-The scripts target **Python 3.9 syntax**, because macOS `/usr/bin/python3` is 3.9.6 and that is the
-interpreter a stock Mac will run them with. The `python3` on your `PATH` is almost certainly much newer.
+The scripts target **Python 3.10 syntax**. The floor used to be 3.9 — macOS `/usr/bin/python3` is
+3.9.6, and running on a stock Mac was the original constraint — but 3.9 reached end of life in
+October 2025 and the toolchain moved on with it (current mypy will not even target it). Dropping the
+system interpreter was a deliberate trade: the orchestrator now needs a `python3` of 3.10 or newer on
+`PATH`, which any machine with a working development setup has, and in exchange the scripts get
+modern syntax and tools that still receive fixes.
+
+The `python3` on your `PATH` is almost certainly much newer than 3.10, and a 3.11+ construct passes
+silently under it while failing at the floor. Run both when you touch a script:
 
 ```sh
-/usr/bin/python3 .agents/skills/two-pass-review/scripts/render.py <findings.json>
+uv run --python 3.10 .agents/skills/two-pass-review/scripts/render.py <findings.json>
 ```
 
-A 3.10+ construct passes silently under the newer interpreter and fails for the user. Run both when you
-touch a script: the old one proves the syntax floor, the new one catches deprecations that get written to
-stderr — which the orchestrator reads as though something failed.
+The floor interpreter proves the syntax floor; the modern one catches deprecations that get written
+to stderr — which the orchestrator reads as though something failed.
 
 ## Two constraints that are not negotiable
 
@@ -110,7 +116,7 @@ corpus is out of scope.
 `.github/workflows/checks.yml` runs three things on every push and pull request, none of which know
 anything about reviewing code:
 
-- **`python 3.9` and `python 3.13`** — every script compiles on both, and on the modern one both imports
+- **`python 3.10` and `python 3.13`** — every script compiles on both, and on the modern one both imports
   *and runs* with `DeprecationWarning` and `SyntaxWarning` fatal: `scope.py` over a real revision range,
   `collect_docs.py` over that range's diff, `validate.py` and `render.py` down their refusal paths. Importing alone was not enough — a deprecation
   inside a `main()` is invisible to it, which is how `datetime.utcnow()` would have got through.
@@ -120,7 +126,7 @@ anything about reviewing code:
   at a file a clone has.
 
   The `SCRIPT` check exists because the page's one script lives inside a Python string, where neither
-  `py_compile` nor the 3.9 and 3.13 jobs can see it — a typo would ship a page that renders perfectly and
+  `py_compile` nor the 3.10 and 3.13 jobs can see it — a typo would ship a page that renders perfectly and
   a button that silently does nothing. It runs `node --check`, which parses without executing. Read it as
   narrowly as it is written: it catches a typo, not a mistake. Misspell `data-copy` or get the selector
   wrong and it passes while the button stays dead. It skips, loudly, where `node` is absent.

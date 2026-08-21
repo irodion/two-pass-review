@@ -1,0 +1,18 @@
+#!/bin/sh
+# Mirror of CI's lint job, run before anything leaves the machine. Same three
+# commands, same pinned versions -- if the pins in checks.yml move, move these.
+# Installed per clone, because git does not ship hooks:
+#   git config core.hooksPath .githooks
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+if ! command -v uvx >/dev/null 2>&1; then
+    # Skipping beats blocking a push on a machine without uv, but silence would
+    # read as a pass -- same bargain checks.py strikes when node is absent.
+    echo "pre-push: skipped lint and types: no uvx on PATH" >&2
+    exit 0
+fi
+
+uvx ruff@0.12.9 check --no-fix
+uvx ruff@0.12.9 format --check
+uvx mypy@2.3.1

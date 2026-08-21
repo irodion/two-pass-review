@@ -101,6 +101,23 @@ jobs:
               python -W error::DeprecationWarning -W error::SyntaxWarning \
                      "$S/render.py" does-not-exist.json --no-open
 
+  lint:
+    # Style and types are floor checks like the rest: ruff's rule set, the
+    # formatter, and mypy --strict, all pinned so a tool release cannot change
+    # what passes. What they enforce and why lives in pyproject.toml.
+    # .githooks/pre-push mirrors this job locally.
+    name: lint and types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install ruff==0.12.9 mypy==2.3.1
+      - run: ruff check --no-fix
+      - run: ruff format --check
+      - run: mypy
+
   constraints:
     name: constraints
     runs-on: ubuntu-latest

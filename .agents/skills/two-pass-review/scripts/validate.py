@@ -140,7 +140,9 @@ DOC_SKIP_FIELDS = frozenset(["path", "reason"])
 SELF_CHECK_FIELDS = frozenset(["question", "answer_md", "anchors"])
 # Enough to prompt reflection, few enough that the reader is not being examined.
 SELF_CHECK_MAX = 4
-SCOPE_FIELDS = frozenset(["repo", "mode", "base", "head", "files_changed", "diff_bytes", "untracked"])
+SCOPE_FIELDS = frozenset(
+    ["repo", "mode", "base", "head", "files_changed", "diff_bytes", "untracked"]
+)
 
 
 class Report(object):
@@ -193,7 +195,9 @@ def _enum(report, where, obj, key, allowed, required=True):
     if value not in allowed:
         report.add(
             where,
-            "{!r} is {!r}; allowed values are {}".format(key, value, ", ".join(repr(a) for a in allowed)),
+            "{!r} is {!r}; allowed values are {}".format(
+                key, value, ", ".join(repr(a) for a in allowed)
+            ),
         )
         return None
     return value
@@ -237,7 +241,9 @@ def _tier_or_null(report, where, obj, key):
         report.add(where, "{!r} must be a non-empty string or null".format(key))
         return None
     if "\n" in value or len(value) > TIER_MAX:
-        report.add(where, "{!r} must be a single line of at most {} characters".format(key, TIER_MAX))
+        report.add(
+            where, "{!r} must be a single line of at most {} characters".format(key, TIER_MAX)
+        )
         return None
     return value
 
@@ -255,7 +261,9 @@ def _conditional(report, where, obj, key, required_when, condition, advice=None)
     """
     present = key in obj and obj[key] is not None
     if required_when and not present:
-        report.add(where, "{!r} is required {}{}".format(key, condition, " -- " + advice if advice else ""))
+        report.add(
+            where, "{!r} is required {}{}".format(key, condition, " -- " + advice if advice else "")
+        )
     elif present and not required_when:
         report.add(where, "{!r} is forbidden here; it belongs only {}".format(key, condition))
     return present
@@ -307,7 +315,12 @@ def check_finding(report, where, finding, in_merged, repo=None, version=None):
     wants_severity = producer == "security" and disposition != "note"
     if producer is not None and disposition is not None:
         if _conditional(
-            report, where, finding, "severity", wants_severity, "on a security finding that is not a note"
+            report,
+            where,
+            finding,
+            "severity",
+            wants_severity,
+            "on a security finding that is not a note",
         ):
             _enum(report, where, finding, "severity", SEVERITIES)
 
@@ -349,7 +362,9 @@ def check_finding(report, where, finding, in_merged, repo=None, version=None):
     # mark there is as unknown as it was before the check existed.
     if "falsified" in finding:
         if not in_merged:
-            report.add(where, "'falsified' is written by the merge step; a pass file records findings only")
+            report.add(
+                where, "'falsified' is written by the merge step; a pass file records findings only"
+            )
         elif not falsified_ok:
             report.add(
                 where,
@@ -357,7 +372,10 @@ def check_finding(report, where, finding, in_merged, repo=None, version=None):
                 "contest in 'contested_md', and version 1 predates the check",
             )
         elif finding["falsified"] is not True:
-            report.add(where, "'falsified' must be true when present -- a finding that stands omits the field")
+            report.add(
+                where,
+                "'falsified' must be true when present -- a finding that stands omits the field",
+            )
 
     # The contest mark, merge-written like 'falsified' before it -- but an
     # annotation, not a withdrawal: it carries the check's counter-evidence and
@@ -365,7 +383,10 @@ def check_finding(report, where, finding, in_merged, repo=None, version=None):
     # of the mark is what travels to the reader and the verifying agent.
     if "contested_md" in finding:
         if not in_merged:
-            report.add(where, "'contested_md' is written by the merge step; a pass file records findings only")
+            report.add(
+                where,
+                "'contested_md' is written by the merge step; a pass file records findings only",
+            )
         elif not contested_ok:
             report.add(where, "'contested_md' does not exist before schema version 4")
         else:
@@ -435,7 +456,9 @@ def _check_location_in_repo(report, at, path, start, end, repo):
     if target != root and not target.startswith(root + os.sep):
         report.add(
             at,
-            "'path' {!r} resolves outside the repository -- a location names a file inside the checkout".format(path),
+            "'path' {!r} resolves outside the repository -- a location names a file inside the checkout".format(
+                path
+            ),
         )
         return
     # Prospective is a claim about the future; a directory is a mistake in
@@ -445,7 +468,9 @@ def _check_location_in_repo(report, at, path, start, end, repo):
     if os.path.exists(target) and not os.path.isfile(target):
         report.add(
             at,
-            "'path' {!r} exists but is not a file -- a location names a file, real or proposed".format(path),
+            "'path' {!r} exists but is not a file -- a location names a file, real or proposed".format(
+                path
+            ),
         )
         return
     # A bare path may be prospective: the report's documented contract says a
@@ -469,7 +494,9 @@ def _check_location_in_repo(report, at, path, start, end, repo):
         report.add(
             at,
             "{} past the end of {!r}, which has {} line(s) -- "
-            "line numbers are read off the file, never recalled from the diff".format(span, path, count),
+            "line numbers are read off the file, never recalled from the diff".format(
+                span, path, count
+            ),
         )
 
 
@@ -516,7 +543,9 @@ def check_ids_contiguous(report, where, ids_by_producer):
             detail.append("missing " + ", ".join(label(n) for n in missing))
         if duplicated:
             detail.append("duplicated " + ", ".join(label(n) for n in duplicated))
-        report.add(where, "{} ids must run from 1 with no gaps: {}".format(producer, "; ".join(detail)))
+        report.add(
+            where, "{} ids must run from 1 with no gaps: {}".format(producer, "; ".join(detail))
+        )
 
 
 # --- pass files --------------------------------------------------------------
@@ -589,10 +618,18 @@ def validate_pass(report, producer, findings_path, envelope_path, repo=None):
         if key in envelope:
             report.add(
                 where,
-                "{!r} is written by the merge step; a pass has no way to know what served it".format(key),
+                "{!r} is written by the merge step; a pass has no way to know what served it".format(
+                    key
+                ),
             )
 
-    check_empty_reason(report, where, envelope, has_findings=bool(findings), known_findings=findings_path is not None)
+    check_empty_reason(
+        report,
+        where,
+        envelope,
+        has_findings=bool(findings),
+        known_findings=findings_path is not None,
+    )
 
 
 def check_empty_reason(report, where, envelope, has_findings, known_findings=True):
@@ -626,7 +663,9 @@ def validate_merged(report, path, repo=None):
     if version not in MERGED_SCHEMA_VERSIONS:
         report.add(
             where,
-            "'schema_version' must be one of {}".format(", ".join(str(v) for v in MERGED_SCHEMA_VERSIONS)),
+            "'schema_version' must be one of {}".format(
+                ", ".join(str(v) for v in MERGED_SCHEMA_VERSIONS)
+            ),
         )
         # Check the rest under the current rules: an unknown version is its own
         # problem, and hiding every other one behind it would make the repair
@@ -693,7 +732,11 @@ def validate_merged(report, path, repo=None):
             key=str,
         )
         if version in (2, 3) and marked:
-            reason = "a skipped check withdrew nothing" if state == "skipped" else "a reply nobody could read withdrew nothing"
+            reason = (
+                "a skipped check withdrew nothing"
+                if state == "skipped"
+                else "a reply nobody could read withdrew nothing"
+            )
             report.add(
                 where,
                 "run.falsification is {!r} but {} finding(s) carry 'falsified': {} -- {}".format(
@@ -705,7 +748,11 @@ def validate_merged(report, path, repo=None):
             key=str,
         )
         if version >= 4 and contested:
-            reason = "a skipped check contested nothing" if state == "skipped" else "a reply nobody could read contested nothing"
+            reason = (
+                "a skipped check contested nothing"
+                if state == "skipped"
+                else "a reply nobody could read contested nothing"
+            )
             report.add(
                 where,
                 "run.falsification is {!r} but {} finding(s) carry 'contested_md': {} -- {}".format(
@@ -729,7 +776,10 @@ def validate_merged(report, path, repo=None):
     if "docs_check" in merged and version < 3:
         report.add(where, "'docs_check' does not exist before schema version 3")
     elif version >= 3 and docs_state == "ran" and "docs_check" not in merged:
-        report.add(where, "run.docs_check is 'ran' but there is no 'docs_check' object -- a read reply is recorded")
+        report.add(
+            where,
+            "run.docs_check is 'ran' but there is no 'docs_check' object -- a read reply is recorded",
+        )
     elif docs_state in ("skipped", "failed") and "docs_check" in merged:
         report.add(
             where,
@@ -779,7 +829,9 @@ def check_run(report, where, run, version):
     head = scope.get("head")
     if scope_mode == "local-patch":
         if head is not None:
-            report.add(at, "'head' must be null under scope mode 'local-patch' -- the patch has no commit")
+            report.add(
+                at, "'head' must be null under scope mode 'local-patch' -- the patch has no commit"
+            )
     elif scope_mode == "revisions":
         if not isinstance(head, str) or not head.strip():
             report.add(at, "'head' must be a resolved revision under scope mode 'revisions'")
@@ -831,7 +883,9 @@ def check_corroboration(report, where, findings, by_id, marks_active):
                 continue
             partner = by_id.get(target)
             if partner is None:
-                report.add(at, "corroborated_by names {!r}, which is not in this artifact".format(target))
+                report.add(
+                    at, "corroborated_by names {!r}, which is not in this artifact".format(target)
+                )
                 continue
             if marks_active and partner.get("falsified") is True:
                 report.add(
@@ -843,7 +897,9 @@ def check_corroboration(report, where, findings, by_id, marks_active):
             if source not in (partner.get("corroborated_by") or []):
                 report.add(
                     at,
-                    "corroboration with {!r} is one-way; both findings carry the link or neither does".format(target),
+                    "corroboration with {!r} is one-way; both findings carry the link or neither does".format(
+                        target
+                    ),
                 )
             if finding.get("disposition") != partner.get("disposition"):
                 report.add(
@@ -891,9 +947,13 @@ def check_verdict(report, where, verdict, findings, marks):
     honoured = [
         f.get("id")
         for f in findings
-        if isinstance(f, dict) and f.get("disposition") == "blocking" and f.get("falsified") is not True
+        if isinstance(f, dict)
+        and f.get("disposition") == "blocking"
+        and f.get("falsified") is not True
     ]
-    ignored = [f.get("id") for f in findings if isinstance(f, dict) and f.get("disposition") == "blocking"]
+    ignored = [
+        f.get("id") for f in findings if isinstance(f, dict) and f.get("disposition") == "blocking"
+    ]
 
     # What certainly blocks: under "inactive" the marks do not exist, so
     # every blocking finding stands; under "active" and "undecided" the
@@ -902,7 +962,9 @@ def check_verdict(report, where, verdict, findings, marks):
     if certain and verdict != "blocked":
         report.add(
             where,
-            "verdict is 'clear' but {} finding(s) block: {}".format(len(certain), ", ".join(str(b) for b in certain)),
+            "verdict is 'clear' but {} finding(s) block: {}".format(
+                len(certain), ", ".join(str(b) for b in certain)
+            ),
         )
 
     # What certainly leaves nothing blocking: under "active" an empty
@@ -911,7 +973,10 @@ def check_verdict(report, where, verdict, findings, marks):
     none_stand = not honoured if marks == "active" else not ignored
     if none_stand and verdict != "clear":
         if marks == "active" and ignored:
-            report.add(where, "verdict is 'blocked' but every blocking finding is falsified, and a withdrawn finding does not block")
+            report.add(
+                where,
+                "verdict is 'blocked' but every blocking finding is falsified, and a withdrawn finding does not block",
+            )
         else:
             report.add(where, "verdict is 'blocked' but no finding is tagged 'blocking'")
 
@@ -940,7 +1005,10 @@ def check_self_check(report, where, self_check, by_id, marks_active):
     """
     at = "{} self_check".format(where)
     if not isinstance(self_check, list) or not self_check:
-        report.add(at, "'self_check' must be an array holding at least one question -- omit the field when there are none")
+        report.add(
+            at,
+            "'self_check' must be an array holding at least one question -- omit the field when there are none",
+        )
         return
     if len(self_check) > SELF_CHECK_MAX:
         report.add(
@@ -960,7 +1028,11 @@ def check_self_check(report, where, self_check, by_id, marks_active):
             report.add(at_item, "'question' must be a single line")
         _nonempty_str(report, at_item, item, "answer_md")
         anchors = item.get("anchors")
-        if not isinstance(anchors, list) or not anchors or not all(isinstance(a, str) for a in anchors):
+        if (
+            not isinstance(anchors, list)
+            or not anchors
+            or not all(isinstance(a, str) for a in anchors)
+        ):
             report.add(at_item, "'anchors' must be an array holding at least one finding id")
             continue
         # The question says which findings it is about, in its own text: a
@@ -1020,7 +1092,9 @@ def check_docs_check(report, where, docs_check, repo=None):
     _check_unknown(report, at, docs_check, DOCS_CHECK_FIELDS, "docs_check")
 
     examined = docs_check.get("examined")
-    if not isinstance(examined, list) or not all(isinstance(p, str) and p.strip() for p in examined):
+    if not isinstance(examined, list) or not all(
+        isinstance(p, str) and p.strip() for p in examined
+    ):
         report.add(at, "'examined' must be an array of repository-relative paths, possibly empty")
         examined = []
     seen = set()
@@ -1036,7 +1110,10 @@ def check_docs_check(report, where, docs_check, repo=None):
     # coverage than the collection had. Absence must stay distinguishable from
     # "nothing was refused".
     if "skipped" not in docs_check:
-        report.add(at, "'skipped' must be present -- the collector's refusals, an empty array when it refused nothing")
+        report.add(
+            at,
+            "'skipped' must be present -- the collector's refusals, an empty array when it refused nothing",
+        )
         skipped = []
     else:
         skipped = docs_check["skipped"]
@@ -1066,7 +1143,9 @@ def check_docs_check(report, where, docs_check, repo=None):
         if path is not None and path not in seen:
             report.add(
                 at_note,
-                "path {!r} is not in 'examined' -- a note is about a document the check read".format(path),
+                "path {!r} is not in 'examined' -- a note is about a document the check read".format(
+                    path
+                ),
             )
         kind = _enum(report, at_note, note, "kind", DOC_NOTE_KINDS)
         # The quote is what makes a stale claim checkable against the document,
@@ -1133,10 +1212,20 @@ def check_passes(report, where, passes, findings):
         check_empty_reason(report, at, envelope, has_findings=has_findings)
 
     orphans = sorted(
-        {f.get("producer") for f in findings if isinstance(f, dict) and f.get("producer") not in seen} - {None}
+        {
+            f.get("producer")
+            for f in findings
+            if isinstance(f, dict) and f.get("producer") not in seen
+        }
+        - {None}
     )
     for producer in orphans:
-        report.add(where, "findings from the {} pass are present with no matching envelope in 'passes'".format(producer))
+        report.add(
+            where,
+            "findings from the {} pass are present with no matching envelope in 'passes'".format(
+                producer
+            ),
+        )
 
 
 # --- entry point -------------------------------------------------------------
@@ -1178,7 +1267,9 @@ def validate_paths(paths, repo=None):
 
     for producer in PRODUCERS:
         if producer in pass_findings or producer in pass_envelopes:
-            validate_pass(report, producer, pass_findings.get(producer), pass_envelopes.get(producer), repo)
+            validate_pass(
+                report, producer, pass_findings.get(producer), pass_envelopes.get(producer), repo
+            )
 
     for path in merged:
         validate_merged(report, path, repo)

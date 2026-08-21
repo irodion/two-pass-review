@@ -75,7 +75,9 @@ def git(repo, *arguments, input=None, max_bytes=None):
     # patch cannot make this process grow without bound. stderr is drained only
     # after, which is safe because git's diff stderr is a few lines at most and
     # cannot fill its pipe while we read stdout.
-    proc = subprocess.Popen(["git", "-C", repo] + list(arguments), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(
+        ["git", "-C", repo] + list(arguments), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
     chunks, total = [], 0
     while True:
         chunk = proc.stdout.read(1024 * 1024)
@@ -109,7 +111,9 @@ def fail(message, status=4):
 
 
 def resolve_commit(repo, revision):
-    code, out, _ = git_text(repo, "rev-parse", "--verify", "--quiet", "{}^{{commit}}".format(revision))
+    code, out, _ = git_text(
+        repo, "rev-parse", "--verify", "--quiet", "{}^{{commit}}".format(revision)
+    )
     return out.strip() if code == 0 else None
 
 
@@ -149,11 +153,15 @@ def make_private_dir(path):
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY)
     except OSError:
-        return fail("{} is a symlink or not a directory; refusing to write reports through it".format(path))
+        return fail(
+            "{} is a symlink or not a directory; refusing to write reports through it".format(path)
+        )
     try:
         info = os.fstat(descriptor)
         if info.st_uid != os.getuid():
-            return fail("{} is owned by another user; refusing to write reports into it".format(path))
+            return fail(
+                "{} is owned by another user; refusing to write reports into it".format(path)
+            )
         if created:
             # mkdir's mode is masked by the umask, so set it on the descriptor.
             os.fchmod(descriptor, 0o700)
@@ -200,7 +208,7 @@ def filter_overrides(repo):
             key = entry.split("\n", 1)[0]
             if not key.startswith("filter."):
                 continue
-            name, _, attribute = key[len("filter."):].rpartition(".")
+            name, _, attribute = key[len("filter.") :].rpartition(".")
             if name and attribute in ("clean", "smudge", "process", "required"):
                 names.add(name)
     arguments = []
@@ -212,9 +220,12 @@ def filter_overrides(repo):
                 "express. Rename or remove that filter configuration and run again".format(name)
             )
         arguments += [
-            "-c", "filter.{}.clean=".format(name),
-            "-c", "filter.{}.process=".format(name),
-            "-c", "filter.{}.required=false".format(name),
+            "-c",
+            "filter.{}.clean=".format(name),
+            "-c",
+            "filter.{}.process=".format(name),
+            "-c",
+            "filter.{}.required=false".format(name),
         ]
     return arguments, None
 
@@ -311,7 +322,9 @@ def build_diff(repo, mode, base, head):
     # they sit in git and on disk, not a repository-chosen account of them.
     code, raw, error = git(
         repo,
-        *overrides + ["diff", "--no-ext-diff", "--no-textconv", "--text", "--ignore-submodules=none"] + selector,
+        *overrides
+        + ["diff", "--no-ext-diff", "--no-textconv", "--text", "--ignore-submodules=none"]
+        + selector,
         max_bytes=CAPTURE_CEILING,
     )
     if raw is None:
@@ -337,7 +350,9 @@ def build_diff(repo, mode, base, head):
     untracked = None
     if mode == "local-patch":
         code, others, _ = git_text(repo, "ls-files", "--others", "--exclude-standard")
-        untracked = len([line for line in others.splitlines() if line.strip()]) if code == 0 else None
+        untracked = (
+            len([line for line in others.splitlines() if line.strip()]) if code == 0 else None
+        )
 
     return {"text": text, "bytes": len(raw), "files": files, "untracked": untracked}, None
 

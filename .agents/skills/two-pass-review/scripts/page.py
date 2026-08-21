@@ -153,7 +153,9 @@ def copy_payload(finding, partners):
     """
     lines = ["## {} — {}".format(finding["id"], Markdown.plain(finding["title"])), ""]
 
-    axis = finding.get("severity") or CATEGORY_LABEL.get(finding.get("category"), finding.get("category"))
+    axis = finding.get("severity") or CATEGORY_LABEL.get(
+        finding.get("category"), finding.get("category")
+    )
     meta = "{} pass · {}".format(finding["producer"], finding["disposition"])
     if axis:
         meta += " · {}".format(axis)
@@ -164,7 +166,9 @@ def copy_payload(finding, partners):
     # check -- on the card it is a `title` attribute nobody hovers.
     if finding.get("confidence") in ("medium", "low"):
         rationale = finding.get("confidence_rationale") or ""
-        lines.append("{} confidence{}".format(finding["confidence"], " — " + rationale if rationale else ""))
+        lines.append(
+            "{} confidence{}".format(finding["confidence"], " — " + rationale if rationale else "")
+        )
 
     # The dispute travels with the claim. Whoever pastes this payload is the
     # adjudicator the contest exists for -- an agent with repository access the
@@ -172,7 +176,9 @@ def copy_payload(finding, partners):
     # says which is which, and pre-judges neither.
     if finding.get("contested_md"):
         lines.append("")
-        lines.append("Contested by a diff-only falsification check — verify which side the code supports:")
+        lines.append(
+            "Contested by a diff-only falsification check — verify which side the code supports:"
+        )
         lines.append("> " + finding["contested_md"].replace("\n", "\n> "))
 
     for location in finding.get("locations") or []:
@@ -188,7 +194,9 @@ def copy_payload(finding, partners):
     # two bodies under one button leave the reader unsure what they just copied.
     for partner in partners:
         lines.append(
-            'Corroborated by {} — "{}"'.format(partner["id"], truncate(Markdown.plain(partner["title"]), 96))
+            'Corroborated by {} — "{}"'.format(
+                partner["id"], truncate(Markdown.plain(partner["title"]), 96)
+            )
         )
 
     lines += ["", finding["body_md"], "", "— two-pass-review finding {}".format(finding["id"])]
@@ -207,13 +215,20 @@ def icon(paths, size=13, stroke="1.5"):
     ).format(s=size, w=stroke, p=paths)
 
 
-ICON_CLIPBOARD = icon('<rect x="9" y="9" width="13" height="13" rx="2"></rect>'
-                      '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>')
-ICON_TERMINAL = icon('<rect x="3" y="4" width="18" height="16" rx="2"></rect>'
-                     '<path d="M8 10l2.5 2-2.5 2M13 14h3"></path>')
+ICON_CLIPBOARD = icon(
+    '<rect x="9" y="9" width="13" height="13" rx="2"></rect>'
+    '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>'
+)
+ICON_TERMINAL = icon(
+    '<rect x="3" y="4" width="18" height="16" rx="2"></rect>'
+    '<path d="M8 10l2.5 2-2.5 2M13 14h3"></path>'
+)
 ICON_CHECK = icon('<polyline points="20 6 9 17 4 12"></polyline>', stroke="2")
-ICON_NO_ENTRY = icon('<circle cx="12" cy="12" r="10"></circle>'
-                     '<line x1="4.9" y1="4.9" x2="19.1" y2="19.1"></line>', size=15, stroke="2")
+ICON_NO_ENTRY = icon(
+    '<circle cx="12" cy="12" r="10"></circle><line x1="4.9" y1="4.9" x2="19.1" y2="19.1"></line>',
+    size=15,
+    stroke="2",
+)
 
 
 def copy_controls(payload):
@@ -228,6 +243,7 @@ def copy_controls(payload):
     `dismiss_control` strikes with its two captions: the script says *which state*
     the button is in and never has to know what that state looks like.
     """
+
     def attr(text):
         return esc(text).replace("\n", "&#10;")
 
@@ -269,10 +285,16 @@ def render_finding(finding, markdown, partners):
     # filter reads to leave a card alone: a quality finding is not rated on this
     # axis and a security note is not either, and both stay on screen whatever the
     # filter says. An empty attribute would be a rating of "".
-    bits = ['<article class="finding" id="finding-{}" data-producer="{}" data-disposition="{}"{}>'.format(
-        esc(finding_id), esc(finding["producer"]), esc(finding["disposition"]),
-        ' data-severity="{}"'.format(esc(finding["severity"])) if finding.get("severity") else "",
-    )]
+    bits = [
+        '<article class="finding" id="finding-{}" data-producer="{}" data-disposition="{}"{}>'.format(
+            esc(finding_id),
+            esc(finding["producer"]),
+            esc(finding["disposition"]),
+            ' data-severity="{}"'.format(esc(finding["severity"]))
+            if finding.get("severity")
+            else "",
+        )
+    ]
 
     # One pill per card at most, and it is the severity: it is the only one of
     # these that says how loud the finding is. A category names a kind, a producer
@@ -283,7 +305,8 @@ def render_finding(finding, markdown, partners):
         axis = '<span class="tag tag-sev tag-{0}">{0}</span>'.format(esc(finding["severity"]))
     elif finding.get("category"):
         axis = '<span class="meta-label" title="{}">{}</span>'.format(
-            esc(CATEGORY_LABEL.get(finding["category"], finding["category"])), esc(finding["category"])
+            esc(CATEGORY_LABEL.get(finding["category"], finding["category"])),
+            esc(finding["category"]),
         )
 
     confidence = ""
@@ -321,7 +344,8 @@ def render_finding(finding, markdown, partners):
     )
 
     chips = "".join(
-        location_chip(location, index == 0) for index, location in enumerate(finding.get("locations") or [])
+        location_chip(location, index == 0)
+        for index, location in enumerate(finding.get("locations") or [])
     )
     bits.append('<div class="locations">{}</div>'.format(chips))
 
@@ -335,7 +359,9 @@ def render_finding(finding, markdown, partners):
             "&mdash; “{quoted}”</p>".format(links=links, quoted=quoted)
         )
 
-    bits.append('<div class="body">{}</div>'.format(markdown.render(finding["body_md"], self_id=finding_id)))
+    bits.append(
+        '<div class="body">{}</div>'.format(markdown.render(finding["body_md"], self_id=finding_id))
+    )
     # After the body, not before it: the card argues first and the dispute
     # reads as the reply it is. The finding's own force is untouched -- the
     # contest is the one voice on the card that is not the pass's, and the
@@ -366,7 +392,9 @@ def verdict_sentence(verdict, findings):
         by_producer = {}
         for finding in blocking:
             by_producer[finding["producer"]] = by_producer.get(finding["producer"], 0) + 1
-        parts = ["{} from the {} pass".format(count, name) for name, count in sorted(by_producer.items())]
+        parts = [
+            "{} from the {} pass".format(count, name) for name, count in sorted(by_producer.items())
+        ]
         return "{} of {} findings block this change &mdash; {}.".format(
             len(blocking), total, " and ".join(parts)
         )
@@ -403,7 +431,9 @@ def provenance_state(passes):
     tiers = [(e.get("requested_model"), e.get("requested_effort")) for e in passes]
     recorded = any(model or effort for model, effort in tiers)
     agreed = len(set(tiers)) == 1
-    differ = any(len({e.get(field) for e in passes if e.get(field)}) > 1 for field, _, _ in PROVENANCE)
+    differ = any(
+        len({e.get(field) for e in passes if e.get(field)}) > 1 for field, _, _ in PROVENANCE
+    )
     return recorded, agreed, differ
 
 
@@ -458,7 +488,9 @@ def render_run_panel(run, passes):
                         True,
                     )
                 )
-    rows.append(("Generated", '<span class="nowrap">{}</span>'.format(esc(run["generated_at"])), True))
+    rows.append(
+        ("Generated", '<span class="nowrap">{}</span>'.format(esc(run["generated_at"])), True)
+    )
 
     body = "".join(
         '<div class="kv{wide}"><dt>{k}</dt><dd>{v}</dd></div>'.format(
@@ -528,7 +560,10 @@ def render_pass_prose(passes, markdown):
     out = []
     for envelope in passes:
         producer = envelope["producer"]
-        for key, heading in (("what_holds_up_md", "What holds up"), ("closing_md", "Closing notes")):
+        for key, heading in (
+            ("what_holds_up_md", "What holds up"),
+            ("closing_md", "Closing notes"),
+        ):
             if not envelope.get(key):
                 continue
             anchor = "prose-{}-{}".format(producer, key.split("_")[0])
@@ -568,7 +603,8 @@ def render_withdrawn(withdrawn, markdown):
     for finding in withdrawn:
         finding_id = finding["id"]
         chips = "".join(
-            location_chip(location, index == 0) for index, location in enumerate(finding.get("locations") or [])
+            location_chip(location, index == 0)
+            for index, location in enumerate(finding.get("locations") or [])
         )
         cards.append(
             '<article class="finding withdrawn" id="finding-{fid}">'
@@ -644,17 +680,26 @@ def render_docs_check(docs_check, markdown):
         coverage = told
     if skipped:
         coverage += " Not read: {}.".format(
-            "; ".join("<span class=\"chip\">{}</span> ({})".format(esc(s["path"]), esc(s["reason"])) for s in skipped)
+            "; ".join(
+                '<span class="chip">{}</span> ({})'.format(esc(s["path"]), esc(s["reason"]))
+                for s in skipped
+            )
         )
 
     cards = []
     for note in notes:
         body = []
         if note.get("claim_md"):
-            body.append('<blockquote class="doc-claim">{}</blockquote>'.format(markdown.render(note["claim_md"])))
+            body.append(
+                '<blockquote class="doc-claim">{}</blockquote>'.format(
+                    markdown.render(note["claim_md"])
+                )
+            )
         body.append(markdown.render(note["why_md"]))
         if note.get("owed_md"):
-            body.append('<p class="doc-owed-label">Edit owed</p>{}'.format(markdown.render(note["owed_md"])))
+            body.append(
+                '<p class="doc-owed-label">Edit owed</p>{}'.format(markdown.render(note["owed_md"]))
+            )
         cards.append(
             '<article class="finding doc-note">'
             '<header class="finding-head">'
@@ -705,7 +750,8 @@ def render_self_check(self_check, markdown):
     items = []
     for entry in self_check:
         anchors = ", ".join(
-            '<a class="xref" href="#finding-{0}">{0}</a>'.format(esc(anchor)) for anchor in entry["anchors"]
+            '<a class="xref" href="#finding-{0}">{0}</a>'.format(esc(anchor))
+            for anchor in entry["anchors"]
         )
         items.append(
             '<details class="sc-item"><summary>{question}</summary>'
@@ -762,7 +808,9 @@ def render_page(merged):
             )
             for key in ("all", "security", "quality")
         )
-        heading = '{} <span class="counts">&middot; {}</span>'.format(DISPOSITION_LABEL[disposition], counts)
+        heading = '{} <span class="counts">&middot; {}</span>'.format(
+            DISPOSITION_LABEL[disposition], counts
+        )
 
         main.append(
             '<section class="{cls}" data-disposition="{d}"><h2 id="group-{d}">{heading}</h2>{cards}</section>'.format(
@@ -770,7 +818,11 @@ def render_page(merged):
                 d=disposition,
                 heading=heading,
                 cards="\n".join(
-                    render_finding(f, markdown, [by_id[p] for p in (f.get("corroborated_by") or []) if p in by_id])
+                    render_finding(
+                        f,
+                        markdown,
+                        [by_id[p] for p in (f.get("corroborated_by") or []) if p in by_id],
+                    )
                     for f in flat
                 ),
             )
@@ -789,20 +841,34 @@ def render_page(merged):
         nav.append(
             '<div class="{cls}" data-disposition="{d}"><p class="nav-group"><a href="#group-{d}">{label}</a> '
             '<span class="counts">&middot; {counts}</span></p><ul>{entries}</ul></div>'.format(
-                cls=classes, d=disposition, label=DISPOSITION_LABEL[disposition].upper(), counts=counts, entries=entries
+                cls=classes,
+                d=disposition,
+                label=DISPOSITION_LABEL[disposition].upper(),
+                counts=counts,
+                entries=entries,
             )
         )
 
     prose_links = []
     if withdrawn:
-        prose_links.append('<li><a href="#group-withdrawn">Withdrawn at merge &middot; {}</a></li>'.format(len(withdrawn)))
+        prose_links.append(
+            '<li><a href="#group-withdrawn">Withdrawn at merge &middot; {}</a></li>'.format(
+                len(withdrawn)
+            )
+        )
     for envelope in merged["passes"]:
         producer = envelope["producer"]
-        for key, heading in (("what_holds_up_md", "What holds up"), ("closing_md", "Closing notes")):
+        for key, heading in (
+            ("what_holds_up_md", "What holds up"),
+            ("closing_md", "Closing notes"),
+        ):
             if envelope.get(key):
                 prose_links.append(
                     '<li><a href="#prose-{p}-{k}">{h} &mdash; {label}</a></li>'.format(
-                        p=esc(producer), k=key.split("_")[0], h=esc(heading), label=producer_label(producer)
+                        p=esc(producer),
+                        k=key.split("_")[0],
+                        h=esc(heading),
+                        label=producer_label(producer),
                     )
                 )
         if envelope.get("empty_reason_md"):
@@ -815,12 +881,16 @@ def render_page(merged):
     docs_check = merged.get("docs_check")
     if docs_check is not None:
         prose_links.append(
-            '<li><a href="#docscheck">Documentation &middot; {}</a></li>'.format(len(docs_check.get("notes") or []))
+            '<li><a href="#docscheck">Documentation &middot; {}</a></li>'.format(
+                len(docs_check.get("notes") or [])
+            )
         )
 
     self_check = merged.get("self_check") or []
     if self_check:
-        prose_links.append('<li><a href="#selfcheck">Self-check &middot; {}</a></li>'.format(len(self_check)))
+        prose_links.append(
+            '<li><a href="#selfcheck">Self-check &middot; {}</a></li>'.format(len(self_check))
+        )
 
     verdict = merged["verdict"]
     sentence = verdict_sentence(verdict, live)
@@ -835,7 +905,9 @@ def render_page(merged):
         sentence = (
             "The only finding was withdrawn at the merge; nothing stands."
             if len(withdrawn) == 1
-            else "All {} findings were withdrawn at the merge; nothing stands.".format(len(withdrawn))
+            else "All {} findings were withdrawn at the merge; nothing stands.".format(
+                len(withdrawn)
+            )
         )
     # Said in the masthead because it qualifies the sentence just made: some of
     # the findings counted there are disputed, and a reader who never scrolls
@@ -855,7 +927,9 @@ def render_page(merged):
         )
     scope = merged["run"]["scope"]
     scope_line = "{} &middot; {} &middot; {} files".format(
-        esc(scope["repo"]), esc(SCOPE_MODE_LABEL.get(scope["mode"], scope["mode"])), scope["files_changed"]
+        esc(scope["repo"]),
+        esc(SCOPE_MODE_LABEL.get(scope["mode"], scope["mode"])),
+        scope["files_changed"],
     )
 
     return PAGE.format(

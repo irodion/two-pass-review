@@ -53,7 +53,12 @@ def launch(command, cwd=None):
     """
     try:
         completed = subprocess.run(
-            command, cwd=cwd, check=False, timeout=OPENER_TIMEOUT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            command,
+            cwd=cwd,
+            check=False,
+            timeout=OPENER_TIMEOUT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
     except OSError:
         return None
@@ -109,7 +114,11 @@ def translate_path(*arguments):
     """
     try:
         completed = subprocess.run(
-            ["wslpath"] + list(arguments), check=False, timeout=OPENER_TIMEOUT, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+            ["wslpath"] + list(arguments),
+            check=False,
+            timeout=OPENER_TIMEOUT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
         )
     except OSError:
         return None

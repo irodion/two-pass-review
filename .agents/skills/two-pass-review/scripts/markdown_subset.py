@@ -189,7 +189,10 @@ class Markdown(object):
         rendered = []
         for item in items:
             structured = any(
-                BULLET_RE.match(l) or NUMBER_RE.match(l) or l.strip().startswith("```") or l.lstrip().startswith(QUOTE)
+                BULLET_RE.match(l)
+                or NUMBER_RE.match(l)
+                or l.strip().startswith("```")
+                or l.lstrip().startswith(QUOTE)
                 for l in item[1:]
             )
             if structured:
@@ -212,13 +215,20 @@ class Markdown(object):
             held.append(markup)
             return "\x00{}\x00".format(len(held) - 1)
 
-        text = re.sub(r"`([^`]+)`", lambda m: hold("<code>{}</code>".format(self._link_ids(m.group(1), self_id))), text)
+        text = re.sub(
+            r"`([^`]+)`",
+            lambda m: hold("<code>{}</code>".format(self._link_ids(m.group(1), self_id))),
+            text,
+        )
+
         def link(match):
             if not is_safe_url(match.group(2)):
                 # Outside the subset is escaped and passed through, never dropped:
                 # the reader still sees exactly what the pass wrote, inert.
                 return match.group(0)
-            return hold('<a href="{}" rel="noreferrer">{}</a>'.format(match.group(2), match.group(1)))
+            return hold(
+                '<a href="{}" rel="noreferrer">{}</a>'.format(match.group(2), match.group(1))
+            )
 
         text = re.sub(r"\[([^\]\n]+)\]\(([^)\s]+)\)", link, text)
         text = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", text)

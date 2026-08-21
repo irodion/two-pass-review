@@ -7,3 +7,7 @@
 # copied into other people's repositories -- so a stray .pyc travels.
 __pycache__/
 *.pyc
+
+# Finder writes these into any browsed directory; they are machine metadata,
+# not repository content, and one nearly rode along with a docs change.
+.DS_Store

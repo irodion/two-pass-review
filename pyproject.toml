@@ -10,13 +10,36 @@ target-version = "py310"
 line-length = 100
 
 [tool.ruff.lint]
-# The defaults plus modernisation (UP), bugbear (B), simplification (SIM),
-# comprehensions (C4) and ruff's own rules (RUF). Deliberately absent:
-#   ANN -- annotation coverage is mypy --strict's job, one enforcer per rule;
-#   D   -- a docstring mandate contradicts "comments explain why, not what";
+# An allowlist, so everything unlisted is off. What is on: the defaults, plus
+# modernisation (UP), bugbear (B), simplification (SIM), comprehensions (C4),
+# ruff's own rules (RUF), annotations (ANN), and five families that were
+# already clean when they were adopted and are here to keep it that way --
+#   DTZ -- naive datetimes. AGENTS.md names datetime.utcnow() as the
+#          deprecation that motivated running entry points in CI at all; this
+#          refuses it at the point someone writes it, not on the next run.
+#   PGH -- blanket `noqa` and `type: ignore`, which is how a strict setup
+#          quietly stops being strict.
+#   T20 -- print(). The orchestrator parses stdout, so the scripts write to it
+#          deliberately and never incidentally.
+#   ERA -- commented-out code, which in a repository whose comments carry the
+#          reasoning is worse than usual: it reads as prose.
+#   BLE -- blind `except`.
+#
+# Deliberately absent, each for its own reason:
+#   D   -- a docstring mandate contradicts "comments explain why, not what",
+#          and D401 would police the mood of prose that is already good.
 #   PTH -- the scripts use os.path consistently, and a pathlib rewrite is
 #          churn with no behaviour change to show for it.
-select = ["E", "W", "F", "UP", "B", "SIM", "C4", "RUF"]
+#   S   -- eight of its findings are the subprocess calls to git that are the
+#          design, and one calls a diff-parsing variable named `token` a
+#          hardcoded password. Suppressions would outnumber signal.
+#   PL, C90 -- complexity, which is a useful finding in a report and a bad
+#          gate: the threshold just gets raised until it stops complaining.
+#   FBT -- boolean positional arguments, real but only fixable by editing
+#          call sites throughout the validator.
+#   COM, ISC, Q -- ruff documents these as conflicting with its own formatter,
+#          which runs as a gate here. Not taste: they would contradict it.
+select = ["E", "W", "F", "UP", "B", "SIM", "C4", "RUF", "ANN", "DTZ", "PGH", "T20", "ERA", "BLE"]
 
 [tool.ruff.lint.pycodestyle]
 # The formatter holds code to 100, but the page's HTML and CSS live inside

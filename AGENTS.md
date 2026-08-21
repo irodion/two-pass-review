@@ -180,7 +180,8 @@ written down, treat it as load-bearing until proven otherwise and ask rather tha
 - Comments explain *why*, not what. The scripts are dense with decisions that look arbitrary until you
   know what was rejected.
 - Say **rubric**, **pass**, **run**, **finding**, **disposition**, **corroboration**, **verdict**,
-  **report** — and mean them strictly. `CONTEXT.md` is the glossary; upstream calls all of these
-  "review", which is the confusion this project exists downstream of.
+  **report**, **rule derivation**, **rule suggestion** — and mean them strictly. `CONTEXT.md` is the
+  glossary. Upstream calls everything before the last two "review", which is the confusion this
+  project exists downstream of; **rule derivation** and **rule suggestion** are this fork's own.
 - Say **scope mode** in full, never "mode". `run.mode` and `run.scope.mode` sit two keys apart and mean
   nothing like each other.

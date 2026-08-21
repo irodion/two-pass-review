@@ -83,6 +83,14 @@ _Avoid_: quiz, test, exam, comprehension gate
 The non-finding narrative a pass writes around its findings — what it checked and found sound, what it wants fixed and in what order. Preserved per pass, never synthesized across passes.
 _Avoid_: summary, notes, commentary
 
+**Rule derivation**:
+The on-demand stage, asked for by the user any time after a merge, that turns a run's findings into suggested lint rules — semgrep rules or linter-config changes — that would catch recurrences of the found defect classes. Not a pass and not a check: no rubric, no findings, and it reads the finding list without touching it. Its product is one sibling file in the run dir, and nothing in it feeds the findings, the verdict, or the report.
+_Avoid_: rule pass, third pass, lint pass, follow-up (that word is a disposition)
+
+**Rule suggestion**:
+One proposed rule in the derived file — a semgrep rule, or a config change for a tool the repository already runs — traceable to the finding id(s) whose defect class it would catch. A suggestion, never enforcement: nothing installs, runs, or scores it, and a suggestion from a contested finding carries the dispute.
+_Avoid_: rule, lint rule, finding, fix, remediation
+
 ### Artifacts
 
 **Review scope**:

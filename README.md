@@ -168,6 +168,16 @@ loudly they shout, derived from severity for security findings and from category
   none of them parses, renders or evaluates anything a pass wrote, and everything a pass wrote is escaped
   before it reaches the page, script or no script.
 
+## Asking for rule suggestions
+
+After a review — any review, any time later, the same way re-rendering works from an old artifact —
+you can ask for lint rule suggestions derived from its findings: semgrep rules and linter-config
+changes that would catch recurrences of the defect classes the passes found. They land as `rules.md`
+beside that run's `findings.json`, each suggestion naming the finding ids it derives from, and none
+of it touches the review — the findings, the verdict and the report stay exactly what they were.
+Suggestions, not enforcement: nothing is installed or run, and the file says which findings yielded
+no rule and why.
+
 ## On Codex
 
 Codex cannot open a browser — its sandbox denies both the platform opener and binding a port. The printed

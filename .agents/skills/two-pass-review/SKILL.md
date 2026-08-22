@@ -283,10 +283,12 @@ are the only party that has read the diff, both pass files, and what the merge s
 
 ```
 python3 <skill-dir>/scripts/validate.py --repo <repo> <run_dir>/findings.json
-python3 <skill-dir>/scripts/render.py <run_dir>/findings.json --latest <latest>
+python3 <skill-dir>/scripts/render.py --repo <repo> <run_dir>/findings.json --latest <latest>
 ```
 
-`render.py` validates before it writes and refuses to render an invalid artifact. It always prints the
+Both commands take `--repo`, and both want it. `render.py` validates before it writes and refuses to
+render an invalid artifact; with `--repo` that includes proving every line range against the checkout,
+so the render does not depend on the line above it having run. It always prints the
 path, and tries to open the report in a browser — a best effort that stays silent when it fails, because
 the printed path is the mechanism and the open is the convenience. Nothing reports back whether a window
 appeared, so never say one did.

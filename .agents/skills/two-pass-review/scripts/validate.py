@@ -1304,9 +1304,10 @@ def validate_paths(paths: list[str], repo: str | None = None) -> list[str]:
     """Validate the given artifacts. Returns a list of addressed problems.
 
     `repo` is the checkout the findings are about; when given, locations are
-    checked against it. render.py calls this without one -- at render time
-    there is no repository to hand, and a merge that already validated with
-    --repo does not need the locations proven twice.
+    checked against it. A caller that has one should pass it, render.py
+    included: a re-render of an old artifact has no repository to hand and
+    asks for none, but a run rendering its own merge does have one, and
+    leaving the ranges to an earlier command trusts that the command ran.
     """
     report = Report()
 

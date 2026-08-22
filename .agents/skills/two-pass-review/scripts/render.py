@@ -2,7 +2,12 @@
 """Render a merged two-pass-review artifact as one self-contained HTML report.
 
 Usage:
-    render.py FINDINGS_JSON
+    render.py [--repo PATH] FINDINGS_JSON
+
+With --repo, the artifact's locations are checked against that checkout before
+anything is written, so the render proves the line ranges itself instead of
+trusting an earlier validate.py run. Without it nothing changes: re-rendering
+an old artifact has no checkout to hand, and is asked for none.
 
 Stdlib only, Python 3.10 syntax. The page carries no embedded JSON, no network
 requests and no sibling assets -- everything it needs is in the single file it
@@ -211,6 +216,7 @@ def open_in_browser(path: str) -> bool:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("findings", metavar="FINDINGS_JSON")
+    parser.add_argument("--repo")
     parser.add_argument("--no-open", action="store_true")
     parser.add_argument("--latest")
     try:
@@ -218,8 +224,19 @@ def main(argv: list[str]) -> int:
     except SystemExit:
         return 2
 
+    repo = None
+    if args.repo is not None:
+        repo = os.path.abspath(os.path.expanduser(args.repo))
+        # Refusing here rather than falling back to the no-repo path, which is
+        # what validate.py does with the same flag and for the same reason: a
+        # --repo that names nothing is the operator's mistake, and skipping the
+        # checks it asked for would render a page that looks like it passed them.
+        if not os.path.isdir(repo):
+            sys.stderr.write(f"--repo {args.repo!r} is not a directory\n")
+            return 2
+
     source = os.path.abspath(args.findings)
-    problems = validate.validate_paths([source])
+    problems = validate.validate_paths([source], repo)
     if problems:
         sys.stderr.write("Refusing to render an invalid artifact:\n\n")
         for problem in problems:

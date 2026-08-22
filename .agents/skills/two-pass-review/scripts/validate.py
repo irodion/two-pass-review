@@ -12,6 +12,12 @@ or the merged artifact on its own:
 
     validate.py findings.json
 
+Where the run directory that produced an artifact still holds the files the
+scripts wrote into it, they are read as evidence about it -- today that is
+collect_docs.py's docs.json, which the artifact's docs-check coverage is a
+copy of. A file that is not there means the check does not run; it never
+means the artifact is invalid. See run_sibling.
+
 With --repo, each finding's locations are also checked against the checkout.
 Every path is confined to it, whatever else holds. A location carrying line
 numbers must name a real file whose line count contains the range. A bare
@@ -718,6 +724,36 @@ def check_empty_reason(
 # --- merged artifact ---------------------------------------------------------
 
 
+def run_sibling(artifact: str, name: str) -> object:
+    """A file the run directory holds beside the artifact, or None.
+
+    scope.py and collect_docs.py both write what they resolved into the run
+    directory the artifact is later written into, so the values the merge was
+    told to embed are on disk next to the thing that embeds them. Where they
+    are, a claim the artifact makes about its own inputs can be checked
+    instead of trusted -- which is the whole point, because the merge reaches
+    the artifact by a model copying JSON, and nothing else can catch a slip
+    there.
+
+    Quietly optional, and this is the load-bearing half. An artifact is
+    re-rendered long after its temp directory is swept, and the documented
+    re-render command names a bare path; an artifact that validates today has
+    to validate then. So absence means the check does not run -- never that
+    the artifact is wrong. Unreadable and unparseable are the same case for
+    the same reason: nothing here is a defect the repair loop could fix in the
+    artifact, and a diagnostic it cannot act on only burns its attempts.
+
+    Typed like load_json and for the same reason: what a file on disk holds is
+    not known until something has looked, so every caller narrows.
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(artifact)), name)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
+        return None
+
+
 def validate_merged(report: Report, path: str, repo: str | None = None) -> None:
     merged = load_json(report, path)
     if merged is None:
@@ -856,7 +892,7 @@ def validate_merged(report: Report, path: str, repo: str | None = None) -> None:
             "recorded nothing",
         )
     if "docs_check" in merged and version >= 3 and docs_state == "ran":
-        check_docs_check(report, where, merged["docs_check"], repo)
+        check_docs_check(report, where, merged["docs_check"], repo, run_sibling(path, "docs.json"))
 
 
 def check_run(report: Report, where: str, run: object, version: int) -> None:
@@ -1150,7 +1186,11 @@ def check_self_check(
 
 
 def check_docs_check(
-    report: Report, where: str, docs_check: object, repo: str | None = None
+    report: Report,
+    where: str,
+    docs_check: object,
+    repo: str | None = None,
+    collected: object = None,
 ) -> None:
     """The docs check's record: what it read, what it refused, what conflicted.
 
@@ -1160,6 +1200,10 @@ def check_docs_check(
     coverage -- 'examined' is the whole of what the check saw, so every note
     points into it, and an empty 'examined' with an empty 'notes' is a valid
     record of a repository with nothing to check.
+
+    'collected' is collect_docs.py's own docs.json where the run directory
+    still holds it -- see _check_against_collection, which is what turns that
+    honesty from a rule the merge is asked to follow into one it is held to.
     """
     at = f"{where} docs_check"
     if not isinstance(docs_check, dict):
@@ -1167,12 +1211,18 @@ def check_docs_check(
         return
     _check_unknown(report, at, docs_check, DOCS_CHECK_FIELDS, "docs_check")
 
+    # Whether the two arrays are shaped well enough to be compared with the
+    # collection at the end. A malformed one is already reported, and
+    # comparing it would bury that message under a second, wronger one.
+    comparable = True
+
     examined = docs_check.get("examined")
     if not isinstance(examined, list) or not all(
         isinstance(p, str) and p.strip() for p in examined
     ):
         report.add(at, "'examined' must be an array of repository-relative paths, possibly empty")
         examined = []
+        comparable = False
     seen: set[str] = set()
     for path in examined:
         if path in seen:
@@ -1191,19 +1241,27 @@ def check_docs_check(
             "'skipped' must be present -- the collector's refusals, an empty array when it refused nothing",
         )
         skipped: list[Any] = []
+        comparable = False
     else:
         skipped = docs_check["skipped"]
         if not isinstance(skipped, list):
             report.add(at, "'skipped' must be an array")
             skipped = []
+            comparable = False
         for index, entry in enumerate(skipped):
             at_skip = f"{at} skipped[{index}]"
             if not isinstance(entry, dict):
                 report.add(at_skip, "a skip entry must be a JSON object")
+                comparable = False
                 continue
             _check_unknown(report, at_skip, entry, DOC_SKIP_FIELDS, "skip")
-            _nonempty_str(report, at_skip, entry, "path")
-            _nonempty_str(report, at_skip, entry, "reason")
+            if _nonempty_str(report, at_skip, entry, "path") is None:
+                comparable = False
+            if _nonempty_str(report, at_skip, entry, "reason") is None:
+                comparable = False
+
+    if comparable and collected is not None:
+        _check_against_collection(report, at, examined, skipped, collected)
 
     notes = docs_check.get("notes")
     if not isinstance(notes, list):
@@ -1236,6 +1294,76 @@ def check_docs_check(
         _nonempty_str(report, at_note, note, "why_md")
         if "owed_md" in note:
             _nonempty_str(report, at_note, note, "owed_md")
+
+
+def _check_against_collection(
+    report: Report, at: str, examined: list[Any], skipped: list[Any], collected: object
+) -> None:
+    """The stated coverage against the collection it is a copy of.
+
+    'examined' and 'skipped' are collect_docs.py's two lists, carried into the
+    artifact by the merge. The collector is deterministic and wrote them to
+    docs.json on its way past, so the copy has an original to be checked
+    against -- and it needs one: the report's coverage claim is the reason the
+    collector exists, and a hand-copied claim about what a checker read is
+    exactly the kind nobody can audit. A path dropped here overstates nothing
+    and understates coverage; one added claims a document was read that was
+    never handed over; a rewritten reason has the page give the wrong account
+    of why something went unread. All three are silent on the page.
+
+    Anything that is not collect_docs.py's output is not evidence about this
+    artifact, so a docs.json of some other shape compares against nothing --
+    the same quiet exit run_sibling takes for a file that is not there.
+    """
+    if not isinstance(collected, dict):
+        return
+    docs = collected.get("docs")
+    refused = collected.get("skipped")
+    if not isinstance(docs, list) or not isinstance(refused, list):
+        return
+    if not all(isinstance(d, dict) and isinstance(d.get("path"), str) for d in docs):
+        return
+    if not all(
+        isinstance(r, dict) and isinstance(r.get("path"), str) and isinstance(r.get("reason"), str)
+        for r in refused
+    ):
+        return
+
+    collected_paths = {str(d["path"]) for d in docs}
+    stated_paths = {str(p) for p in examined}
+    for path in sorted(collected_paths - stated_paths):
+        report.add(
+            at,
+            f"'examined' omits {path!r}, which docs.json in the run directory records as collected "
+            "-- copy that file's lists rather than retyping them",
+        )
+    for path in sorted(stated_paths - collected_paths):
+        report.add(
+            at,
+            f"'examined' names {path!r}, which docs.json in the run directory does not record as "
+            "collected -- the check reads what it was handed, and the page states that set",
+        )
+
+    collected_reasons = {str(r["path"]): str(r["reason"]) for r in refused}
+    stated_reasons = {str(e["path"]): str(e["reason"]) for e in skipped}
+    for path in sorted(set(collected_reasons) - set(stated_reasons)):
+        report.add(
+            at,
+            f"'skipped' omits {path!r}, which the collector refused -- a document that went unread "
+            "is named, never silently dropped",
+        )
+    for path in sorted(set(stated_reasons) - set(collected_reasons)):
+        report.add(
+            at,
+            f"'skipped' records {path!r}, which the collector did not refuse",
+        )
+    for path in sorted(set(collected_reasons) & set(stated_reasons)):
+        if collected_reasons[path] != stated_reasons[path]:
+            report.add(
+                at,
+                f"'skipped' gives {path!r} the reason {stated_reasons[path]!r}; the collector "
+                f"printed {collected_reasons[path]!r}",
+            )
 
 
 def _check_doc_path(report: Report, at: str, path: str, repo: str) -> None:

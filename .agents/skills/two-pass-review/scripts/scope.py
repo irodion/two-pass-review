@@ -533,6 +533,16 @@ def main(argv: list[str]) -> int:
     # describes, with the scope line beside it claiming the full count. Not fatal,
     # and deliberately not an exit status -- the passes read those files for
     # themselves, exactly as they did before the manifest existed.
+    #
+    # The subtraction is from build_diff's count, not from len(headers), and the
+    # difference is the whole check. Both count `diff --git` lines, so the two
+    # agree today; they are written separately so that a file_headers which one
+    # day stops opening a block gets noticed. Subtract from len(headers) instead
+    # and that parser is being asked to check itself: a block it never opened is
+    # absent from both sides of the subtraction, the remainder is zero, and the
+    # manifest goes quietly short -- which is the exact failure this line exists
+    # to make loud. It only reads a header this parser opened and could not
+    # resolve; it does not read one the parser walked past.
     unread = patch["files"] - len(named) - omitted
     if unread:
         sys.stderr.write(

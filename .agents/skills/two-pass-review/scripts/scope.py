@@ -425,6 +425,16 @@ def file_lines(root: str, paths: list[str]) -> dict[str, int | None]:
     real_root = os.path.realpath(root)
     counts: dict[str, int | None] = {}
     for path in paths:
+        # isabs before join, which is where validate.py puts it and for its
+        # reason: os.path.join discards its first argument when the second is
+        # absolute, so an absolute path would resolve past real_root rather
+        # than under it, and the test below would be asking about the wrong
+        # file. No diff git can write carries such a path -- the index refuses
+        # them -- so this guards the claim the docstring makes, not a reachable
+        # hole, and it costs one line to make that claim true.
+        if os.path.isabs(path):
+            counts[path] = None
+            continue
         target = os.path.realpath(os.path.join(real_root, path))
         if not target.startswith(real_root + os.sep) or not os.path.isfile(target):
             counts[path] = None

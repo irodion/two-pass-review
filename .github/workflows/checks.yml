@@ -42,7 +42,7 @@ jobs:
         run: |
           python -W error::DeprecationWarning \
                  -W error::SyntaxWarning \
-                 -c "import markdown_subset, page, validate, render, scope, collect_docs"
+                 -c "import markdown_subset, page, validate, render, scope, collect_docs, diff_paths"
       - name: run the entry points, with warnings fatal
         # Importing a module does not execute its main(), so a deprecation inside
         # one stays invisible to the step above -- datetime.utcnow() in scope.py

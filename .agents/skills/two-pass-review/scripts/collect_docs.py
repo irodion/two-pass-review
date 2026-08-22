@@ -32,6 +32,9 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import diff_paths  # sibling module, same directory
+
 # Root-level names, in the order they are emitted: instruction files for coding
 # agents first, then the human-facing files that double as one. GUIDE.md is the
 # least conventional name here and earns its place by costing one stat call.
@@ -49,77 +52,33 @@ FILE_CEILING = 128 * 1024
 TOTAL_CEILING = 384 * 1024
 
 
-def unquote(token: str) -> str:
-    """Undo git's C-style quoting of unusual paths.
-
-    git writes `"b/\\303\\244.md"` for a path it considers unusual. Decoded at
-    the byte level, because the octal escapes are UTF-8 bytes, not characters.
-    A token git did not quote passes through untouched.
-    """
-    if not (len(token) >= 2 and token.startswith('"') and token.endswith('"')):
-        return token
-    out = bytearray()
-    body = token[1:-1]
-    index = 0
-    while index < len(body):
-        char = body[index]
-        if char != "\\":
-            out.extend(char.encode("utf-8"))
-            index += 1
-            continue
-        index += 1
-        if index >= len(body):
-            break
-        escape = body[index]
-        if escape in ("\\", '"'):
-            out.append(ord(escape))
-            index += 1
-        elif escape == "t":
-            out.append(9)
-            index += 1
-        elif escape == "n":
-            out.append(10)
-            index += 1
-        elif escape.isdigit():
-            octal = body[index : index + 3]
-            out.append(int(octal, 8) & 0xFF)
-            index += len(octal)
-        else:
-            out.extend(("\\" + escape).encode("utf-8"))
-            index += 1
-    return out.decode("utf-8", "replace")
-
-
 def changed_paths(diff_path: str) -> set[str]:
     """Every repository-relative path the diff names, old side and new side.
 
     Both sides, because a deleted file's directory can still hold a document
-    whose claims the deletion invalidates. The `rename` lines cover the one
-    case a 100%-similarity rename leaves no ---/+++ pair for. Header lines are
-    parsed leniently: a line this function cannot read contributes no path,
-    and the cost is a nested document not collected -- never a crash, and the
-    root documents are collected regardless.
+    whose claims the deletion invalidates.
+
+    The reading is diff_paths.file_headers, which scope.py shares: this used to
+    be a second quote decoder and a second header walk, written here and again
+    there, and the two drifted by construction. What that swap buys this caller
+    is what it never had -- header/body state, so a diffed patch file's own body
+    cannot pass a content line off as a header, and the four block shapes that
+    name no side in `---`/`+++` at all, whose directories this walked straight
+    past before.
+
+    Streamed rather than read whole: the diff is the one input a reviewed
+    repository controls the size of, and this reader has no reason to hold it.
+
+    Leniency is unchanged and still deliberate: a name that will not decode
+    contributes no path, and the cost is a nested document not collected --
+    never a crash, and the root documents are collected regardless.
     """
     paths: set[str] = set()
     with open(diff_path, encoding="utf-8", errors="replace") as handle:
-        for line in handle:
-            token: str | None = None
-            for prefix in ("--- ", "+++ "):
-                if line.startswith(prefix):
-                    token = line[len(prefix) :].rstrip("\n").rstrip("\t")
-            for prefix in ("rename from ", "rename to "):
-                if line.startswith(prefix):
-                    paths.add(unquote(line[len(prefix) :].rstrip("\n")))
-            if token is None:
-                continue
-            token = unquote(token)
-            if token == "/dev/null":
-                continue
-            # Standard git prefixes only. scope.py generates the diff and does
-            # not pass --no-prefix, so a token shaped any other way is a header
-            # this parser misread -- dropped, per the leniency above.
-            if token.startswith(("a/", "b/")):
-                paths.add(token[2:])
+        for header in diff_paths.file_headers(handle):
+            for path in (header.old, header.new):
+                if path is not None:
+                    paths.add(path)
     return paths
 
 

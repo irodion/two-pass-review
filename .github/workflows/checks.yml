@@ -66,6 +66,11 @@ jobs:
                  "$S/collect_docs.py" --repo . \
                  --diff "$(python -c "import json;print(json.load(open('scope.json'))['context_diff'])")" > docs.json
           python -c "import json,sys; d=json.load(open('docs.json')); sys.exit(0 if any(x['path']=='README.md' for x in d['docs']) else 1)"
+          # The same bytes have to reach the run directory: that copy is what
+          # validate.py checks an artifact's stated coverage against, and a
+          # collector that printed without writing would fail nothing here
+          # while the cross-check quietly stopped existing everywhere.
+          cmp "$(python -c "import json;print(json.load(open('scope.json'))['run_dir'])")/docs.json" docs.json
           # Both refuse-and-explain paths, which is where argparse and the error
           # formatting live.
           #

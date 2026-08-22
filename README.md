@@ -22,12 +22,19 @@ lie — chiefly that the verdict agrees with the list beneath it — and nothing
 The **renderer** turns the merged artifact into the page, and calls the validator itself rather than
 trusting whoever invoked it.
 
-No dependencies, no network, no build step. The report is one self-contained file — no sibling assets, no
-embedded JSON, nothing fetched — which is why it works over `file://` and still works after you email it
-to someone. Its whole script is a clipboard handler behind the copy buttons, a class toggle behind
-`Mark dealt with`, and the counting that keeps the headings honest as you filter.
+No dependencies, no network, no build step: the scripts want a `python3` of 3.10 or newer and nothing
+else. The report is one self-contained file — no sibling assets, no embedded JSON, nothing fetched —
+which is why it works over `file://` and still works after you email it to someone. Its whole script is a
+clipboard handler behind the copy buttons, a class toggle behind `Mark dealt with`, and the counting that
+keeps the headings honest as you filter.
 
 ## Installing it somewhere else
+
+**Check `python3 --version` first: the scripts need 3.10 or newer.** They are stdlib-only and there is
+nothing to install, so this is the whole of what the skill requires — but it is worth checking before
+rather than after, because macOS ships 3.9 as `/usr/bin/python3` and a run on it dies inside a script
+with a bare `TypeError` about `str | None`, which tells whoever reads it nothing about what is actually
+wrong. Any machine with a working development setup has a newer one; on a stock Mac, install it.
 
 There is no installer, because there is nothing an installer would do that these commands do not. Both
 recipes below copy from a clone, which is what `/path/to/two-pass-review` means:

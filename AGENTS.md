@@ -17,8 +17,12 @@ The `python3` on your `PATH` is almost certainly much newer than 3.10, and a 3.1
 silently under it while failing at the floor. Run both when you touch a script:
 
 ```sh
-uv run --python 3.10 .agents/skills/two-pass-review/scripts/render.py <findings.json>
+uv run --no-project --python 3.10 .agents/skills/two-pass-review/scripts/render.py <findings.json>
 ```
+
+`--no-project` is not optional: `pyproject.toml` here holds tool configuration and no `[project]`
+table, because the skill is copied into other repositories rather than installed, and uv refuses to
+run inside a directory whose `pyproject.toml` it cannot read as a project.
 
 The floor interpreter proves the syntax floor; the modern one catches deprecations that get written
 to stderr — which the orchestrator reads as though something failed.
@@ -118,7 +122,7 @@ corpus is out of scope.
 
 ## What CI does, and what it cannot
 
-`.github/workflows/checks.yml` runs three things on every push and pull request, none of which know
+`.github/workflows/checks.yml` runs four things on every push and pull request, none of which know
 anything about reviewing code:
 
 - **`python 3.10` and `python 3.13`** — every script compiles on both, and on the modern one both imports

@@ -100,6 +100,14 @@ jobs:
           expect_refusal "Refusing to render an invalid artifact" \
               python -W error::DeprecationWarning -W error::SyntaxWarning \
                      "$S/render.py" does-not-exist.json --no-open
+          # Same refusal, reached through --repo, which pins that render.py
+          # still accepts the flag SKILL.md hands it. Drop the flag and this
+          # exits 2 from argparse instead of 1 -- which is how the asymmetry
+          # went unnoticed the first time, four invocations into a run whose
+          # stderr was discarded.
+          expect_refusal "Refusing to render an invalid artifact" \
+              python -W error::DeprecationWarning -W error::SyntaxWarning \
+                     "$S/render.py" --repo . does-not-exist.json --no-open
 
   lint:
     # Style and types are floor checks like the rest: ruff's rule set, the

@@ -41,6 +41,10 @@ It prints JSON holding `run_dir`, `context_diff`, `file_lines`, `now`, `latest` 
 - **Exit 3** means the diff is large. Tell the user how large and ask. If they want it, add
   `--confirm-large`. It is never split into batches: both passes must see one identical input, or
   corroboration has nothing to compare across.
+- **A warning on stderr about file headers it could not read** is not a failure and does not end
+  anything: the run resolved, and `file_lines.json` is short by that many entries, which costs the
+  passes a convenience and costs the review nothing. Pass it on when you report, and treat it as a bug
+  in the skill rather than a problem with the user's repository.
 - **Exit 2 or 4** ends the run here, with no report. A local patch that resolves to nothing usually means
   the work is in files git has never been told about — say so.
 

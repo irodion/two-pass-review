@@ -514,8 +514,16 @@ def unrenamed_path(header: str) -> str | None:
     return path if header == f"a/{path} b/{path}" else None
 
 
-def changed_paths(text: str) -> list[str]:
-    """Post-image paths named by the patch, in the order it names them.
+def changed_paths(text: str) -> tuple[list[str], int]:
+    """(post-image paths in the order the patch names them, headers left out).
+
+    Every file header resolves to exactly one outcome: a path, or a deliberate
+    omission -- a deletion, which names no file that exists to be counted. The
+    second number is those omissions, and it exists so main can check the two
+    against the header count build_diff arrived at separately. Every defect
+    found in this parser so far has been the same shape: fewer paths than the
+    diff had files, and nothing saying so. A sum that has to balance is what
+    turns the next one into a message instead of a silence.
 
     Read out of the pinned patch rather than a second `git diff`, for the reason
     build_diff gives about its file count: two invocations against a working
@@ -545,12 +553,19 @@ def changed_paths(text: str) -> list[str]:
     paths: list[str] = []
     in_header = False
     pending: str | None = None
+    omitted = 0
+    # Whether this block has already accounted for itself. Only deletions need
+    # it: a non-empty one says so twice, on `deleted file mode` and again on
+    # `+++ /dev/null`, and counting both would hide a missing file behind a
+    # balanced sum.
+    settled = False
     for line in text.split("\n"):
         if line.startswith("diff --git "):
             # Whatever the previous block settled on, nothing more can change it.
             if pending is not None:
                 paths.append(pending)
             in_header = True
+            settled = False
             pending = unrenamed_path(line[len("diff --git ") :])
         elif not in_header:
             continue
@@ -561,13 +576,16 @@ def changed_paths(text: str) -> list[str]:
             in_header = False
         elif line.startswith("+++ "):
             # The authoritative post-image where the block has one, so it settles
-            # the block outright -- including `+++ /dev/null`, which names no file
-            # and leaves the deletion out by adding nothing.
+            # the block outright -- including `+++ /dev/null`, which names no file.
             in_header = False
             pending = None
             path = post_image(line[len("+++ ") :])
             if path is not None:
                 paths.append(path)
+                settled = True
+            elif not settled and line == "+++ /dev/null":
+                omitted += 1
+                settled = True
         elif line.startswith("rename to ") or line.startswith("copy to "):
             # Plain and unprefixed here, with no tab appended -- and it outranks
             # the `diff --git` guess, which for a rename declines to guess at all.
@@ -583,9 +601,12 @@ def changed_paths(text: str) -> list[str]:
             # An empty file's deletion has no `+++ /dev/null` to cancel the guess,
             # because it has no content and so no sides at all.
             pending = None
+            if not settled:
+                omitted += 1
+                settled = True
     if pending is not None:
         paths.append(pending)
-    return paths
+    return paths, omitted
 
 
 def file_lines(root: str, paths: list[str]) -> dict[str, int | None]:
@@ -696,9 +717,25 @@ def main(argv: list[str]) -> int:
     with open(context, "w", encoding="utf-8") as handle:
         handle.write(patch["text"])
 
+    named, omitted = changed_paths(patch["text"])
     lines_path = os.path.join(run_dir, "file_lines.json")
     with open(lines_path, "w", encoding="utf-8") as handle:
-        json.dump(file_lines(root, changed_paths(patch["text"])), handle, indent=2, sort_keys=True)
+        json.dump(file_lines(root, named), handle, indent=2, sort_keys=True)
+
+    # Every file header is one path or one deliberate omission, so anything left
+    # over is a header this parser did not understand. Say so. The alternative is
+    # what happened three times in review: a manifest quietly short of the diff it
+    # describes, with the scope line beside it claiming the full count. Not fatal,
+    # and deliberately not an exit status -- the passes read those files for
+    # themselves, exactly as they did before the manifest existed.
+    unread = patch["files"] - len(named) - omitted
+    if unread:
+        sys.stderr.write(
+            "Warning: {} of {} file header(s) in the diff named no path this could read, so "
+            "file_lines.json is that many entries short.\nThe review is unaffected -- those "
+            "files are counted by whoever cites them -- but the gap is a parser bug worth "
+            "reporting.\n".format(unread, patch["files"])
+        )
 
     scope: dict[str, str | int | None] = {
         "repo": os.path.basename(root),

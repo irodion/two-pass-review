@@ -161,8 +161,13 @@ python3 <skill-dir>/scripts/collect_docs.py --repo <repo> --diff <context_diff>
 ```
 
 It prints the documents to hand over, and the ones it refused with reasons — a size ceiling, a symlink
-escaping the checkout. Hand the subagent nothing the script did not list: a checker that picks its own
-inputs is a checker whose coverage nobody can state.
+escaping the checkout — and writes the same JSON to `<run_dir>/docs.json`. Hand the subagent nothing the
+script did not list: a checker that picks its own inputs is a checker whose coverage nobody can state.
+
+**Read the paths out of that file, and copy its two lists into the artifact from it.** Both reach the
+page as the report's coverage claim, and a claim retyped by hand is one nobody can check. **A warning on
+stderr about writing that file is not a failure** and does not end anything: what the script printed is
+still the collection, and what the run loses is only the on-disk copy of what it collected.
 
 Spawn one fresh subagent and give it the path to `context.diff` and the collected document paths, with
 the instruction to read those files and no others. It needs only those inputs — neither pass's output —
@@ -216,11 +221,11 @@ Write `<run_dir>/findings.json`:
 - `findings` — every finding from both passes, unchanged apart from the `contested_md` marks above and
   the corroboration links below
 - `docs_check` — present exactly when `run.docs_check` is `"ran"`, absent otherwise: `examined` (the
-  collected paths, exactly as handed to the subagent — empty when there was nothing to collect),
-  `skipped` (the collector's refusals exactly as printed — the empty array when it refused nothing,
-  never omitted), and `notes` (the subagent's reply, `[]` when nothing conflicted). A doc note is not
-  a finding — no id, no disposition, never corroborated, never contested, and the verdict never reads
-  it
+  `path` of every entry under `docs` in `<run_dir>/docs.json`, which is what was handed to the subagent —
+  empty when there was nothing to collect), `skipped` (that file's `skipped` array, copied whole — the
+  empty array when it refused nothing, never omitted), and `notes` (the subagent's reply, `[]` when
+  nothing conflicted). A doc note is not a finding — no id, no disposition, never corroborated, never
+  contested, and the verdict never reads it
 - `verdict` — **derived, never authored**: any finding tagged `blocking` makes it `"blocked"`,
   contested or not, otherwise `"clear"`. `clear` means nothing blocks, not that nothing was found —
   and a contested blocking finding still blocks, because un-blocking on the check's word would hand a

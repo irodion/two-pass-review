@@ -100,14 +100,68 @@ jobs:
           expect_refusal "Refusing to render an invalid artifact" \
               python -W error::DeprecationWarning -W error::SyntaxWarning \
                      "$S/render.py" does-not-exist.json --no-open
-          # Same refusal, reached through --repo, which pins that render.py
-          # still accepts the flag SKILL.md hands it. Drop the flag and this
-          # exits 2 from argparse instead of 1 -- which is how the asymmetry
-          # went unnoticed the first time, four invocations into a run whose
-          # stderr was discarded.
-          expect_refusal "Refusing to render an invalid artifact" \
+          # --repo actually reaching the location check, which the refusals
+          # above cannot show: a missing file is refused before validation
+          # looks at a single location, so those two would pass unchanged if
+          # render.py accepted --repo and then dropped it on the floor.
+          #
+          # So: an artifact that is valid in every respect except one line
+          # range, cited far past the end of a file this repository certainly
+          # has. Constructed here rather than committed -- the same reason
+          # scope.json and docs.json above are generated, and this file keeps
+          # no fixtures. schema_version 1 is deliberate: it is the oldest
+          # merged shape and is kept working on purpose, so a later schema
+          # cannot quietly turn this check into a refusal about the wrong
+          # thing. It goes in its own directory under its exact name, because
+          # validation dispatches on the basename and report.html lands beside
+          # whatever it is given.
+          mkdir -p range-check
+          cat > range-check/findings.json <<'ARTIFACT'
+          {
+            "schema_version": 1,
+            "kind": "merged",
+            "run": {
+              "mode": "sequential",
+              "generated_at": "2026-01-01T00:00:00Z",
+              "scope": {
+                "repo": ".", "mode": "revisions", "base": "HEAD~1",
+                "head": "HEAD", "files_changed": 1, "diff_bytes": 1
+              }
+            },
+            "verdict": "clear",
+            "passes": [
+              {
+                "producer": "security",
+                "what_holds_up_md": "Nothing to report.",
+                "closing_md": "Nothing to report."
+              }
+            ],
+            "findings": [
+              {
+                "id": "sec-1",
+                "producer": "security",
+                "disposition": "note",
+                "title": "A location past the end of the file",
+                "body_md": "Cited beyond README.md's length on purpose.",
+                "confidence": "high",
+                "locations": [
+                  {"path": "README.md", "start_line": 999000, "end_line": 999001}
+                ]
+              }
+            ]
+          }
+          ARTIFACT
+          # The pair is what carries the meaning, and neither half does alone.
+          # Without --repo it renders, so the artifact is sound and the range
+          # is the only thing wrong with it; with --repo the range is refused
+          # by name. Drop the flag from render.py and the first still passes
+          # while the second exits 2 from argparse. Accept the flag and ignore
+          # it, and the second stops refusing at all.
+          python -W error::DeprecationWarning -W error::SyntaxWarning \
+                 "$S/render.py" range-check/findings.json --no-open
+          expect_refusal "run past the end of 'README.md'" \
               python -W error::DeprecationWarning -W error::SyntaxWarning \
-                     "$S/render.py" --repo . does-not-exist.json --no-open
+                     "$S/render.py" --repo . range-check/findings.json --no-open
 
   lint:
     # Style and types are floor checks like the rest: ruff's rule set, the

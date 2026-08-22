@@ -35,8 +35,8 @@ where the request does not determine the range, ask the user which of these they
 python3 <skill-dir>/scripts/scope.py --repo <repo> --base <rev> --mode revisions --head <rev>
 ```
 
-It prints JSON holding `run_dir`, `context_diff`, `file_lines`, `latest` and the resolved `scope`.
-Keep all of them.
+It prints JSON holding `run_dir`, `context_diff`, `file_lines`, `now`, `latest` and the resolved
+`scope`. Keep all of them.
 
 - **Exit 3** means the diff is large. Tell the user how large and ask. If they want it, add
   `--confirm-large`. It is never split into batches: both passes must see one identical input, or
@@ -197,9 +197,11 @@ Write `<run_dir>/findings.json`:
   none of them is what a new merge writes
 - `run` — your `mode` from step 2, `falsification` and `docs_check` from the checks above,
   `generated_at`, and `scope` exactly as `scope.py` printed it.
-  `generated_at` is the moment you merged, in UTC, shaped like `2026-08-08T14:02:11Z` — that string is
-  a shape to copy, not a time, so get the real one from `date -u +%Y-%m-%dT%H:%M:%SZ` rather than
-  writing it down from memory. `scope` means the object under the `"scope"` key of what `scope.py`
+  `generated_at` is the run's moment in UTC, shaped like `2026-08-08T14:02:11Z` — that string is a
+  shape to copy, not a time, so use the `now` that `scope.py` printed rather than writing one down from
+  memory or asking a shell for one. It is stamped when the scope was pinned, which is the review's own
+  duration before you merged: no reader decides anything on that difference, and `base` and `head` are
+  what actually date a report. `scope` means the object under the `"scope"` key of what `scope.py`
   printed — the run directory's `scope.json` holds that same object bare, so either source works, but
   what you embed is the object itself, never a wrapper holding it
 - `passes` — each pass envelope minus its `schema_version` and `kind`, plus `requested_model` and

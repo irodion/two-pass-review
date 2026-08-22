@@ -165,9 +165,10 @@ escaping the checkout — and writes the same JSON to `<run_dir>/docs.json`. Han
 script did not list: a checker that picks its own inputs is a checker whose coverage nobody can state.
 
 **Read the paths out of that file, and copy its two lists into the artifact from it.** Both reach the
-page as the report's coverage claim, and a claim retyped by hand is one nobody can check. **A warning on
-stderr about writing that file is not a failure** and does not end anything: what the script printed is
-still the collection, and what the run loses is only the on-disk copy of what it collected.
+page as the report's coverage claim, and a claim retyped by hand is one nobody can check; `validate.py`
+refuses an artifact that disagrees with the `docs.json` beside it. **A warning on stderr about writing
+that file is not a failure** and does not end anything: what the script printed is still the collection,
+and what the run loses is only the validator's check that the artifact copied it faithfully.
 
 Spawn one fresh subagent and give it the path to `context.diff` and the collected document paths, with
 the instruction to read those files and no others. It needs only those inputs — neither pass's output —

@@ -403,18 +403,111 @@ def build_diff(
 # answer with a shell: how many lines does this file have? They need it because
 # a finding's range is validated against the file's real length, and a pass that
 # guesses spends one of its two repair attempts finding out.
+# The one-character escapes git writes inside a quoted path. Every other byte
+# it escapes is octal, and every byte it does not escape stands for itself.
+UNESCAPES = {"a": 7, "b": 8, "f": 12, "n": 10, "r": 13, "t": 9, "v": 11, "\\": 92, '"': 34}
+
+
+def unquote_path(field: str) -> tuple[str, int] | None:
+    """Decode a git-quoted path: (path, index just past its closing quote).
+
+    None when `field` does not open with a quote, when the quoting is malformed,
+    or when the bytes it spells are not UTF-8 -- a caller that gets None leaves
+    that file out, which is where every quoted path used to land.
+
+    Worth decoding rather than skipping because git quotes by default, so this
+    is not an exotic case: `core.quotepath` is on unless someone turned it off,
+    and it fires on every non-ASCII name. A repository whose files are named in
+    Japanese or Greek got an empty manifest and no indication why.
+
+    The escapes are git's own -- octal for any byte it chose to escape, plus the
+    handful of one-character forms above. Decoding is bounded and total: an
+    unknown escape, a truncated octal, an unterminated quote and a raw byte
+    above ASCII (which git would have escaped) each return None rather than a
+    guess. And the quoted form is the *safer* one to read here, which is the
+    part that looks backwards: it is pure ASCII, so it passes through this
+    file's lossy patch decode untouched, while an unquoted non-UTF-8 name would
+    already hold a replacement character by the time this function saw it.
+    """
+    if not field.startswith('"'):
+        return None
+    out = bytearray()
+    index = 1
+    while index < len(field):
+        char = field[index]
+        if char == '"':
+            try:
+                return out.decode("utf-8"), index + 1
+            except UnicodeDecodeError:
+                return None
+        if char == "\\":
+            escape = field[index + 1 : index + 2]
+            if escape in UNESCAPES:
+                out.append(UNESCAPES[escape])
+                index += 2
+                continue
+            digits = field[index + 1 : index + 4]
+            if len(digits) < 3 or any(digit not in "01234567" for digit in digits):
+                return None
+            out.append(int(digits, 8))
+            index += 4
+            continue
+        if ord(char) > 0x7F:
+            return None
+        out.append(ord(char))
+        index += 1
+    return None
+
+
+def post_image(field: str) -> str | None:
+    """The path a `+++ ` field names, decoded and unprefixed; None for no file.
+
+    `+++ /dev/null` lands here as None, which is how a deletion leaves the
+    manifest: by naming nothing rather than by being filtered later.
+    """
+    if field.startswith('"'):
+        quoted = unquote_path(field)
+        name = quoted[0] if quoted is not None else None
+    else:
+        # git appends a tab to an unquoted header path holding a space, and the
+        # tab is not part of the name. Stripping exactly one is safe: a name
+        # genuinely ending in a tab is a control character, so git quotes it,
+        # and a quoted field ends at its closing quote -- any tab after that is
+        # already outside what unquote_path consumed.
+        name = field.removesuffix("\t")
+    if name is None or not name.startswith("b/"):
+        return None
+    return name[len("b/") :]
+
+
 def unrenamed_path(header: str) -> str | None:
-    """`a/X b/X` -> X; None for a rename, a copy, or a quoted name.
+    """`a/X b/X` -> X; None for a rename, a copy, or a path that will not decode.
 
     The `diff --git` line is the only path a file header carries when nothing
     else in the block does, and it is the awkward one to read: two paths on one
-    line, space-separated, and a name may hold spaces. Rather than guess where
-    the split falls, this derives the one path length that could produce a line
-    this long with the same name twice, then rebuilds the line and demands the
-    bytes match. A rename fails that test, which is correct -- `rename to`
-    carries its post-image plainly and is read there.
+    line, space-separated, and a name may hold spaces.
+
+    Unquoted, rather than guess where the split falls, this derives the one path
+    length that could produce a line this long with the same name twice, then
+    rebuilds the line and demands the bytes match. Quoted, each side ends at its
+    own closing quote and no arithmetic is needed.
+
+    Only the two matching cases are read. A line with one side quoted means the
+    sides differ, which means a rename -- and a rename fails this either way,
+    correctly, because `rename to` carries its post-image plainly.
     """
-    if header.startswith('"') or len(header) < 5 or (len(header) - 5) % 2:
+    if header.startswith('"'):
+        left = unquote_path(header)
+        if left is None or header[left[1] : left[1] + 1] != " ":
+            return None
+        right = unquote_path(header[left[1] + 1 :])
+        if right is None or left[1] + 1 + right[1] != len(header):
+            return None
+        if not right[0].startswith("b/"):
+            return None
+        path = right[0][len("b/") :]
+        return path if left[0] == f"a/{path}" else None
+    if len(header) < 5 or (len(header) - 5) % 2:
         return None
     width = (len(header) - 5) // 2
     path = header[2 : 2 + width]
@@ -440,10 +533,8 @@ def changed_paths(text: str) -> list[str]:
     side of. So the `diff --git` line seeds a candidate the block can override
     or cancel, and whatever survives to the next header is what the block named.
 
-    A path git chose to quote -- which is every non-ASCII name under the default
-    quotepath -- is skipped rather than unquoted, wherever it appears. Unquoting
-    is a second parser to get wrong, and skipping costs only that file's entry,
-    which the pass covers by reading the file, which it was told to do anyway.
+    Quoted paths are decoded wherever they appear -- see unquote_path, which
+    also says what is left out and why.
 
     The `b/` prefix is required rather than tolerated absent, because build_diff
     pins it with --dst-prefix and a header without it means the line is not the
@@ -474,20 +565,20 @@ def changed_paths(text: str) -> list[str]:
             # and leaves the deletion out by adding nothing.
             in_header = False
             pending = None
-            path = line[len("+++ ") :]
-            if path.startswith("b/") and not path.startswith('"'):
-                # git appends a tab to a header path holding a space, which is not
-                # part of the name. Stripping exactly one is safe: a name genuinely
-                # ending in a tab is a control character, so git quotes it, and the
-                # quoted form is refused on the line above.
-                paths.append(path[len("b/") :].removesuffix("\t"))
+            path = post_image(line[len("+++ ") :])
+            if path is not None:
+                paths.append(path)
         elif line.startswith("rename to ") or line.startswith("copy to "):
             # Plain and unprefixed here, with no tab appended -- and it outranks
             # the `diff --git` guess, which for a rename declines to guess at all.
             # A rename that also edits goes on to state the same path as `+++`,
             # which replaces this rather than repeating it.
-            path = line.split(" to ", 1)[1]
-            pending = None if path.startswith('"') else path
+            field = line.split(" to ", 1)[1]
+            if field.startswith('"'):
+                quoted = unquote_path(field)
+                pending = quoted[0] if quoted is not None else None
+            else:
+                pending = field
         elif line.startswith("deleted file mode "):
             # An empty file's deletion has no `+++ /dev/null` to cancel the guess,
             # because it has no content and so no sides at all.

@@ -58,8 +58,10 @@ def unquote_path(field: str) -> tuple[str, int] | None:
     Japanese or Greek got nothing back and no indication why.
 
     Decoding is bounded and total: an unknown escape, a truncated octal, an
-    unterminated quote and a raw byte above ASCII (which git would have escaped)
-    each return None rather than a guess. And the quoted form is the *safer* one
+    octal naming no byte, an unterminated quote and a raw byte above ASCII
+    (which git would have escaped) each return None rather than a guess. Total
+    is the load-bearing word -- this runs before either pass, so anything it
+    raises ends the run rather than costing one entry. And the quoted form is the *safer* one
     to read, which is the part that looks backwards: it is pure ASCII, so it
     passes through a lossy patch decode untouched, while an unquoted non-UTF-8
     name would already hold a replacement character by the time it arrived here.
@@ -84,7 +86,16 @@ def unquote_path(field: str) -> tuple[str, int] | None:
             digits = field[index + 1 : index + 4]
             if len(digits) < 3 or any(digit not in "01234567" for digit in digits):
                 return None
-            out.append(int(digits, 8))
+            # Three octal digits reach 0o777, which is 511, and a bytearray takes
+            # nothing above 255. git escapes one byte at a time and so never
+            # writes above 0o377, but "never" is the reachability argument, not
+            # the totality one: without this the decoder raises where it
+            # documents itself as returning None, and the traceback would end
+            # the run before either pass started.
+            value = int(digits, 8)
+            if value > 0xFF:
+                return None
+            out.append(value)
             index += 4
             continue
         if ord(char) > 0x7F:

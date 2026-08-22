@@ -403,6 +403,24 @@ def build_diff(
 # answer with a shell: how many lines does this file have? They need it because
 # a finding's range is validated against the file's real length, and a pass that
 # guesses spends one of its two repair attempts finding out.
+def unrenamed_path(header: str) -> str | None:
+    """`a/X b/X` -> X; None for a rename, a copy, or a quoted name.
+
+    The `diff --git` line is the only path a file header carries when nothing
+    else in the block does, and it is the awkward one to read: two paths on one
+    line, space-separated, and a name may hold spaces. Rather than guess where
+    the split falls, this derives the one path length that could produce a line
+    this long with the same name twice, then rebuilds the line and demands the
+    bytes match. A rename fails that test, which is correct -- `rename to`
+    carries its post-image plainly and is read there.
+    """
+    if header.startswith('"') or len(header) < 5 or (len(header) - 5) % 2:
+        return None
+    width = (len(header) - 5) // 2
+    path = header[2 : 2 + width]
+    return path if header == f"a/{path} b/{path}" else None
+
+
 def changed_paths(text: str) -> list[str]:
     """Post-image paths named by the patch, in the order it names them.
 
@@ -415,34 +433,67 @@ def changed_paths(text: str) -> list[str]:
     because `+++ ` at column zero is a file header only before the first hunk --
     a diff that itself modifies a patch file puts those same bytes in its body.
 
+    Three shapes reach the end of a file header with no `+++ ` line at all, and
+    reading only that line silently dropped every one of them: a pure rename,
+    which carries `rename to` and no content; a mode change, which carries only
+    the two mode lines; and a new empty file, which has no content to name a
+    side of. So the `diff --git` line seeds a candidate the block can override
+    or cancel, and whatever survives to the next header is what the block named.
+
     A path git chose to quote -- which is every non-ASCII name under the default
-    quotepath -- is skipped rather than unquoted. Unquoting is a second parser to
-    get wrong, and skipping costs only that file's entry, which the pass covers
-    by reading the file, which it was told to do regardless.
+    quotepath -- is skipped rather than unquoted, wherever it appears. Unquoting
+    is a second parser to get wrong, and skipping costs only that file's entry,
+    which the pass covers by reading the file, which it was told to do anyway.
 
     The `b/` prefix is required rather than tolerated absent, because build_diff
     pins it with --dst-prefix and a header without it means the line is not the
     header this parser thinks it is. It was tolerated once, when three git
     configs could still strip or rename that prefix; the fix belonged upstream,
     where those configs were also silently changing the pinned diff itself.
-
-    The one thing that is parsed is the tab git appends to a header path holding
-    a space, which is not part of the name. Stripping exactly one is safe: a
-    name genuinely ending in a tab is a control character, so git quotes it, and
-    the quoted form was skipped two lines above.
     """
     paths: list[str] = []
     in_header = False
+    pending: str | None = None
     for line in text.split("\n"):
         if line.startswith("diff --git "):
+            # Whatever the previous block settled on, nothing more can change it.
+            if pending is not None:
+                paths.append(pending)
             in_header = True
+            pending = unrenamed_path(line[len("diff --git ") :])
+        elif not in_header:
+            continue
         elif line.startswith("@@"):
+            if pending is not None:
+                paths.append(pending)
+                pending = None
             in_header = False
-        elif in_header and line.startswith("+++ "):
+        elif line.startswith("+++ "):
+            # The authoritative post-image where the block has one, so it settles
+            # the block outright -- including `+++ /dev/null`, which names no file
+            # and leaves the deletion out by adding nothing.
             in_header = False
-            path = line[4:]
+            pending = None
+            path = line[len("+++ ") :]
             if path.startswith("b/") and not path.startswith('"'):
-                paths.append(path[2:].removesuffix("\t"))
+                # git appends a tab to a header path holding a space, which is not
+                # part of the name. Stripping exactly one is safe: a name genuinely
+                # ending in a tab is a control character, so git quotes it, and the
+                # quoted form is refused on the line above.
+                paths.append(path[len("b/") :].removesuffix("\t"))
+        elif line.startswith("rename to ") or line.startswith("copy to "):
+            # Plain and unprefixed here, with no tab appended -- and it outranks
+            # the `diff --git` guess, which for a rename declines to guess at all.
+            # A rename that also edits goes on to state the same path as `+++`,
+            # which replaces this rather than repeating it.
+            path = line.split(" to ", 1)[1]
+            pending = None if path.startswith('"') else path
+        elif line.startswith("deleted file mode "):
+            # An empty file's deletion has no `+++ /dev/null` to cancel the guess,
+            # because it has no content and so no sides at all.
+            pending = None
+    if pending is not None:
+        paths.append(pending)
     return paths
 
 

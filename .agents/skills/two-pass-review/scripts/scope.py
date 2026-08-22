@@ -46,6 +46,15 @@ LARGE_FILES = 150
 # megabyte -- so it only ever fires on the pathological case.
 CAPTURE_CEILING = 256 * 1024 * 1024
 
+# The manifest exists to save a pass one shell command, so no file is worth
+# stalling the run over. LARGE_BYTES and CAPTURE_CEILING both measure the diff,
+# and a one-line change to a huge tracked file is a tiny diff -- it passes both
+# and then costs the whole file's bytes, before either pass has started. A file
+# past this ceiling is recorded as null: exactly what the manifest already says
+# about a file it cannot count, and the pass reads it, as it did before the
+# manifest existed.
+COUNT_CEILING = 8 * 1024 * 1024
+
 
 class Patch(TypedDict):
     text: str
@@ -421,6 +430,9 @@ def file_lines(root: str, paths: list[str]) -> dict[str, int | None]:
             counts[path] = None
             continue
         try:
+            if os.path.getsize(target) > COUNT_CEILING:
+                counts[path] = None
+                continue
             counts[path] = validate.line_count(target)
         except OSError:
             # An unreadable file is one the pass will find unreadable too. The

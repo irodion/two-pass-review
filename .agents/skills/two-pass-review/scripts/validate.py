@@ -453,6 +453,35 @@ def check_locations(report: Report, where: str, locations: object, repo: str | N
             _check_location_in_repo(report, at, path, start, end, repo)
 
 
+def confine(repo: str, path: str) -> str | None:
+    """What `path` resolves to inside `repo`, or None where it does not stay in.
+
+    The one implementation of a question three scripts ask: this validator, when
+    a pass locates a finding; scope.py, when the manifest predicts what this
+    validator will say about a range; collect_docs.py, when a document named
+    CLAUDE.md turns out to be a symlink out of the checkout. Written three times
+    it was three chances to tighten one copy and leave the others -- and the one
+    in scope.py exists precisely to agree with the one here, so a divergence
+    there is a manifest recommending ranges the validator then rejects.
+
+    An absolute path hands os.path.join the right to discard `repo` entirely --
+    documented behaviour, not an edge case -- and a relative one can walk out
+    through `..` or a symlink. realpath on both sides settles the question by
+    what the filesystem would actually open.
+
+    The root itself resolves rather than refusing: it is inside the checkout,
+    and it is a directory, which is a different complaint for the caller that
+    cares to make it.
+    """
+    if os.path.isabs(path):
+        return None
+    root = os.path.realpath(repo)
+    target = os.path.realpath(os.path.join(root, path))
+    if target != root and not target.startswith(root + os.sep):
+        return None
+    return target
+
+
 def _check_location_in_repo(
     report: Report, at: str, path: str, start: int | None, end: int | None, repo: str
 ) -> None:
@@ -472,18 +501,17 @@ def _check_location_in_repo(
     range that points at the wrong real lines, which only reading the file
     can catch.
     """
-    # `path` is written by a pass that read a possibly hostile repository,
-    # so it is confined before it is used. An absolute path hands
-    # os.path.join the right to discard `repo` entirely -- documented
-    # behaviour, not an edge case -- and a relative one can walk out
-    # through `..` or a symlink. realpath on both sides settles the
-    # question by what the filesystem would actually open.
+    # `path` is written by a pass that read a possibly hostile repository, so it
+    # is confined before it is used -- see confine() above for what that means
+    # and why it is shared. The absolute case is tested twice on purpose: once
+    # here, to say which of the two ways a path can fail, and again inside
+    # confine, which owes every caller the same answer whether or not the caller
+    # asked first.
     if os.path.isabs(path):
         report.add(at, "'path' must be relative to the repository root")
         return
-    root = os.path.realpath(repo)
-    target = os.path.realpath(os.path.join(root, path))
-    if target != root and not target.startswith(root + os.sep):
+    target = confine(repo, path)
+    if target is None:
         report.add(
             at,
             f"'path' {path!r} resolves outside the repository -- a location names a file inside the checkout",
@@ -1213,18 +1241,17 @@ def check_docs_check(
 def _check_doc_path(report: Report, at: str, path: str, repo: str) -> None:
     """A document the check states it read: confined, and a real file.
 
-    Confined exactly as _check_location_in_repo confines a location, and for
-    the same reason -- the path was written into an artifact a hostile
-    repository can influence. Stricter after that: a location may be
+    Confined through the same confine() a location goes through, and for the
+    same reason -- the path was written into an artifact a hostile repository
+    can influence. Stricter after that: a location may be
     prospective, but 'examined' is a claim about files that were read, and a
     path that is not a file is a claim nothing can have read.
     """
     if os.path.isabs(path):
         report.add(at, f"examined path {path!r} must be relative to the repository root")
         return
-    root = os.path.realpath(repo)
-    target = os.path.realpath(os.path.join(root, path))
-    if target != root and not target.startswith(root + os.sep):
+    target = confine(repo, path)
+    if target is None:
         report.add(at, f"examined path {path!r} resolves outside the repository")
         return
     if not os.path.isfile(target):

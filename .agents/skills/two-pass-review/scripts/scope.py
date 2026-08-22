@@ -412,9 +412,10 @@ def build_diff(
 def file_lines(root: str, paths: list[str]) -> dict[str, int | None]:
     """path -> its line count on disk, or null where the checkout holds no file.
 
-    Confinement mirrors validate.py's, down to realpath on both sides: this
-    manifest is a prediction of what that validator will say, so a path the two
-    resolve differently is the one path it must not carry a number for.
+    Confinement is validate.confine, called rather than copied: this manifest is
+    a prediction of what that validator will say, so a path the two resolve
+    differently is the one path it must not carry a number for, and two
+    implementations of "inside the checkout" is how that happens.
 
     Null is not padding: it says the checkout holds no readable file at a path
     the patch's post-image named, so a range over it would be rejected however
@@ -422,21 +423,10 @@ def file_lines(root: str, paths: list[str]) -> dict[str, int | None]:
     entry at all -- git writes its post-image as /dev/null, and the patch the
     pass is reading says so on the same line.
     """
-    real_root = os.path.realpath(root)
     counts: dict[str, int | None] = {}
     for path in paths:
-        # isabs before join, which is where validate.py puts it and for its
-        # reason: os.path.join discards its first argument when the second is
-        # absolute, so an absolute path would resolve past real_root rather
-        # than under it, and the test below would be asking about the wrong
-        # file. No diff git can write carries such a path -- the index refuses
-        # them -- so this guards the claim the docstring makes, not a reachable
-        # hole, and it costs one line to make that claim true.
-        if os.path.isabs(path):
-            counts[path] = None
-            continue
-        target = os.path.realpath(os.path.join(real_root, path))
-        if not target.startswith(real_root + os.sep) or not os.path.isfile(target):
+        target = validate.confine(root, path)
+        if target is None or not os.path.isfile(target):
             counts[path] = None
             continue
         try:

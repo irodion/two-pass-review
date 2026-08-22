@@ -33,7 +33,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import diff_paths  # sibling module, same directory
+import diff_paths  # sibling modules, same directory
+import validate
 
 # Root-level names, in the order they are emitted: instruction files for coding
 # agents first, then the human-facing files that double as one. GUIDE.md is the
@@ -99,11 +100,17 @@ def candidate_paths(repo: str, diff_path: str) -> list[str]:
 def collect(repo: str, diff_path: str) -> dict[str, object]:
     """Build the docs/skipped lists for the parsed candidates.
 
-    Confinement mirrors validate.py: the realpath of every collected document
-    must stay inside the repository, because a symlink named CLAUDE.md pointing
-    at a file outside the checkout would otherwise have that file's contents
-    quoted into the report. A document that escapes is skipped and named, not
-    silently dropped -- the skip list is part of what the report states.
+    Confinement is validate.confine, the same function the validator confines a
+    finding's location with: the realpath of every collected document must stay
+    inside the repository, because a symlink named CLAUDE.md pointing at a file
+    outside the checkout would otherwise have that file's contents quoted into
+    the report. A document that escapes is skipped and named, not silently
+    dropped -- the skip list is part of what the report states.
+
+    The existence test stays ahead of the confinement one, which is the order
+    this had before sharing the check and is the order the output depends on: a
+    candidate that simply is not there is not a skip anybody needs told about,
+    while one that is there and points out of the checkout is exactly that.
     """
     root = os.path.realpath(repo)
     docs: list[dict[str, str | int]] = []
@@ -114,8 +121,8 @@ def collect(repo: str, diff_path: str) -> dict[str, object]:
         absolute = os.path.join(root, path)
         if not os.path.isfile(absolute):
             continue
-        resolved = os.path.realpath(absolute)
-        if not resolved.startswith(root + os.sep):
+        resolved = validate.confine(root, path)
+        if resolved is None:
             skipped.append({"path": path, "reason": "resolves outside the repository"})
             continue
         # CLAUDE.md as a symlink to AGENTS.md is the convention this repo's own

@@ -347,6 +347,13 @@ def build_diff(
     # an `ignore = all` in .gitmodules or config, under which a changed submodule
     # gitlink -- a pointer to whole other-repo commits -- would drop out of the
     # patch silently; it is a no-op wherever no such suppression is configured.
+    # The two prefix options pin the a/ and b/ that every reader of a unified
+    # diff expects, against three configs that change them: diff.noprefix drops
+    # them, diff.srcPrefix and diff.dstPrefix replace them, and
+    # diff.mnemonicPrefix swaps in a letter per side -- w/ for the worktree,
+    # which is what a local patch diffs. None of that is the reviewed
+    # repository's doing, which is why it is easy to miss: the config is the
+    # user's, so the diff a report pins would depend on the machine it ran on.
     # Together with the worktree neutralization above, the patch is the bytes as
     # they sit in git and on disk, not a repository-chosen account of them.
     code, raw, error = git(
@@ -357,6 +364,8 @@ def build_diff(
         "--no-textconv",
         "--text",
         "--ignore-submodules=none",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
         *selector,
         max_bytes=CAPTURE_CEILING,
     )
@@ -406,11 +415,16 @@ def changed_paths(text: str) -> list[str]:
     because `+++ ` at column zero is a file header only before the first hunk --
     a diff that itself modifies a patch file puts those same bytes in its body.
 
-    Two paths are skipped rather than parsed: one git chose to quote -- which is
-    every non-ASCII name under the default quotepath -- and one without the `b/`
-    prefix that a `diff.noprefix` config strips. Unquoting is a second parser to
-    get wrong, and both cost only that file's entry, which the pass covers by
-    reading the file, which it was told to do regardless.
+    A path git chose to quote -- which is every non-ASCII name under the default
+    quotepath -- is skipped rather than unquoted. Unquoting is a second parser to
+    get wrong, and skipping costs only that file's entry, which the pass covers
+    by reading the file, which it was told to do regardless.
+
+    The `b/` prefix is required rather than tolerated absent, because build_diff
+    pins it with --dst-prefix and a header without it means the line is not the
+    header this parser thinks it is. It was tolerated once, when three git
+    configs could still strip or rename that prefix; the fix belonged upstream,
+    where those configs were also silently changing the pinned diff itself.
 
     The one thing that is parsed is the tab git appends to a header path holding
     a space, which is not part of the name. Stripping exactly one is safe: a

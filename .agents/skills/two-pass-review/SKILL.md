@@ -35,7 +35,8 @@ where the request does not determine the range, ask the user which of these they
 python3 <skill-dir>/scripts/scope.py --repo <repo> --base <rev> --mode revisions --head <rev>
 ```
 
-It prints JSON holding `run_dir`, `context_diff`, `latest` and the resolved `scope`. Keep all of them.
+It prints JSON holding `run_dir`, `context_diff`, `file_lines`, `latest` and the resolved `scope`.
+Keep all of them.
 
 - **Exit 3** means the diff is large. Tell the user how large and ask. If they want it, add
   `--confirm-large`. It is never split into batches: both passes must see one identical input, or
@@ -67,13 +68,19 @@ independently, and that is evidence only while they were peers — a cheap pass 
 one is not a second opinion. If the user asks for a split anyway, run it and tell them which pass got what.
 Never arrive at one yourself.
 
-Give each pass exactly four things, and let it read the repository for itself:
+Give each pass exactly five things, and let it read the repository for itself:
 
 1. its rubric, as the whole of its instructions
 2. the path to `context.diff`
-3. the `run_dir` to write into
-4. the command that validates its files, with the reviewed checkout named so locations are checked
+3. the path to `file_lines.json`, which `scope.py` wrote beside it
+4. the `run_dir` to write into
+5. the command that validates its files, with the reviewed checkout named so locations are checked
    against real files: `python3 <skill-dir>/scripts/validate.py --repo <repo> <its two files>`
+
+The third exists so no pass has to shell out to learn how long a file is. It maps every path the diff's
+post-image names to that file's line count in the reviewed checkout, counted by the same code the
+validator checks ranges with, and `null` where the checkout holds no readable file there. It is a
+bound, not a substitute for reading: it says where a file ends, never which lines the finding is about.
 
 Each pass owns its output contract; it is written into the rubric and needs no repeating here.
 

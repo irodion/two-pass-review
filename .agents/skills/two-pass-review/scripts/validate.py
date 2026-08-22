@@ -513,7 +513,7 @@ def _check_location_in_repo(
             "a proposed or deleted file is cited by bare path, with no lines",
         )
         return
-    count = _line_count(target)
+    count = line_count(target)
     last = start if end is None else end
     if last > count:
         span = f"line {start} runs" if end is None else f"lines {start}-{end} run"
@@ -524,7 +524,14 @@ def _check_location_in_repo(
         )
 
 
-def _line_count(path: str) -> int:
+def line_count(path: str) -> int:
+    """Lines in a file, as this validator counts them.
+
+    Public because scope.py builds its manifest with it. The manifest is
+    useful only insofar as it holds the number a finding's range will be
+    checked against here, and two implementations of "how many lines"
+    disagree on a last line with no newline.
+    """
     # Bytes, not text: the located file can be anything the repository holds,
     # and an encoding error here would turn a valid finding into a traceback.
     # Streamed, for the same reason: validating one artifact should not cost

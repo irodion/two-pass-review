@@ -116,7 +116,7 @@ def side(field: str, prefix: str) -> str | None:
 
 
 def bare(field: str) -> str | None:
-    """The path a `rename to` / `rename from` / `copy to` field names.
+    """The path a `rename`/`copy` `from` or `to` field names.
 
     Unprefixed and untabbed by git, so there is nothing to strip -- only the
     quoting to undo.
@@ -211,6 +211,13 @@ def file_headers(lines: Iterable[str]) -> list[Header]:
                 deleted = True
         elif line.startswith("rename from "):
             old = bare(line[len("rename from ") :])
+        elif line.startswith("copy from "):
+            # Reachable without anyone passing -C: `diff.renames = copies` is a
+            # user config, and under it git emits copy blocks from an ordinary
+            # `git diff`. Without this, the source of a copy is lost -- and the
+            # caller that reads the old side is the one collecting documents
+            # from a changed file's ancestry, which would miss that directory.
+            old = bare(line[len("copy from ") :])
         elif line.startswith("rename to ") or line.startswith("copy to "):
             new = bare(line.split(" to ", 1)[1])
         elif line.startswith("deleted file mode "):

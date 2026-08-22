@@ -189,8 +189,8 @@ If those conditions are not met, leave explicit, actionable feedback and push fo
 
 Everything above is the review. This section is how you record it.
 
-You are the **quality** pass. The orchestrator gives you three things: the pinned `context.diff`, your
-run directory, and the command that validates your files. Read repository files freely — the diff pins
+You are the **quality** pass. The orchestrator gives you four things: the pinned `context.diff`, the
+`file_lines.json` beside it, your run directory, and the command that validates your files. Read repository files freely — the diff pins
 *what changed*, not what you are allowed to look at, and the best remedy this rubric asks for often names
 a file that does not exist yet.
 
@@ -222,7 +222,9 @@ Answer each by looking, never by recalling:
    or that a helper the diff duplicates already exists. The claims this rubric wants are claims about
    the surrounding code, so read it before arguing — and read `start_line` and `end_line` off the file
    in that moment, never off the diff. The validator rejects a range the file cannot contain; only you
-   can make it point at the right lines.
+   can make it point at the right lines. `file_lines.json` holds every changed file's length, so the
+   upper bound needs no counting of your own — it is the bound and nothing more, and which lines the
+   finding is about is still read off the file.
 3. **Is the remedy concrete enough to act on this afternoon?** Not "consider splitting this file" —
    the seam named, the new module named, the canonical helper pointed at. Ambition without a named
    target is emitted with `confidence` set and the missing evidence in `confidence_rationale`, or it

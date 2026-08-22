@@ -30,6 +30,9 @@ import tempfile
 from datetime import datetime, timezone
 from typing import TypedDict, cast, overload
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import validate  # sibling script, same directory
+
 LARGE_BYTES = 500_000
 LARGE_FILES = 150
 
@@ -387,6 +390,78 @@ def build_diff(
     return {"text": text, "bytes": len(raw), "files": files, "untracked": untracked}, None
 
 
+# Both helpers below exist to answer one question the passes would otherwise
+# answer with a shell: how many lines does this file have? They need it because
+# a finding's range is validated against the file's real length, and a pass that
+# guesses spends one of its two repair attempts finding out.
+def changed_paths(text: str) -> list[str]:
+    """Post-image paths named by the patch, in the order it names them.
+
+    Read out of the pinned patch rather than a second `git diff`, for the reason
+    build_diff gives about its file count: two invocations against a working
+    tree the user may still be editing can disagree, and a manifest naming a
+    file the pinned diff does not is worse than no manifest at all.
+
+    Tracked through the header/body state a unified diff already carries,
+    because `+++ ` at column zero is a file header only before the first hunk --
+    a diff that itself modifies a patch file puts those same bytes in its body.
+
+    Two paths are skipped rather than parsed: one git chose to quote -- which is
+    every non-ASCII name under the default quotepath -- and one without the `b/`
+    prefix that a `diff.noprefix` config strips. Unquoting is a second parser to
+    get wrong, and both cost only that file's entry, which the pass covers by
+    reading the file, which it was told to do regardless.
+
+    The one thing that is parsed is the tab git appends to a header path holding
+    a space, which is not part of the name. Stripping exactly one is safe: a
+    name genuinely ending in a tab is a control character, so git quotes it, and
+    the quoted form was skipped two lines above.
+    """
+    paths: list[str] = []
+    in_header = False
+    for line in text.split("\n"):
+        if line.startswith("diff --git "):
+            in_header = True
+        elif line.startswith("@@"):
+            in_header = False
+        elif in_header and line.startswith("+++ "):
+            in_header = False
+            path = line[4:]
+            if path.startswith("b/") and not path.startswith('"'):
+                paths.append(path[2:].removesuffix("\t"))
+    return paths
+
+
+def file_lines(root: str, paths: list[str]) -> dict[str, int | None]:
+    """path -> its line count on disk, or null where the checkout holds no file.
+
+    Confinement mirrors validate.py's, down to realpath on both sides: this
+    manifest is a prediction of what that validator will say, so a path the two
+    resolve differently is the one path it must not carry a number for.
+
+    Null is not padding: it says the checkout holds no readable file at a path
+    the patch's post-image named, so a range over it would be rejected however
+    it was arrived at. A file the diff deletes is not this case and gets no
+    entry at all -- git writes its post-image as /dev/null, and the patch the
+    pass is reading says so on the same line.
+    """
+    real_root = os.path.realpath(root)
+    counts: dict[str, int | None] = {}
+    for path in paths:
+        target = os.path.realpath(os.path.join(real_root, path))
+        if not target.startswith(real_root + os.sep) or not os.path.isfile(target):
+            counts[path] = None
+            continue
+        try:
+            counts[path] = validate.line_count(target)
+        except OSError:
+            # An unreadable file is one the pass will find unreadable too. The
+            # manifest says so and the run continues; a scope that dies here
+            # would cost the whole review one permission bit.
+            counts[path] = None
+    return counts
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("--repo", required=True)
@@ -460,6 +535,10 @@ def main(argv: list[str]) -> int:
     with open(context, "w", encoding="utf-8") as handle:
         handle.write(patch["text"])
 
+    lines_path = os.path.join(run_dir, "file_lines.json")
+    with open(lines_path, "w", encoding="utf-8") as handle:
+        json.dump(file_lines(root, changed_paths(patch["text"])), handle, indent=2, sort_keys=True)
+
     scope: dict[str, str | int | None] = {
         "repo": os.path.basename(root),
         "mode": args.mode,
@@ -478,6 +557,7 @@ def main(argv: list[str]) -> int:
             "run_dir": run_dir,
             "report_dir": report_dir,
             "context_diff": context,
+            "file_lines": lines_path,
             "latest": os.path.join(report_dir, "latest.html"),
             "scope": scope,
         },

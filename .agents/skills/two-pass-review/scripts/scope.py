@@ -525,10 +525,15 @@ def main(argv: list[str]) -> int:
         if status:
             return status
 
+    # One instant, formatted twice: the directory prefix, and the `now` printed
+    # below for the artifact's `generated_at`. Taking it once means the report's
+    # stamp and its run directory can never name different seconds.
+    pinned_at = datetime.now(timezone.utc)
+
     # mkdtemp creates the directory 0700 and guarantees it is new, so two runs
     # starting in the same second cannot share one and overwrite the diff the
     # other pinned.
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-")
+    stamp = pinned_at.strftime("%Y%m%d-%H%M%S-")
     run_dir = tempfile.mkdtemp(prefix=stamp, dir=report_dir)
 
     context = os.path.join(run_dir, "context.diff")
@@ -556,6 +561,11 @@ def main(argv: list[str]) -> int:
         {
             "run_dir": run_dir,
             "report_dir": report_dir,
+            # The artifact's `generated_at`, so the merge has a clock without
+            # asking a shell for one. It sits outside `scope` deliberately: the
+            # validator closes that object's field set, and this is not a fact
+            # about the range.
+            "now": pinned_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "context_diff": context,
             "file_lines": lines_path,
             "latest": os.path.join(report_dir, "latest.html"),

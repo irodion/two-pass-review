@@ -1296,6 +1296,16 @@ def check_docs_check(
             _nonempty_str(report, at_note, note, "owed_md")
 
 
+def _filled(value: object) -> bool:
+    """A string with something in it -- the bar every path and reason here meets.
+
+    No Report, unlike _nonempty_str beside it: this asks whether a file on disk
+    is the collector's output, and the answer to "no" is to compare nothing,
+    never to report anything about the artifact.
+    """
+    return isinstance(value, str) and bool(value.strip())
+
+
 def _check_against_collection(
     report: Report, at: str, examined: list[Any], skipped: list[Any], collected: object
 ) -> None:
@@ -1313,7 +1323,15 @@ def _check_against_collection(
 
     Anything that is not collect_docs.py's output is not evidence about this
     artifact, so a docs.json of some other shape compares against nothing --
-    the same quiet exit run_sibling takes for a file that is not there.
+    the same quiet exit run_sibling takes for a file that is not there. The
+    guards below are that test, and they have to hold for every entry, because
+    a half-read original is worse than none: a blank path in the file compares
+    against nothing in the artifact and refuses it for omitting '', which is
+    the sibling invalidating the artifact -- the one thing this whole path is
+    not allowed to do -- and it hands the repair loop an instruction it cannot
+    carry out. Every string that is read is required to be a real one; 'bytes'
+    is not required at all, because nothing here reads it and dropping a usable
+    original over an unread field would cost the check that is the point.
     """
     if not isinstance(collected, dict):
         return
@@ -1321,11 +1339,10 @@ def _check_against_collection(
     refused = collected.get("skipped")
     if not isinstance(docs, list) or not isinstance(refused, list):
         return
-    if not all(isinstance(d, dict) and isinstance(d.get("path"), str) for d in docs):
+    if not all(isinstance(d, dict) and _filled(d.get("path")) for d in docs):
         return
     if not all(
-        isinstance(r, dict) and isinstance(r.get("path"), str) and isinstance(r.get("reason"), str)
-        for r in refused
+        isinstance(r, dict) and _filled(r.get("path")) and _filled(r.get("reason")) for r in refused
     ):
         return
 

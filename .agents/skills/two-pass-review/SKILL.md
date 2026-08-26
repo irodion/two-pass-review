@@ -35,6 +35,16 @@ where the request does not determine the range, ask the user which of these they
 python3 <skill-dir>/scripts/scope.py --repo <repo> --base <rev> --mode revisions --head <rev>
 ```
 
+**`--label` is optional, and worth passing whenever the range came from a request rather than a
+revision.** It is one line of at most 120 characters, stored verbatim as `scope.label` and shown in the
+report's run panel as *Requested scope*: `--label 'working tree since 2026-08-25 00:00 +0300'`. It says
+what the request *meant*, which nothing else in `scope` records — two field runs of "changes made
+today" differed by more than three times in files changed, and only a reader who re-derived the git
+commands could see why. Nothing checks it against the range beside it and nothing could, since the
+resolving happened in your conversation; the page presents it as declared provenance, and `base` and
+`head` stay the checkable record. So write what you resolved, not what the user said: a label reading
+"today" is the ambiguity it exists to remove.
+
 It prints JSON holding `run_dir`, `context_diff`, `file_lines`, `now`, `latest` and the resolved
 `scope`. Keep all of them.
 
@@ -213,7 +223,8 @@ Write `<run_dir>/findings.json`:
   duration before you merged: no reader decides anything on that difference, and `base` and `head` are
   what actually date a report. `scope` means the object under the `"scope"` key of what `scope.py`
   printed — the run directory's `scope.json` holds that same object bare, so either source works, but
-  what you embed is the object itself, never a wrapper holding it
+  what you embed is the object itself, never a wrapper holding it — `label` included when the run
+  resolved one, copied like every other key rather than rewritten at the merge
 - `passes` — each pass envelope minus its `schema_version` and `kind`, plus `requested_model` and
   `requested_effort`: what you asked that pass to run on. Write them here and never into a pass's own file
   — you are the only party that knows, because a pass cannot see what served it. Leave either out when you

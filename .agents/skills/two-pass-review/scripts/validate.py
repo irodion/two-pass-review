@@ -945,7 +945,7 @@ def check_run(report: Report, where: str, run: object, version: int) -> None:
         label = scope.get("label")
         if not isinstance(label, str) or not label.strip():
             report.add(at, "'label' must be a non-empty string")
-        elif "\n" in label or len(label) > SCOPE_LABEL_MAX:
+        elif "\n" in label or "\r" in label or len(label) > SCOPE_LABEL_MAX:
             report.add(at, f"'label' must be a single line of at most {SCOPE_LABEL_MAX} characters")
 
     _nonempty_str(report, at, scope, "base")

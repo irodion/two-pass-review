@@ -177,6 +177,13 @@ Its instruction is to falsify, never verify:
   quoting the diff's own words, because the reason is what the reader and the verifying agent
   adjudicate with and a bare id hands them nothing to weigh.
 
+**A contest is attached even when you judge it mistaken.** You are not the adjudicator here, and neither
+is the check: a contest that misreads the finding, or one that argues *for* the finding it nominally
+contests, is written onto the finding as `contested_md` like any other. Dropping the ones that look wrong
+is the withdrawal era returning through the orchestrator, and it costs the reader the thing that ended it
+— the reader and the verifying agent hold both arguments and decide. A wrong contest is a near-free
+annotation on a card. A dropped one is a check that silently did not run.
+
 **Fail open.** If no JSON array can be extracted from the reply, nothing is contested — this check must
 never cost a true finding — and `run.falsification` records `"failed"`, because a reply nobody could
 read is not a check that held. Write each entry's reason onto its finding as `contested_md` in the

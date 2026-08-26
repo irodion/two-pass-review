@@ -77,7 +77,10 @@ It prints JSON holding `run_dir`, `context_diff`, `file_lines`, `now`, `latest` 
 
 - **Exit 3** means the diff is large. Tell the user how large and ask. If they want it, add
   `--confirm-large`. It is never split into batches: both passes must see one identical input, or
-  corroboration has nothing to compare across.
+  corroboration has nothing to compare across. **A re-run of a scope the user already confirmed carries
+  that confirmation forward** — when they ask for the same range again, re-pass the flag without
+  asking twice about a size they have already accepted. A *different* range is a new question, however
+  small the difference.
 - **A warning on stderr about file headers it could not read** is not a failure and does not end
   anything: the run resolved, and `file_lines.json` is short by that many entries, which costs the
   passes a convenience and costs the review nothing. Pass it on when you report, and treat it as a bug

@@ -509,11 +509,18 @@ def render_run_panel(run: dict[str, Any], passes: list[dict[str, Any]]) -> str:
     )
     if scope.get("label"):
         # Said plainly because nothing checks it. The label is how the run
-        # described its own request, written by whoever resolved it; base and
-        # head are what git actually diffed, and only those two are evidence.
+        # described its own request, written by whoever resolved it; what git
+        # actually diffed is the evidence. Named per scope mode, because a local
+        # patch diffs one commit against the working tree and renders no Head
+        # row -- pointing at "head" there names a row that is not on the page.
+        diffed = (
+            "the base above and the working tree"
+            if scope["mode"] == "local-patch"
+            else "the base and head above"
+        )
         note += (
             " The requested scope is how this run was described, not a checked claim &mdash; "
-            "the base and head above are what was diffed."
+            f"{diffed} are what was diffed."
         )
     if recorded:
         note += " Model and effort are what this run asked for, not a measurement."

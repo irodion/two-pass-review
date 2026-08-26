@@ -132,9 +132,12 @@ loudly they shout, derived from severity for security findings and from category
   not read like one where something tried and everything held. (Reports from older runs may instead
   show a *withdrawn* section; that was this check's earlier, harsher form.)
 - **What the run was pointed at is in the sidebar**, under `Run`: repository, scope mode, the two object
-  ids, the diff size, and the model and effort when the run chose them. They are what was asked for
-  rather than a measurement — nothing in the pipeline can confirm which model answered — and the page
-  says so. Anything that reduces what the report is worth goes the other way, into the masthead above the
+  ids, the diff size, the model and effort when the run chose them, and — when the range came from a
+  request rather than a revision — the request in words, as *Requested scope*: `working tree since
+  2026-08-25 00:00 +0300`, so "review today's changes" leaves a record of which midnight in which
+  timezone it turned out to mean. They are what was asked for rather than a measurement — nothing in the
+  pipeline can confirm which model answered, and nothing can confirm a description of a range against the
+  range — and the page says so; the two object ids remain what was actually diffed. Anything that reduces what the report is worth goes the other way, into the masthead above the
   findings: untracked files that were never diffed, a sequential run, or two passes asked for different
   tiers, because corroboration counts for less between passes that were not peers.
 - **Cross-references are live links.** When a pass writes "same root cause as sec-2", that is a link.

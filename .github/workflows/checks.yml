@@ -56,8 +56,14 @@ jobs:
           S=.agents/skills/two-pass-review/scripts
           # The whole of scope: git plumbing, the timestamped run dir, JSON out.
           python -W error::DeprecationWarning -W error::SyntaxWarning \
-                 "$S/scope.py" --repo . --base HEAD~1 --mode revisions --head HEAD > scope.json
-          python -c "import json,sys; d=json.load(open('scope.json')); sys.exit(0 if d['scope']['files_changed'] else 1)"
+                 "$S/scope.py" --repo . --base HEAD~1 --mode revisions --head HEAD \
+                 --label 'the last commit, for CI' > scope.json
+          # files_changed proves the range resolved; label proves --label is
+          # carried verbatim into the scope object rather than merely parsed.
+          # An echo of the string is the whole contract -- nothing derives it,
+          # so a check that only looked for the key would pass on a run that
+          # stored the wrong one.
+          python -c "import json,sys; d=json.load(open('scope.json')); sys.exit(0 if d['scope']['files_changed'] and d['scope']['label'] == 'the last commit, for CI' else 1)"
           # Doc collection over the same real range. The assertion is on
           # README.md because this repository certainly has one: an empty list
           # here means the collector stopped finding anything, not that there

@@ -448,6 +448,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--base", required=True)
     parser.add_argument("--mode", required=True, choices=("revisions", "local-patch"))
     parser.add_argument("--head")
+    parser.add_argument("--label")
     parser.add_argument("--confirm-large", action="store_true")
     try:
         args = parser.parse_args(argv[1:])
@@ -461,6 +462,21 @@ def main(argv: list[str]) -> int:
     if code != 0:
         return fail(f"{repo} is not inside a git repository")
     root = root.strip()
+
+    # Refused here rather than left for the validator, which would only see it
+    # after both passes had run on a pinned diff: this is a bad invocation, and
+    # the bad-invocation exit is what the caller can still act on. The rule is
+    # validate.py's, imported rather than restated, so the two cannot drift.
+    if args.label is not None and not args.label.strip():
+        return fail("--label needs a value; leave the flag off when the run has no label", 2)
+    if args.label is not None and (
+        "\n" in args.label or len(args.label) > validate.SCOPE_LABEL_MAX
+    ):
+        return fail(
+            f"--label must be a single line of at most {validate.SCOPE_LABEL_MAX} characters -- "
+            "it names what the request meant, in the report's run panel, and does not argue it",
+            2,
+        )
 
     if args.mode == "revisions" and not args.head:
         return fail("--head is required under scope mode 'revisions'", 2)
@@ -555,11 +571,21 @@ def main(argv: list[str]) -> int:
     scope: dict[str, str | int | None] = {
         "repo": os.path.basename(root),
         "mode": args.mode,
-        "base": base,
-        "head": head,
-        "files_changed": patch["files"],
-        "diff_bytes": patch["bytes"],
     }
+    # Verbatim, and only when given. It says what the request *meant* -- "working
+    # tree since 2026-08-25 00:00 +0300" -- which nothing else in this object
+    # records: two runs of "changes made today" differed by 3.5x in files, and
+    # only a reader who re-derives the git commands could see why. Nothing here
+    # checks it against the range beside it, and nothing could: the resolution
+    # happened in the conversation, above this script. It is declared
+    # provenance, the page presents it as such, and the resolved base and head
+    # remain the checkable record.
+    if args.label is not None:
+        scope["label"] = args.label
+    scope["base"] = base
+    scope["head"] = head
+    scope["files_changed"] = patch["files"]
+    scope["diff_bytes"] = patch["bytes"]
     if patch["untracked"] is not None:
         scope["untracked"] = patch["untracked"]
     with open(os.path.join(run_dir, "scope.json"), "w", encoding="utf-8") as handle:

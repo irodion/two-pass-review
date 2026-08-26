@@ -148,8 +148,14 @@ SELF_CHECK_FIELDS = frozenset(["question", "answer_md", "anchors"])
 # Enough to prompt reflection, few enough that the reader is not being examined.
 SELF_CHECK_MAX = 4
 SCOPE_FIELDS = frozenset(
-    ["repo", "mode", "base", "head", "files_changed", "diff_bytes", "untracked"]
+    ["repo", "mode", "label", "base", "head", "files_changed", "diff_bytes", "untracked"]
 )
+# A scope label is one line naming what the request meant, not a paragraph
+# arguing it. Longer than a tier because it carries a date, a time and an
+# offset -- "working tree since 2026-08-25 00:00 +0300" is already 41 -- and
+# capped for the same reason TIER_MAX is: it renders into the run panel's
+# grid, and nothing downstream trusts it further than escaping it.
+SCOPE_LABEL_MAX = 120
 
 
 class Report:
@@ -927,6 +933,21 @@ def check_run(report: Report, where: str, run: object, version: int) -> None:
     _check_unknown(report, at, scope, SCOPE_FIELDS, "scope")
     _nonempty_str(report, at, scope, "repo")
     scope_mode = _enum(report, at, scope, "mode", SCOPE_MODES)
+
+    # Optional, and unchecked against the range beside it on purpose. The label
+    # says what the user asked for -- "changes made today" resolved to a
+    # timezone and a midnight -- and that resolution happened in the
+    # conversation, where no validator was present. Nothing here can confirm it,
+    # so the only thing worth refusing is a value the page cannot render as one
+    # line. Absent, not null, when the run had none: a scope with no label is a
+    # scope nobody described, which is what every run before this field was.
+    if "label" in scope:
+        label = scope.get("label")
+        if not isinstance(label, str) or not label.strip():
+            report.add(at, "'label' must be a non-empty string")
+        elif "\n" in label or len(label) > SCOPE_LABEL_MAX:
+            report.add(at, f"'label' must be a single line of at most {SCOPE_LABEL_MAX} characters")
+
     _nonempty_str(report, at, scope, "base")
     _int(report, at, scope, "files_changed")
     _int(report, at, scope, "diff_bytes")

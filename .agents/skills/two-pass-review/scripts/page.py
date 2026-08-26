@@ -454,8 +454,14 @@ def render_run_panel(run: dict[str, Any], passes: list[dict[str, Any]]) -> str:
         ("Repository", esc(scope["repo"]), True),
         ("Scope mode", esc(SCOPE_MODE_LABEL.get(scope["mode"], scope["mode"])), False),
         ("Files changed", esc(scope["files_changed"]), False),
-        ("Base", '<span class="chip">{}</span>'.format(esc(scope["base"])), True),
     ]
+    # Above the resolved range, because it is the request the range came from,
+    # and full width because it is a sentence rather than a value. Only when
+    # the run recorded one: an unlabelled run has nothing to say here, and an
+    # empty row would read as a description somebody failed to write.
+    if scope.get("label"):
+        rows.append(("Requested scope", esc(scope["label"]), True))
+    rows.append(("Base", '<span class="chip">{}</span>'.format(esc(scope["base"])), True))
     if scope.get("head"):
         rows.append(("Head", '<span class="chip">{}</span>'.format(esc(scope["head"])), True))
     rows.append(("Diff size", "{:,} bytes".format(scope["diff_bytes"]), False))
@@ -501,6 +507,14 @@ def render_run_panel(run: dict[str, Any], passes: list[dict[str, Any]]) -> str:
         "A finding may cite a file the diff never touched &mdash; or one a remedy proposes and nothing "
         "has written yet."
     )
+    if scope.get("label"):
+        # Said plainly because nothing checks it. The label is how the run
+        # described its own request, written by whoever resolved it; base and
+        # head are what git actually diffed, and only those two are evidence.
+        note += (
+            " The requested scope is how this run was described, not a checked claim &mdash; "
+            "the base and head above are what was diffed."
+        )
     if recorded:
         note += " Model and effort are what this run asked for, not a measurement."
     return (

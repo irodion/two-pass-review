@@ -30,6 +30,33 @@ where the request does not determine the range, ask the user which of these they
 | one commit | `--mode revisions --base <commit>^ --head <commit>` |
 | this branch against another | `--mode revisions --base $(git merge-base <other> HEAD) --head HEAD` |
 | uncommitted work | `--mode local-patch --base HEAD` |
+| changes since a date | `--base $(git rev-list -1 --first-parent --before=<second before the cutoff> HEAD)` |
+
+A date — "changes made today", "since Monday" — is two questions, and **both are the user's**: the same
+never-guess rule the base lives under. **Which timezone the date means**: `--before` reads the machine's,
+and a review of "today" run at 09:00 in one zone is a different range than in another; ask, never infer.
+And **which mode**: `--mode local-patch` reviews the working tree as it stands since that point, `--mode
+revisions --head HEAD` reviews only what was committed.
+
+**`--first-parent` is not optional there.** Without it `rev-list` searches every commit reachable from
+`HEAD` and returns the newest one before the cutoff, wherever it sits — so a branch that merged an older
+side branch after midnight resolves its base to that side branch's tip, and the range flips to the wrong
+side of the merge: it picks up commits from *before* the cutoff and drops the side branch's files, which
+landed on this branch today, from the review entirely. With `--first-parent` the search stays on the
+reviewed branch's own history, and the range is everything that arrived on it since the cutoff, merged
+work included — which is what "changes since" means. On a branch with no merges the flag changes nothing.
+
+**The cutoff is the second before midnight, not midnight.** `--before` is inclusive, so a cutoff of
+`00:00:00` selects a commit made at exactly that instant *as the base* — and a range excludes its own
+base, so that commit drops out of the review with nothing on the page saying so. It is not as unlikely as
+it sounds: commit times are not spread evenly through the day, and a nightly job commits at exactly
+midnight every night. Committer dates are whole seconds, so `23:59:59` on the day before is not an
+approximation of "strictly before midnight" — no commit can sit between the two, and the ranges are the
+same set.
+
+Resolve the cutoff yourself, hand `scope.py` the commit, and record what you resolved as `--label` below
+— the script owns no date arithmetic and no timezone policy, because a script that guessed either would
+be guessing a base by another route.
 
 ```
 python3 <skill-dir>/scripts/scope.py --repo <repo> --base <rev> --mode revisions --head <rev>

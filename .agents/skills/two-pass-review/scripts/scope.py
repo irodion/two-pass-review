@@ -470,7 +470,7 @@ def main(argv: list[str]) -> int:
     if args.label is not None and not args.label.strip():
         return fail("--label needs a value; leave the flag off when the run has no label", 2)
     if args.label is not None and (
-        "\n" in args.label or len(args.label) > validate.SCOPE_LABEL_MAX
+        "\n" in args.label or "\r" in args.label or len(args.label) > validate.SCOPE_LABEL_MAX
     ):
         return fail(
             f"--label must be a single line of at most {validate.SCOPE_LABEL_MAX} characters -- "

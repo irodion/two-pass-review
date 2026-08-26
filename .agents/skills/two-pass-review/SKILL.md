@@ -35,7 +35,7 @@ where the request does not determine the range, ask the user which of these they
 A date — "changes made today", "since Monday" — is two questions, and **both are the user's**: the same
 never-guess rule the base lives under. **Which timezone the date means**: `--before` reads the machine's,
 and a review of "today" run at 09:00 in one zone is a different range than in another; ask, never infer.
-And **which mode**: `--mode local-patch` reviews the working tree as it stands since that point, `--mode
+And **which scope mode**: `--mode local-patch` reviews the working tree as it stands since that point, `--mode
 revisions --head HEAD` reviews only what was committed.
 
 **`--first-parent` is not optional there.** Without it `rev-list` searches every commit reachable from

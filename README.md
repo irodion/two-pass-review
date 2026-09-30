@@ -15,13 +15,15 @@ was forked, what changed, and what was read but not copied.
 Everything lives under `.agents/skills/two-pass-review/`. `SKILL.md` is the orchestrator; `references/`
 holds the two forked rubrics; `scripts/` holds the pipeline.
 
-The pipeline is three steps, and each one refuses to paper over the step before it. **Scope** pins one
+The pipeline is four steps, and each one refuses to paper over the step before it. **Scope** pins one
 diff to disk, so both passes read an identical input and corroboration has something to compare across,
 and hands them a tree whose files match it — the reviewed head checked out beside your work when your
-checkout holds something else. The **validator** stands between the passes and the page: it checks the rules that would let the artifact
-lie — chiefly that the verdict agrees with the list beneath it — and nothing invalid is ever rendered.
-The **renderer** turns the merged artifact into the page, and calls the validator itself rather than
-trusting whoever invoked it.
+checkout holds something else. The **merge** copies both passes' findings into one artifact by script,
+so nothing a pass wrote is retyped, and the orchestrator supplies only the judgment: which findings
+corroborate each other. The **validator** stands between the passes and the page: it checks the rules
+that would let the artifact lie — chiefly that the verdict agrees with the list beneath it — and nothing
+invalid is ever rendered. The **renderer** turns the merged artifact into the page, and calls the
+validator itself rather than trusting whoever invoked it.
 
 No dependencies, no network, no build step: the scripts want a `python3` of 3.10 or newer and nothing
 else. The report is one self-contained file — no sibling assets, no embedded JSON, nothing fetched —

@@ -20,7 +20,7 @@ diff to disk, so both passes read an identical input and corroboration has somet
 and hands them a tree whose files match it — the reviewed head checked out beside your work when your
 checkout holds something else. The **merge** copies both passes' findings into one artifact by script,
 so nothing a pass wrote is retyped, and the orchestrator supplies only the judgment: which findings
-corroborate each other. The **validator** stands between the passes and the page: it checks the rules
+corroborate each other, and, optionally, the self-check questions for the reader. The **validator** stands between the passes and the page: it checks the rules
 that would let the artifact lie — chiefly that the verdict agrees with the list beneath it — and nothing
 invalid is ever rendered. The **renderer** turns the merged artifact into the page, and calls the
 validator itself rather than trusting whoever invoked it.
@@ -111,7 +111,9 @@ the merge weighs which of them corroborate each other; none of that is a lookup,
 cheaper review in the sense that matters. The skill deliberately does not pin a level of its own, because
 a pin that raised a low session would equally drag down one you had set high on purpose.
 
-You get back two things: the verdict, and the path to the report.
+You get back three things: the verdict, the path to the report, and any warning the run produced — a
+pass that died, a check that was skipped or could not be read, a script that complained without
+failing. The findings themselves are in the report, not repeated in the transcript.
 
 ## Reading the report
 

@@ -4,15 +4,16 @@
 Usage:
     collect_docs.py --repo PATH --diff CONTEXT_DIFF
 
-Prints JSON, and writes the same bytes to docs.json beside the diff:
+Writes docs.json beside the diff, and prints the same bytes:
 
     {"docs": [{"path": ..., "bytes": ...}], "skipped": [{"path": ..., "reason": ...}]}
 
-The file exists because the merge has to put both lists into the artifact, and
-copying a file is checkable where retyping a printed fragment is not: with
-docs.json beside it, validate.py refuses an artifact whose stated coverage
-disagrees with what was collected. The diff's directory is the run directory,
-which is where the artifact lands too.
+The file is the collection, not a record of it. The docs-check subagent reads
+its list of documents from it, and merge.py copies both lists into the
+artifact from it -- so a run that cannot write it has no docs check, and this
+exits non-zero rather than print a collection nothing downstream will read.
+The diff's directory is the run directory, which is where the artifact lands
+too.
 
 The docs check asks whether any instruction document a coding agent reads --
 AGENTS.md, CLAUDE.md, a README -- states something the pinned diff makes false.
@@ -29,8 +30,8 @@ case: these conventions are literal file names agents look up, and a fuzzy
 match would collect files no agent actually reads.
 
 Exit 0 with an empty list is an answer -- a repository with no such documents
-has nothing to check. Exit 2 is an operator error: a repo that is not a
-directory, a diff that is not a file.
+has nothing to check. Exit 1 is docs.json that could not be written. Exit 2 is
+an operator error: a repo that is not a directory, a diff that is not a file.
 """
 
 import argparse
@@ -190,22 +191,18 @@ def main(argv: list[str]) -> int:
     printed = json.dumps(result, indent=2) + "\n"
 
     # One string, written twice: the file cannot drift from what was printed,
-    # because there is nothing to drift -- the merge may copy either.
+    # because there is nothing to drift. The file first, because it is what
+    # the run reads; a collection only printed is one nothing downstream sees.
     manifest = os.path.join(os.path.dirname(diff), "docs.json")
     try:
         with open(manifest, "w", encoding="utf-8") as handle:
             handle.write(printed)
     except OSError as error:
-        # Not fatal, and deliberately not an exit status: the collection is
-        # what the check reads, and it is on stdout regardless. What the run
-        # loses is the validator's cross-check of the artifact's coverage
-        # claim against this file -- back to the retyping this replaced, so
-        # say so rather than let the check quietly stop existing.
         sys.stderr.write(
-            f"Warning: could not write docs.json: {error}.\nThe collection is unaffected and is "
-            "printed as always -- what is lost is validate.py's\ncheck that the artifact states "
-            "the coverage that was actually collected.\n"
+            f"could not write docs.json: {error}. The docs check reads its documents from that "
+            "file, so without it there is no docs check -- merge with --docs-check skipped\n"
         )
+        return 1
 
     sys.stdout.write(printed)
     return 0

@@ -362,9 +362,9 @@ def main(argv: list[str]) -> int:
         collection = read_collection(run_dir)
         if collection is None:
             return refuse(
-                "--docs-check ran, but the run directory holds no docs.json -- run "
-                "collect_docs.py again, then merge. If it still cannot write the file, merge with "
-                "--docs-check skipped"
+                "--docs-check ran, but the run directory holds no docs.json. collect_docs.py "
+                "writes it and the docs check reads its documents from it, so a run without it "
+                "had no docs check -- merge with --docs-check skipped"
             )
         examined, refused = collection
     docs_state, notes, problem = check_state(

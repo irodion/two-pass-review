@@ -65,12 +65,20 @@ where the request does not determine the range, ask the user which of these they
 |---|---|
 | a pull request | `--mode revisions --base <merge-base of the PR> --head <PR head>` |
 | one commit | `--mode revisions --base <commit>^ --head <commit>` |
-| this branch against another | `--mode revisions --base $(git merge-base <other> HEAD) --head HEAD` |
+| this branch against another | `--mode revisions --base $(git merge-base origin/<other> HEAD) --head HEAD` |
 | uncommitted work | `--mode local-patch --base HEAD` |
 | changes since a date | `--base $(git rev-list -1 --first-parent --before=<second before the cutoff> HEAD)` |
 
 A pull request does not need to be checked out, but its head commit has to exist locally — fetch it
 first if it does not (`git fetch origin pull/<number>/head` on GitHub).
+
+**The other branch is the remote's, fetched.** Run `git fetch origin <other>` and take the merge-base
+with `origin/<other>`, not with a local branch of the same name: a local `main` nobody has pulled lags
+the one the branch will merge into, and a base taken from it reaches back past work that is already
+merged, so the passes review it again. A run of this skill on its own branch reviewed nine commits
+where three were new, because local `main` was six behind. When the local branch and `origin/<other>`
+differ, say which one the range used, in `--label` and when you report. Use the local branch only
+when the user asks for it, or when there is no remote.
 
 A date — "changes made today", "since Monday" — is two questions, and **both are the user's**: the same
 never-guess rule the base lives under. **Which timezone the date means**: `--before` reads the machine's,

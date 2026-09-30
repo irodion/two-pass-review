@@ -73,10 +73,10 @@ jobs:
                  "$S/collect_docs.py" --repo . \
                  --diff "$(python -c "import json;print(json.load(open('scope.json'))['context_diff'])")" > docs.json
           python -c "import json,sys; d=json.load(open('docs.json')); sys.exit(0 if any(x['path']=='README.md' for x in d['docs']) else 1)"
-          # The same bytes have to reach the run directory: that copy is what
-          # validate.py checks an artifact's stated coverage against, and a
-          # collector that printed without writing would fail nothing here
-          # while the cross-check quietly stopped existing everywhere.
+          # The same bytes have to reach the run directory: that file is what
+          # the docs check reads its documents from and what merge.py copies
+          # into the artifact, and a collector that printed without writing
+          # would fail nothing here while the docs check stopped existing.
           cmp "$(python -c "import json;print(json.load(open('scope.json'))['run_dir'])")/docs.json" docs.json
           # A range whose head is not what is checked out has to be read from a
           # checkout of that head, or the passes and every line range are about
@@ -141,6 +141,14 @@ jobs:
           expect_refusal "Refusing to render an invalid artifact" \
               python -W error::DeprecationWarning -W error::SyntaxWarning \
                      "$S/render.py" does-not-exist.json --no-open
+          # And the collector's: it writes docs.json beside the diff, and a
+          # directory it cannot write to has to stop the docs check rather than
+          # leave a collection only on stdout, where nothing downstream reads.
+          mkdir -p no-write && cp "$run_dir/context.diff" no-write/ && chmod a-w no-write
+          expect_refusal "could not write docs.json" \
+              python -W error::DeprecationWarning -W error::SyntaxWarning \
+                     "$S/collect_docs.py" --repo . --diff no-write/context.diff
+          chmod u+w no-write
           # --repo actually reaching the location check, which the refusals
           # above cannot show: a missing file is refused before validation
           # looks at a single location, so those two would pass unchanged if

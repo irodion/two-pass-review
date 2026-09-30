@@ -203,15 +203,12 @@ Collect the documents first, deterministically:
 python3 <skill-dir>/scripts/collect_docs.py --repo <repo_root> --diff <context_diff>
 ```
 
-It prints the documents to hand over, and the ones it refused with reasons — a size ceiling, a symlink
-escaping the checkout — and writes the same JSON to `<run_dir>/docs.json`. The subagent reads nothing
-that file does not list: a checker that picks its own inputs is a checker whose coverage nobody can
-state. `merge.py` copies both lists into the artifact from that file, and `validate.py` refuses an
-artifact that disagrees with it, because the lists reach the page as the report's coverage claim.
-**A warning on stderr about writing that file is not a failure** and does not end anything: what the
-script printed is still the collection, and the run loses only the merge's copy of it. `merge.py`
-needs that file to state the check's coverage, so run the collector again; if `docs.json` still cannot be
-written, merge with `--docs-check skipped`, because coverage nobody can check is not recorded as read.
+It writes `<run_dir>/docs.json` — the documents to hand over, and the ones it refused with reasons, a
+size ceiling or a symlink escaping the checkout — and prints the same JSON. The subagent reads its
+documents from that file and nothing else: a checker that picks its own inputs is a checker whose
+coverage nobody can state. `merge.py` copies both lists into the artifact from it, because they reach
+the page as the report's coverage claim. **When `collect_docs.py` fails, start no docs-check subagent,
+and merge with `--docs-check skipped`.**
 
 Start the docs check with its prompt from [`references/prompts.md`](references/prompts.md). It is handed
 `context.diff` and `docs.json`, reads the documents that file lists, and writes its notes to

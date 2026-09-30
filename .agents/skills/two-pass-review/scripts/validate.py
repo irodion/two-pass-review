@@ -14,8 +14,8 @@ or the merged artifact on its own:
 
 Where the run directory that produced an artifact still holds the files the
 scripts wrote into it, they are read as evidence about it -- today that is
-collect_docs.py's docs.json, which the artifact's docs-check coverage is a
-copy of. A file that is not there means the check does not run; it never
+collect_docs.py's docs.json, which the artifact's docs-check coverage was
+copied from. A file that is not there means the check does not run; it never
 means the artifact is invalid. See run_sibling.
 
 With --repo, each finding's locations are also checked against the checkout.
@@ -772,12 +772,16 @@ def run_sibling(artifact: str, name: str) -> object:
     """A file the run directory holds beside the artifact, or None.
 
     scope.py and collect_docs.py both write what they resolved into the run
-    directory the artifact is later written into, so the values the merge was
-    told to embed are on disk next to the thing that embeds them. Where they
-    are, a claim the artifact makes about its own inputs can be checked
-    instead of trusted -- which is the whole point, because the merge reaches
-    the artifact by a model copying JSON, and nothing else can catch a slip
-    there.
+    directory the artifact is later written into, so the values the merge
+    embedded are on disk next to the thing that embeds them. Where they are, a
+    claim the artifact makes about its own inputs can be checked instead of
+    trusted.
+
+    merge.py copies those values by script, so a fresh merge agrees with them
+    by construction, and this is not what protects it. What it protects is the
+    artifact afterwards: a findings.json edited by hand or by a model
+    repairing it, and an artifact merged before merge.py existed, when a model
+    copied the values and nothing else could catch a slip.
 
     Quietly optional, and this is the load-bearing half. An artifact is
     re-rendered long after its temp directory is swept, and the documented
@@ -1270,8 +1274,8 @@ def check_docs_check(
     record of a repository with nothing to check.
 
     'collected' is collect_docs.py's own docs.json where the run directory
-    still holds it -- see _check_against_collection, which is what turns that
-    honesty from a rule the merge is asked to follow into one it is held to.
+    still holds it -- see _check_against_collection, which holds the artifact
+    to it whoever last wrote the artifact.
     """
     at = f"{where} docs_check"
     if not isinstance(docs_check, dict):
@@ -1381,10 +1385,10 @@ def _check_against_collection(
 
     'examined' and 'skipped' are collect_docs.py's two lists, carried into the
     artifact by the merge. The collector is deterministic and wrote them to
-    docs.json on its way past, so the copy has an original to be checked
-    against -- and it needs one: the report's coverage claim is the reason the
-    collector exists, and a hand-copied claim about what a checker read is
-    exactly the kind nobody can audit. A path dropped here overstates nothing
+    docs.json, so the copy has an original to be checked against -- and the
+    report's coverage claim is the reason the collector exists. merge.py
+    copies them by script; this holds an artifact to them after the merge,
+    once anything else has touched it (see run_sibling). A path dropped here overstates nothing
     and understates coverage; one added claims a document was read that was
     never handed over; a rewritten reason has the page give the wrong account
     of why something went unread. All three are silent on the page.

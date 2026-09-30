@@ -32,6 +32,9 @@ where the request does not determine the range, ask the user which of these they
 | uncommitted work | `--mode local-patch --base HEAD` |
 | changes since a date | `--base $(git rev-list -1 --first-parent --before=<second before the cutoff> HEAD)` |
 
+A pull request does not need to be checked out, but its head commit has to exist locally — fetch it
+first if it does not (`git fetch origin pull/<number>/head` on GitHub).
+
 A date — "changes made today", "since Monday" — is two questions, and **both are the user's**: the same
 never-guess rule the base lives under. **Which timezone the date means**: `--before` reads the machine's,
 and a review of "today" run at 09:00 in one zone is a different range than in another; ask, never infer.
@@ -72,8 +75,18 @@ resolving happened in your conversation; the page presents it as declared proven
 `head` stay the checkable record. So write what you resolved, not what the user said: a label reading
 "today" is the ambiguity it exists to remove.
 
-It prints JSON holding `run_dir`, `context_diff`, `file_lines`, `now`, `latest` and the resolved
-`scope`. Keep all of them.
+It prints JSON holding `repo_root`, `worktree`, `run_dir`, `context_diff`, `file_lines`, `now`, `latest`
+and the resolved `scope`. Keep all of them.
+
+**The review tree.** The diff compares two commits, but the passes read files, and `validate.py` checks
+every line range against files — so the files have to be the reviewed head's. When your checkout is
+already exactly the head, with no uncommitted change to a tracked file, it is read in place:
+`repo_root` is the checkout and `worktree` is null. Otherwise — a pull request you have not checked
+out, a commit that is not `HEAD`, uncommitted edits — `scope.py` checks the head out into a worktree
+inside the run directory and prints that path as both `repo_root` and `worktree`, to be removed once
+the report is rendered. Either way, `repo_root` is the one tree whose files match the diff, so the
+passes, the docs check and every script get it and nothing else — never the directory you started in.
+A local patch is always read in place: it *is* the working tree.
 
 - **Exit 3** means the diff is large. Tell the user how large and ask. If they want it, add
   `--confirm-large`. It is never split into batches: both passes must see one identical input, or
@@ -85,7 +98,8 @@ It prints JSON holding `run_dir`, `context_diff`, `file_lines`, `now`, `latest` 
   anything: the run resolved, and `file_lines.json` is short by that many entries, which costs the
   passes a convenience and costs the review nothing. Pass it on when you report, and treat it as a bug
   in the skill rather than a problem with the user's repository.
-- **Exit 2 or 4** ends the run here, with no report. A local patch that resolves to nothing usually means
+- **Exit 2 or 4** ends the run here, with no report — exit 4 also when the reviewed head could not be
+  checked out. A local patch that resolves to nothing usually means
   the work is in files git has never been told about — say so.
 
 ## 2. Run the two passes
@@ -112,18 +126,19 @@ independently, and that is evidence only while they were peers — a cheap pass 
 one is not a second opinion. If the user asks for a split anyway, run it and tell them which pass got what.
 Never arrive at one yourself.
 
-Give each pass exactly five things, and let it read the repository for itself:
+Give each pass exactly six things, and let it read the repository for itself:
 
 1. its rubric, as the whole of its instructions
-2. the path to `context.diff`
-3. the path to `file_lines.json`, which `scope.py` wrote beside it
-4. the `run_dir` to write into
-5. the command that validates its files, with the reviewed checkout named so locations are checked
-   against real files: `python3 <skill-dir>/scripts/validate.py --repo <repo> <its two files>`
+2. `repo_root`, the review tree it reads — say that it may not be the directory the pass started in
+3. the path to `context.diff`
+4. the path to `file_lines.json`, which `scope.py` wrote beside it
+5. the `run_dir` to write into
+6. the command that validates its files, with the review tree named so locations are checked
+   against real files: `python3 <skill-dir>/scripts/validate.py --repo <repo_root> <its two files>`
 
-The third exists so no pass has to shell out to learn how long a file is. It maps every path the diff's
-post-image names to that file's line count in the reviewed checkout, counted by the same code the
-validator checks ranges with, and `null` where the checkout holds no readable file there. It is a
+The fourth exists so no pass has to shell out to learn how long a file is. It maps every path the diff's
+post-image names to that file's line count in the review tree, counted by the same code the
+validator checks ranges with, and `null` where the tree holds no readable file there. It is a
 bound, not a substitute for reading: it says where a file ends, never which lines the finding is about.
 
 Each pass owns its output contract; it is written into the rubric and needs no repeating here.
@@ -204,7 +219,7 @@ reads state something this diff makes false, or omit something the diff now owes
 Collect the documents first, deterministically:
 
 ```
-python3 <skill-dir>/scripts/collect_docs.py --repo <repo> --diff <context_diff>
+python3 <skill-dir>/scripts/collect_docs.py --repo <repo_root> --diff <context_diff>
 ```
 
 It prints the documents to hand over, and the ones it refused with reasons — a size ceiling, a symlink
@@ -336,8 +351,8 @@ are the only party that has read the diff, both pass files, and what the merge s
 ## 4. Render and deliver
 
 ```
-python3 <skill-dir>/scripts/validate.py --repo <repo> <run_dir>/findings.json
-python3 <skill-dir>/scripts/render.py --repo <repo> <run_dir>/findings.json --latest <latest>
+python3 <skill-dir>/scripts/validate.py --repo <repo_root> <run_dir>/findings.json
+python3 <skill-dir>/scripts/render.py --repo <repo_root> <run_dir>/findings.json --latest <latest>
 ```
 
 Both commands take `--repo`, and both want it. `render.py` validates before it writes and refuses to
@@ -346,6 +361,13 @@ so the render does not depend on the line above it having run. It always prints 
 path, and tries to open the report in a browser — a best effort that stays silent when it fails, because
 the printed path is the mechanism and the open is the convenience. Nothing reports back whether a window
 appeared, so never say one did.
+
+Then, if `scope.py` printed a `worktree`, remove it — the report and the artifact live in the run
+directory, not in the worktree, and a full checkout left in the temp directory is only disk:
+
+```
+git -C <worktree> worktree remove --force <worktree>
+```
 
 **Then tell the user two things: the verdict, and where the report is.** Nothing else. Do not summarise
 the findings in the transcript — reproducing the review in prose is the thing this skill exists to
@@ -363,6 +385,8 @@ You are the error handler. There is no status field, no retry protocol and no de
   renders one pass, and the absence is visible on the page with nothing added to the schema. Say which
   pass died, and offer to re-run just that one — each pass is independently re-runnable against the same
   pinned `context.diff`.
+- **A run that ends early still removes its worktree**, when `scope.py` printed one — the removal is not
+  conditional on a report.
 
 ## Re-rendering
 

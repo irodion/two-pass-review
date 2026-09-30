@@ -30,8 +30,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # scope.py resolves a real revision range below, so HEAD~1 has to exist.
-          fetch-depth: 2
+          # scope.py resolves real revision ranges below: HEAD~1..HEAD, and
+          # HEAD~2..HEAD~1, whose head is not the checkout.
+          fetch-depth: 3
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
@@ -77,6 +78,16 @@ jobs:
           # collector that printed without writing would fail nothing here
           # while the cross-check quietly stopped existing everywhere.
           cmp "$(python -c "import json;print(json.load(open('scope.json'))['run_dir'])")/docs.json" docs.json
+          # A range whose head is not what is checked out has to be read from a
+          # checkout of that head, or the passes and every line range are about
+          # the wrong files. CI has HEAD checked out, so HEAD~1 as the head needs
+          # the review worktree -- and the worktree has to hold that commit.
+          python -W error::DeprecationWarning -W error::SyntaxWarning \
+                 "$S/scope.py" --repo . --base HEAD~2 --mode revisions --head HEAD~1 > scope-tree.json
+          tree=$(python -c "import json;print(json.load(open('scope-tree.json'))['worktree'])")
+          test -d "$tree"
+          test "$(git -C "$tree" rev-parse HEAD)" = "$(git rev-parse HEAD~1)"
+          git -C "$tree" worktree remove --force "$tree"
           # Both refuse-and-explain paths, which is where argparse and the error
           # formatting live.
           #

@@ -13,8 +13,10 @@ ladder here, and no `main` fallback.
 Both revision modes take resolved-or-symbolic revisions and record the resolved
 SHAs, because a report saying `main...HEAD` is ambiguous the moment `main` moves.
 
-Prints a JSON object describing the run to stdout. Flags are internal surface,
-invoked by SKILL.md; natural language is what the user types.
+Prints a JSON object describing the run to stdout. Its `repo_root` is the tree
+the rest of the run reads -- the checkout, or a worktree at the reviewed head
+when the checkout holds something else; see review_tree. Flags are internal
+surface, invoked by SKILL.md; natural language is what the user types.
 
 Exit status: 0 resolved, 2 bad invocation, 3 needs confirmation, 4 unusable scope.
 """
@@ -219,6 +221,12 @@ def filter_overrides(repo: str) -> tuple[list[str] | None, str | None]:
     config at all -- git-lfs registers a required process filter globally on
     most machines, and a hostile attributes file can point any path at it.
 
+    Both directions are emptied. A local-patch diff reads the working tree and
+    runs clean; the review tree is a checkout and runs smudge, where git-lfs
+    would otherwise go to the network for every pointer the reviewed head
+    names. Emptied, a pointer stays a pointer -- which is also what the diff
+    shows the passes, so the tree and the patch agree about those files.
+
     An enumeration that fails leaves the overrides empty rather than failing
     the run: that is exactly today's behaviour, and config listing does not
     fail inside a repository that rev-parse already accepted.
@@ -254,6 +262,8 @@ def filter_overrides(repo: str) -> tuple[list[str] | None, str | None]:
         arguments += [
             "-c",
             f"filter.{name}.clean=",
+            "-c",
+            f"filter.{name}.smudge=",
             "-c",
             f"filter.{name}.process=",
             "-c",
@@ -409,6 +419,93 @@ def build_diff(
     return {"text": text, "bytes": len(raw), "files": files, "untracked": untracked}, None
 
 
+# Where the review tree goes inside the run directory. A fixed name, because
+# the run directory is already unique to this run.
+REVIEW_TREE = "tree"
+
+
+def checkout_holds(root: str, head: str, overrides: list[str]) -> bool:
+    """Whether the checkout at `root` is exactly `head`, with no tracked change.
+
+    A content comparison, not a stat one: diff-index alone reports a file as
+    changed whenever its stat information is stale -- touched by an editor or
+    a build without being edited -- and a checkout that is merely stat-stale
+    would cost a full worktree. Comparing content
+    runs the clean filter, which is why the emptied overrides go in front of
+    it, exactly as they do for a local-patch diff.
+
+    Untracked files do not count: head does not contain them, and a pass has
+    no reason to open a file the diff and the code around it never name.
+    Anything but a clean answer -- a difference, or a git that could not say
+    -- reads as "not head", the direction that costs a worktree rather than a
+    review of the wrong code.
+    """
+    code, out, _ = git_text(root, "rev-parse", "--verify", "--quiet", "HEAD")
+    if code != 0 or out.strip() != head:
+        return False
+    code, _, _ = git(
+        root, *overrides, "diff", "--quiet", "--no-ext-diff", "--no-textconv", "HEAD", "--"
+    )
+    return code == 0
+
+
+def review_tree(root: str, head: str, run_dir: str) -> tuple[str | None, str | None]:
+    """(worktree, problem): a detached worktree at `head`, when the passes need one.
+
+    The diff is blob to blob, but the passes read files, file_lines.json counts
+    files, and validate.py checks every line range against files -- all in
+    whatever tree they are pointed at. Pointed at a checkout that holds some
+    other commit, they review the wrong code: a pull request that is not
+    checked out, a single commit that is not HEAD, or a branch carrying
+    uncommitted edits. Nothing on the page would show it, and a correct
+    finding can be refused for a range the reviewed file does contain.
+
+    So when the checkout is not exactly `head`, the tree the run reads is a
+    worktree checked out at `head` inside the run directory -- private like
+    the rest of it, and still a git checkout, so `git grep` works there. When
+    the checkout is exactly `head`, it is read in place, which is the common
+    case and costs nothing: a worktree is a full checkout, and on a large
+    repository that is real time and disk. (None, None) means that. What in
+    place gives up is isolation from edits made after this moment, while the
+    passes run; this checks the checkout once, here.
+
+    The checkout runs with every filter driver emptied, for filter_overrides'
+    reason, and with hooks switched off. A post-checkout hook is the
+    developer's own, but a review that runs `npm install` behind the user's
+    back is not one they asked for. This is also where a filter name the -c
+    override cannot express refuses a revision range, which the blob-to-blob
+    diff alone never would: comparing the checkout and checking one out both
+    run the filter.
+    """
+    overrides, problem = filter_overrides(root)
+    if problem:
+        return None, problem
+    # Stated for the checker, as in build_diff: the problem returned above.
+    assert overrides is not None
+    if checkout_holds(root, head, overrides):
+        return None, None
+    path = os.path.join(run_dir, REVIEW_TREE)
+    code, _, error = git(
+        root,
+        "-c",
+        "core.hooksPath=/dev/null",
+        *overrides,
+        "worktree",
+        "add",
+        "--detach",
+        "--quiet",
+        path,
+        head,
+    )
+    if code != 0:
+        return None, (
+            f"could not check out {head} into a worktree for the passes to read: "
+            f"{error or 'git worktree add failed'}. Check it out yourself and run again -- "
+            "a checkout that already holds the reviewed head is read in place"
+        )
+    return path, None
+
+
 def file_lines(root: str, paths: list[str]) -> dict[str, int | None]:
     """path -> its line count on disk, or null where the checkout holds no file.
 
@@ -536,12 +633,23 @@ def main(argv: list[str]) -> int:
     with open(context, "w", encoding="utf-8") as handle:
         handle.write(patch["text"])
 
+    # The tree every later step reads. `head` is set exactly when the scope
+    # mode is 'revisions'; a local patch is the working tree by definition.
+    tree = root
+    worktree = None
+    if head is not None:
+        worktree, problem = review_tree(root, head, run_dir)
+        if problem:
+            return fail(problem)
+        if worktree is not None:
+            tree = worktree
+
     headers = diff_paths.file_headers(patch["text"].split("\n"))
     named = [header.new for header in headers if header.new is not None]
     omitted = sum(1 for header in headers if header.deleted)
     lines_path = os.path.join(run_dir, "file_lines.json")
     with open(lines_path, "w", encoding="utf-8") as handle:
-        json.dump(file_lines(root, named), handle, indent=2, sort_keys=True)
+        json.dump(file_lines(tree, named), handle, indent=2, sort_keys=True)
 
     # Every file header is one path or one deliberate omission, so anything left
     # over is a header this parser did not understand. Say so. The alternative is
@@ -588,11 +696,21 @@ def main(argv: list[str]) -> int:
     scope["diff_bytes"] = patch["bytes"]
     if patch["untracked"] is not None:
         scope["untracked"] = patch["untracked"]
+
     with open(os.path.join(run_dir, "scope.json"), "w", encoding="utf-8") as handle:
         json.dump(scope, handle, indent=2)
 
     json.dump(
         {
+            # Every later --repo, and the tree the passes read. Absolute,
+            # because --repo here may have named a subdirectory, which this
+            # script resolves to the top of the checkout and the others take
+            # as given -- so a pass handed the directory the user started in
+            # would have correct locations refused as missing files.
+            "repo_root": tree,
+            # The worktree to remove once the report is rendered, or null
+            # when the checkout is read in place. See review_tree.
+            "worktree": worktree,
             "run_dir": run_dir,
             "report_dir": report_dir,
             # The artifact's `generated_at`, so the merge has a clock without

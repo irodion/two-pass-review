@@ -97,6 +97,10 @@ _Avoid_: rule, lint rule, finding, fix, remediation
 The exact range of code a run reviews, resolved once by the parent so both passes see identical input.
 _Avoid_: diff, target, range
 
+**Review tree**:
+The checkout a run reads files from — the reviewed head, exactly. The user's own checkout when it already holds that commit with no uncommitted change, otherwise a worktree at the head inside the run directory. A diff compares commits, but a pass reads files and the validator checks ranges against files, so they must be the head's.
+_Avoid_: checkout, working copy, repo
+
 **Findings file**:
 The JSON one pass writes. Each pass writes its own; a merge produces the combined artifact the report renders from.
 _Avoid_: output, results file

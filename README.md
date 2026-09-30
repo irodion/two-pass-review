@@ -13,7 +13,7 @@ was forked, what changed, and what was read but not copied.
 ## What it is
 
 Everything lives under `.agents/skills/two-pass-review/`. `SKILL.md` is the orchestrator; `references/`
-holds the two forked rubrics; `scripts/` holds the pipeline.
+holds the two forked rubrics and the exact prompt for every subagent; `scripts/` holds the pipeline.
 
 The pipeline is four steps, and each one refuses to paper over the step before it. **Scope** pins one
 diff to disk, so both passes read an identical input and corroboration has something to compare across,

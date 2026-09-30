@@ -13,10 +13,12 @@ ladder here, and no `main` fallback.
 Both revision modes take resolved-or-symbolic revisions and record the resolved
 SHAs, because a report saying `main...HEAD` is ambiguous the moment `main` moves.
 
-Prints a JSON object describing the run to stdout. Its `repo_root` is the tree
-the rest of the run reads -- the checkout, or a worktree at the reviewed head
-when the checkout holds something else; see review_tree. Flags are internal
-surface, invoked by SKILL.md; natural language is what the user types.
+Prints a JSON object describing the run to stdout, and writes the same bytes to
+scope.json in the run directory, where merge.py reads them. Its `repo_root` is
+the tree the rest of the run reads -- the checkout, or a worktree at the
+reviewed head when the checkout holds something else; see review_tree. Flags
+are internal surface, invoked by SKILL.md; natural language is what the user
+types.
 
 Exit status: 0 resolved, 2 bad invocation, 3 needs confirmation, 4 unusable scope.
 """
@@ -697,36 +699,40 @@ def main(argv: list[str]) -> int:
     if patch["untracked"] is not None:
         scope["untracked"] = patch["untracked"]
 
-    with open(os.path.join(run_dir, "scope.json"), "w", encoding="utf-8") as handle:
-        json.dump(scope, handle, indent=2)
-
-    json.dump(
-        {
-            # Every later --repo, and the tree the passes read. Absolute,
-            # because --repo here may have named a subdirectory, which this
-            # script resolves to the top of the checkout and the others take
-            # as given -- so a pass handed the directory the user started in
-            # would have correct locations refused as missing files.
-            "repo_root": tree,
-            # The worktree to remove once the report is rendered, or null
-            # when the checkout is read in place. See review_tree.
-            "worktree": worktree,
-            "run_dir": run_dir,
-            "report_dir": report_dir,
-            # The artifact's `generated_at`, so the merge has a clock without
-            # asking a shell for one. It sits outside `scope` deliberately: the
-            # validator closes that object's field set, and this is not a fact
-            # about the range.
-            "now": pinned_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "context_diff": context,
-            "file_lines": lines_path,
-            "latest": os.path.join(report_dir, "latest.html"),
-            "scope": scope,
-        },
-        sys.stdout,
-        indent=2,
+    printed = (
+        json.dumps(
+            {
+                # Every later --repo, and the tree the passes read. Absolute,
+                # because --repo here may have named a subdirectory, which this
+                # script resolves to the top of the checkout and the others take
+                # as given -- so a pass handed the directory the user started in
+                # would have correct locations refused as missing files.
+                "repo_root": tree,
+                # The worktree to remove once the report is rendered, or null
+                # when the checkout is read in place. See review_tree.
+                "worktree": worktree,
+                "run_dir": run_dir,
+                "report_dir": report_dir,
+                # The artifact's `generated_at`, so the merge has a clock without
+                # asking a shell for one. It sits outside `scope` deliberately: the
+                # validator closes that object's field set, and this is not a fact
+                # about the range.
+                "now": pinned_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "context_diff": context,
+                "file_lines": lines_path,
+                "latest": os.path.join(report_dir, "latest.html"),
+                "scope": scope,
+            },
+            indent=2,
+        )
+        + "\n"
     )
-    sys.stdout.write("\n")
+    # One string, written twice, as collect_docs.py does with docs.json: the
+    # merge reads this file rather than a model retyping what was printed, and
+    # there is nothing to drift between the two.
+    with open(os.path.join(run_dir, "scope.json"), "w", encoding="utf-8") as handle:
+        handle.write(printed)
+    sys.stdout.write(printed)
     return 0
 
 

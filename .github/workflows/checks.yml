@@ -43,7 +43,7 @@ jobs:
         run: |
           python -W error::DeprecationWarning \
                  -W error::SyntaxWarning \
-                 -c "import markdown_subset, page, validate, render, scope, collect_docs, diff_paths"
+                 -c "import markdown_subset, page, validate, render, scope, collect_docs, diff_paths, merge"
       - name: run the entry points, with warnings fatal
         # Importing a module does not execute its main(), so a deprecation inside
         # one stays invisible to the step above -- datetime.utcnow() in scope.py
@@ -88,6 +88,25 @@ jobs:
           test -d "$tree"
           test "$(git -C "$tree" rev-parse HEAD)" = "$(git rev-parse HEAD~1)"
           git -C "$tree" worktree remove --force "$tree"
+          # The merge over a one-pass run: the files a pass with nothing to
+          # report writes, an empty answer from the docs check, and the run
+          # directory scope.py pinned above, whose scope.json and docs.json the
+          # merge reads by name. The artifact is merge.py's, not this file's,
+          # and render.py proves it renders against the review tree.
+          run_dir=$(python -c "import json;print(json.load(open('scope.json'))['run_dir'])")
+          : > "$run_dir/findings.security.jsonl"
+          cat > "$run_dir/pass.security.json" <<'PASS'
+          {"schema_version": 1, "kind": "pass", "producer": "security",
+           "empty_reason_md": "Constructed by CI; no review ran."}
+          PASS
+          echo '[]' > "$run_dir/docs-notes.json"
+          python -W error::DeprecationWarning -W error::SyntaxWarning \
+                 "$S/merge.py" --run-dir "$run_dir" --passes sequential \
+                 --falsification skipped --docs-check ran > merged.json
+          python -c "import json,sys; d=json.load(open('merged.json')); sys.exit(0 if d['verdict'] == 'clear' and d['docs_check'] == 'ran' else 1)"
+          python -W error::DeprecationWarning -W error::SyntaxWarning \
+                 "$S/render.py" --repo "$(python -c "import json;print(json.load(open('scope.json'))['repo_root'])")" \
+                 "$run_dir/findings.json" --no-open
           # Both refuse-and-explain paths, which is where argparse and the error
           # formatting live.
           #

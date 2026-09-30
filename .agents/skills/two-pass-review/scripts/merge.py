@@ -51,6 +51,7 @@ malformed command, or a flag refused by name -- a --link, or a check recorded
 import argparse
 import json
 import os
+import re
 import sys
 from typing import Any
 
@@ -77,28 +78,50 @@ def refuse(message: str, status: int = 1) -> int:
     return status
 
 
+# Where an answer can start: a `[` whose next non-space character opens an
+# object or closes the array. Nothing else can begin an array of objects.
+ANSWER_START = re.compile(r"\[\s*[{\]]")
+
+# How many failed starts the parse tries before it gives up. A real answer
+# needs a handful -- the prose and the fence around it. Past this the text is
+# pathological, and giving up costs only the check, which is recorded 'failed'.
+MAX_FAILED_STARTS = 1000
+
+
 def extract_array(text: str) -> list[dict[str, Any]] | None:
     """The last JSON array of objects in a subagent's answer, or None.
 
     Lenient on purpose. A subagent asked for a bare array still wraps it in a
     sentence or a fence often enough that the parse is load-bearing, not
-    defensive -- measured once, on Haiku. Every `[` is tried as the start of a
-    JSON value, a parsed array is skipped whole so an array nested inside it is
-    never mistaken for the answer, and only an array of objects counts: `[]`
-    is an answer, a stray `[1]` in prose is not.
+    defensive -- measured once, on Haiku. Every place an array of objects
+    could start is tried, a parsed array is skipped whole so an array nested
+    inside it is never mistaken for the answer, and only an array of objects
+    counts: `[]` is an answer, a stray `[1]` in prose is not.
+
+    Only those starts, not every `[`, because a failed parse costs a scan to
+    wherever it fails. A run of brackets -- which a falsifier quoting a
+    hostile fixture can write -- made every `[` in it a scan of the rest, and
+    twenty thousand of them took seconds; none of them can start an answer.
+    A nest of `[{` can, so the failed starts are capped as well.
     """
     decoder = json.JSONDecoder()
     found: list[dict[str, Any]] | None = None
-    index = text.find("[")
-    while index >= 0:
+    failures = 0
+    start = ANSWER_START.search(text)
+    while start is not None and failures < MAX_FAILED_STARTS:
         try:
-            value, end = decoder.raw_decode(text, index)
-        except ValueError:
-            index = text.find("[", index + 1)
+            value, end = decoder.raw_decode(text, start.start())
+        # RecursionError is not a ValueError, and before 3.12 the decoder
+        # raises it on deep nesting. Uncaught, it turned an unreadable answer
+        # into a traceback and cost the whole run, where fail-open says it
+        # costs only the check.
+        except (ValueError, RecursionError):
+            failures += 1
+            start = ANSWER_START.search(text, start.start() + 1)
             continue
         if isinstance(value, list) and all(isinstance(item, dict) for item in value):
             found = value
-        index = text.find("[", end)
+        start = ANSWER_START.search(text, end)
     return found
 
 

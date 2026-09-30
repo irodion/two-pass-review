@@ -127,7 +127,7 @@ anything about reviewing code:
 
 - **`python 3.10` and `python 3.13`** — every script compiles on both, and on the modern one both imports
   *and runs* with `DeprecationWarning` and `SyntaxWarning` fatal: `scope.py` over a real revision range
-  and over one that needs a review worktree, `collect_docs.py` over that range's diff, `merge.py` and
+  and over one that needs a review worktree, then `--release` of both, `collect_docs.py` over that range's diff, `merge.py` and
   `render.py` over a one-pass run assembled from it, and `validate.py`, `render.py` and `collect_docs.py`
   down their refusal paths. Importing alone was not enough — a deprecation
   inside a `main()` is invisible to it, which is how `datetime.utcnow()` would have got through.

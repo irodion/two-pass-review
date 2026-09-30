@@ -4,6 +4,7 @@
 Usage:
     scope.py --repo PATH --base REV --mode revisions --head REV
     scope.py --repo PATH --base REV --mode local-patch
+    scope.py --release RUN_DIR
 
 `--base` is required and never guessed. A tool that cannot guess a base cannot
 be wrong about one -- so where the request does not determine the range, the
@@ -16,11 +17,13 @@ SHAs, because a report saying `main...HEAD` is ambiguous the moment `main` moves
 Prints a JSON object describing the run to stdout, and writes the same bytes to
 scope.json in the run directory, where merge.py reads them. Its `repo_root` is
 the tree the rest of the run reads -- the checkout, or a worktree at the
-reviewed head when the checkout holds something else; see review_tree. Flags
-are internal surface, invoked by SKILL.md; natural language is what the user
-types.
+reviewed head when the checkout holds something else; see review_tree.
+`--release` undoes that at the end of the run; see release. Flags are internal
+surface, invoked by SKILL.md; natural language is what the user types.
 
 Exit status: 0 resolved, 2 bad invocation, 3 needs confirmation, 4 unusable scope.
+`--release` exits 0 when nothing of the run's tree is left, and 4 when git
+could not remove it.
 """
 
 import argparse
@@ -553,7 +556,61 @@ def file_lines(root: str, paths: list[str]) -> dict[str, int | None]:
     return counts
 
 
+def release(run_dir: str) -> int:
+    """Remove the run's review tree, if it has one. Safe to run on any run.
+
+    review_tree creates the worktree, so the script that made it owns
+    removing it, and the orchestrator runs one command at the end of every
+    run -- including one that ends early -- instead of testing `worktree` for
+    null and composing a git command of its own. A run read in place has
+    nothing to release and exits 0.
+
+    It removes only `<run_dir>/tree`, whatever scope.json says. The file
+    names a path this script will hand to `git worktree remove --force`, and
+    a path read from disk is not one to delete on trust. git runs in the
+    user's checkout, and removes the registration under its .git/worktrees
+    along with the directory -- or the registration alone, when the directory
+    was already deleted by hand. Nothing broader: `git worktree prune` would
+    also drop the user's own worktrees on a drive that is not mounted.
+    Releasing twice is not an error; the second finds nothing left.
+    """
+
+    def refuse(message: str, status: int) -> int:
+        sys.stderr.write(f"Cannot release the review tree: {message}\n")
+        return status
+
+    run_dir = os.path.abspath(os.path.expanduser(run_dir))
+    try:
+        with open(os.path.join(run_dir, "scope.json"), encoding="utf-8") as handle:
+            pinned = json.load(handle)
+    except (OSError, ValueError):
+        return refuse(f"{run_dir} holds no scope.json written by scope.py", 2)
+    worktree = pinned.get("worktree") if isinstance(pinned, dict) else None
+    checkout = pinned.get("checkout") if isinstance(pinned, dict) else None
+    if worktree is None:
+        return 0
+    expected = os.path.realpath(os.path.join(run_dir, REVIEW_TREE))
+    if (
+        not isinstance(worktree, str)
+        or os.path.realpath(worktree) != expected
+        or not isinstance(checkout, str)
+    ):
+        return refuse(f"scope.json in {run_dir} does not name this run's own review tree", 2)
+    code, _, error = git(checkout, "worktree", "remove", "--force", worktree)
+    if code != 0 and os.path.exists(worktree):
+        return refuse(f"could not remove {worktree}: {error}", 4)
+    return 0
+
+
 def main(argv: list[str]) -> int:
+    # A mode of its own rather than a flag among the others: it takes a run
+    # directory and nothing else, and the scope flags are all required.
+    if argv[1:2] == ["--release"]:
+        if len(argv) != 3:
+            sys.stderr.write("Cannot release the review tree: --release takes one run directory\n")
+            return 2
+        return release(argv[2])
+
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("--repo", required=True)
     parser.add_argument("--base", required=True)
@@ -714,9 +771,14 @@ def main(argv: list[str]) -> int:
                 # as given -- so a pass handed the directory the user started in
                 # would have correct locations refused as missing files.
                 "repo_root": tree,
-                # The worktree to remove once the report is rendered, or null
-                # when the checkout is read in place. See review_tree.
+                # The worktree `--release` removes, or null when the checkout
+                # is read in place. See review_tree.
                 "worktree": worktree,
+                # The user's own checkout, which repo_root is not while a
+                # worktree stands and names nothing once it is released --
+                # so anything asked for after the run, like rule derivation,
+                # has a repository to be handed. And release's git runs here.
+                "checkout": root,
                 "run_dir": run_dir,
                 "report_dir": report_dir,
                 # The artifact's `generated_at`, so the merge has a clock without

@@ -87,7 +87,15 @@ jobs:
           tree=$(python -c "import json;print(json.load(open('scope-tree.json'))['worktree'])")
           test -d "$tree"
           test "$(git -C "$tree" rev-parse HEAD)" = "$(git rev-parse HEAD~1)"
-          git -C "$tree" worktree remove --force "$tree"
+          # Release removes it -- the directory and the registration in this
+          # checkout -- and releasing a run read in place is a no-op, not an
+          # error, which is what lets SKILL.md run it on every run.
+          python -W error::DeprecationWarning -W error::SyntaxWarning \
+                 "$S/scope.py" --release "$(python -c "import json;print(json.load(open('scope-tree.json'))['run_dir'])")"
+          test ! -e "$tree"
+          test "$(git worktree list | wc -l)" -eq 1
+          python -W error::DeprecationWarning -W error::SyntaxWarning \
+                 "$S/scope.py" --release "$(python -c "import json;print(json.load(open('scope.json'))['run_dir'])")"
           # The merge over a one-pass run: the files a pass with nothing to
           # report writes, an empty answer from the docs check, and the run
           # directory scope.py pinned above, whose scope.json and docs.json the

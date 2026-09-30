@@ -25,8 +25,8 @@ Every run is these ten steps, in this order. The sections after the list say why
 it is and what to do when it does not go to plan — read a step's section before you run it.
 
 Every `<name>` below is a value `scope.py` prints in step 1 — `<repo_root>`, `<run_dir>`,
-`<context_diff>`, `<file_lines>`, `<latest>`, `<worktree>` — except `<skill-dir>`, above, and the
-`<repo>` and `<rev>`s of step 1 itself, which come from the user's request.
+`<context_diff>`, `<file_lines>`, `<latest>` — except `<skill-dir>`, above, and the `<repo>` and
+`<rev>`s of step 1 itself, which come from the user's request.
 **`<repo_root>` is not the directory you started in.** It is the tree the review reads, it can be a
 separate checkout of the reviewed commit, and every `--repo` after step 1 takes it.
 
@@ -48,8 +48,8 @@ separate checkout of the reviewed commit, and every `--repo` after step 1 takes 
    if you wrote one.
 8. **Render.**
    `python3 <skill-dir>/scripts/render.py --repo <repo_root> <run_dir>/findings.json --latest <latest>`
-9. **Remove the review worktree**, only when step 1 printed one — `worktree` is not null:
-   `git -C <worktree> worktree remove --force <worktree>`
+9. **Release the review tree** — every run, including one that ends early:
+   `python3 <skill-dir>/scripts/scope.py --release <run_dir>`
 10. **Tell the user** the verdict, where the report is, and every warning — [§5](#tell-the-user).
 
 Where the host offers no subagents, steps 3 and 4 change: run the security pass and then the quality
@@ -112,19 +112,23 @@ resolving happened in your conversation; the page presents it as declared proven
 `head` stay the checkable record. So write what you resolved, not what the user said: a label reading
 "today" is the ambiguity it exists to remove.
 
-It prints JSON holding `repo_root`, `worktree`, `run_dir`, `context_diff`, `file_lines`, `now`, `latest`
-and the resolved `scope`, and writes the same JSON to `<run_dir>/scope.json`, where `merge.py` reads it.
-Keep the printed copy: every later step needs its paths.
+It prints JSON holding `repo_root`, `worktree`, `checkout`, `run_dir`, `context_diff`, `file_lines`,
+`now`, `latest` and the resolved `scope`, and writes the same JSON to `<run_dir>/scope.json`, where
+`merge.py` reads it. Keep the printed copy: every later step needs its paths.
 
 **The review tree.** The diff compares two commits, but the passes read files, and `validate.py` checks
 every line range against files — so the files have to be the reviewed head's. When your checkout is
 already exactly the head, with no uncommitted change to a tracked file, it is read in place:
 `repo_root` is the checkout and `worktree` is null. Otherwise — a pull request you have not checked
 out, a commit that is not `HEAD`, uncommitted edits — `scope.py` checks the head out into a worktree
-inside the run directory and prints that path as both `repo_root` and `worktree`, and step 9 removes
-it. Either way, `repo_root` is the one tree whose files match the diff, so the passes, the docs check
-and every script get it and nothing else. A local patch is always read in place: it *is* the working
-tree.
+inside the run directory and prints that path as both `repo_root` and `worktree`. Either way,
+`repo_root` is the one tree whose files match the diff, so the passes, the docs check and every script
+get it and nothing else. A local patch is always read in place: it *is* the working tree.
+
+`checkout` is always the user's own checkout. It is what anything asked for after the run is handed —
+rule derivation reads the repository there — because `repo_root` names a worktree that `scope.py
+--release <run_dir>` removes at the end of every run. Release is safe on any run: it removes this run's
+worktree when there is one, and does nothing when the checkout was read in place.
 
 - **Exit 3** means the diff is large. Tell the user how large and ask. If they want it, add
   `--confirm-large`. It is never split into batches: both passes must see one identical input, or
@@ -412,11 +416,12 @@ having run. It always prints the path, and tries to open the report in a browser
 stays silent when it fails, because the printed path is the mechanism and the open is the convenience.
 Nothing reports back whether a window appeared, so never say one did.
 
-Then, if `scope.py` printed a `worktree`, remove it — the report and the artifact live in the run
-directory, not in the worktree, and a full checkout left in the temp directory is only disk:
+Then release the review tree. The report and the artifact live in the run directory, not in the
+worktree, and a worktree left behind is a full checkout in the temp directory that also stays listed
+in the user's `git worktree list`:
 
 ```
-git -C <worktree> worktree remove --force <worktree>
+python3 <skill-dir>/scripts/scope.py --release <run_dir>
 ```
 
 ### Tell the user
@@ -440,8 +445,8 @@ You are the error handler. There is no status field, no retry protocol and no de
   one pass, and the absence is visible on the page with nothing added to the schema. Say which pass
   died, and offer to re-run just that one — each pass is independently re-runnable against the same
   pinned `context.diff`.
-- **A run that ends early still removes its worktree**, when `scope.py` printed one — step 9 is not
-  conditional on a report.
+- **A run that ends early still releases its review tree** — step 9 is not conditional on a report,
+  and `scope.py --release <run_dir>` is safe whether or not a worktree was made.
 
 ## Re-rendering
 

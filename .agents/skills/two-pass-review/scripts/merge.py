@@ -207,12 +207,47 @@ def links(pairs: list[str], known: dict[str, dict[str, Any]]) -> tuple[dict[str,
     return partners, ""
 
 
-def docs_record(run_dir: str) -> tuple[dict[str, Any] | None, str]:
-    """(docs_check object, state) for a docs check that ran.
+def check_state(
+    run_dir: str, requested: str, flag: str, answer_name: str, has_input: bool
+) -> tuple[str, list[dict[str, Any]], str]:
+    """(state, answer, problem) for one subagent check -- falsification or docs.
 
-    'examined' and 'skipped' are copied from docs.json, which is what
-    validate.py checks them against. An empty collection means there was
-    nothing to hand a subagent, and the check still ran -- over nothing.
+    The rules the two checks share, stated once:
+
+    - Recorded 'skipped' with an answer file beside it is refused. Either the
+      check ran and the flag is wrong, or the file is stale, and the page would
+      state the wrong one either way.
+    - With nothing to hand a subagent -- no findings, no documents -- there was
+      none to spawn. The check ran over an empty set and has no file to read.
+    - A check whose answer holds no readable JSON array is 'failed', never
+      'ran': the fail-open the falsification check depends on, and the
+      fail-toward-silence the docs check depends on.
+    - Otherwise it ran, and this is its answer.
+
+    Each caller keeps its own warning, because what a failure costs differs.
+    """
+    if requested == "skipped":
+        if os.path.exists(os.path.join(run_dir, answer_name)):
+            return (
+                "",
+                [],
+                f"{flag} skipped, but {answer_name} is in the run directory -- if the check ran, "
+                f"say {flag} ran",
+            )
+        return "skipped", [], ""
+    if not has_input:
+        return "ran", [], ""
+    answer = read_answer(run_dir, answer_name)
+    if answer is None:
+        return "failed", [], ""
+    return "ran", answer, ""
+
+
+def read_collection(run_dir: str) -> tuple[list[str], list[Any]] | None:
+    """collect_docs.py's two lists from docs.json, or None when it is not there.
+
+    Copied into the artifact as they stand: 'examined' is what the docs check
+    was handed, and 'skipped' is what the collector refused and why.
     """
     collected = read_json(os.path.join(run_dir, "docs.json"))
     if (
@@ -220,14 +255,8 @@ def docs_record(run_dir: str) -> tuple[dict[str, Any] | None, str]:
         or not isinstance(collected.get("docs"), list)
         or not isinstance(collected.get("skipped"), list)
     ):
-        return None, "missing"
-    examined = [entry["path"] for entry in collected["docs"]]
-    if not examined:
-        return {"examined": [], "skipped": collected["skipped"], "notes": []}, "ran"
-    notes = read_answer(run_dir, DOCS_ANSWER)
-    if notes is None:
-        return None, "failed"
-    return {"examined": examined, "skipped": collected["skipped"], "notes": notes}, "ran"
+        return None
+    return [entry["path"] for entry in collected["docs"]], collected["skipped"]
 
 
 def main(argv: list[str]) -> int:
@@ -314,54 +343,43 @@ def main(argv: list[str]) -> int:
     for finding_id, linked in partners.items():
         known[finding_id]["corroborated_by"] = sorted(linked, key=validate.id_sort_key)
 
-    # Falsification. A file beside a 'skipped' is a contradiction worth
-    # stopping on: either the check ran and the flag is wrong, or the file is
-    # stale -- and the page would state the wrong one either way.
-    answer_path = os.path.join(run_dir, FALSIFIER_ANSWER)
-    falsification = args.falsification
-    if falsification == "skipped" and os.path.exists(answer_path):
-        return refuse(
-            f"--falsification skipped, but {FALSIFIER_ANSWER} is in the run directory -- if the "
-            "check ran, say --falsification ran",
-            2,
+    falsification, answer, problem = check_state(
+        run_dir, args.falsification, "--falsification", FALSIFIER_ANSWER, bool(findings)
+    )
+    if problem:
+        return refuse(problem, 2)
+    if falsification == "failed":
+        warn(
+            f"{unread(run_dir, FALSIFIER_ANSWER)}, so the falsification check is recorded as "
+            "failed and every finding stands uncontested"
         )
-    # With no findings there is nothing to hand a falsifier and none to spawn:
-    # the check ran over an empty set, the docs check's rule for an empty
-    # collection, and it has no answer file to read.
-    if falsification == "ran" and findings:
-        answer = read_answer(run_dir, FALSIFIER_ANSWER)
-        if answer is None:
-            falsification = "failed"
-            warn(
-                f"{unread(run_dir, FALSIFIER_ANSWER)}, so the falsification check is recorded as "
-                "failed and every finding stands uncontested"
-            )
-        else:
-            for finding_id, reasons in contests(answer, known).items():
-                known[finding_id]["contested_md"] = "\n\n".join(reasons)
+    for finding_id, reasons in contests(answer, known).items():
+        known[finding_id]["contested_md"] = "\n\n".join(reasons)
 
-    docs_check: dict[str, Any] | None = None
-    docs_state = args.docs_check
-    notes_path = os.path.join(run_dir, DOCS_ANSWER)
-    if docs_state == "skipped" and os.path.exists(notes_path):
-        return refuse(
-            f"--docs-check skipped, but {DOCS_ANSWER} is in the run directory -- if the check "
-            "ran, say --docs-check ran",
-            2,
-        )
-    if docs_state == "ran":
-        docs_check, docs_state = docs_record(run_dir)
-        if docs_state == "missing":
+    examined: list[str] = []
+    refused: list[Any] = []
+    if args.docs_check == "ran":
+        collection = read_collection(run_dir)
+        if collection is None:
             return refuse(
                 "--docs-check ran, but the run directory holds no docs.json -- run "
                 "collect_docs.py again, then merge. If it still cannot write the file, merge with "
                 "--docs-check skipped"
             )
-        if docs_state == "failed":
-            warn(
-                f"{unread(run_dir, DOCS_ANSWER)}, so the docs check is recorded as failed and "
-                "carries no notes"
-            )
+        examined, refused = collection
+    docs_state, notes, problem = check_state(
+        run_dir, args.docs_check, "--docs-check", DOCS_ANSWER, bool(examined)
+    )
+    if problem:
+        return refuse(problem, 2)
+    if docs_state == "failed":
+        warn(
+            f"{unread(run_dir, DOCS_ANSWER)}, so the docs check is recorded as failed and "
+            "carries no notes"
+        )
+    docs_check: dict[str, Any] | None = None
+    if docs_state == "ran":
+        docs_check = {"examined": examined, "skipped": refused, "notes": notes}
 
     self_check: object = None
     if args.self_check is not None:

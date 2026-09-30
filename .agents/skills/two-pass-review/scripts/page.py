@@ -48,13 +48,6 @@ UNRANKED = 3  # a security note carries no severity, so it has nothing to rank b
 # --- ordering ----------------------------------------------------------------
 
 
-def id_sort_key(finding_id: str) -> tuple[str, int]:
-    match = validate.ID_RE.match(finding_id or "")
-    if not match:
-        return ("", 0)
-    return (match.group(1), int(match.group(2)))
-
-
 def rank_of(finding: dict[str, Any]) -> int:
     if finding.get("producer") == "security":
         return SEVERITY_RANK.get(finding.get("severity"), UNRANKED)
@@ -92,13 +85,13 @@ def build_units(findings: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
 def ordered_units(findings: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     units = build_units(findings)
     for unit in units:
-        unit.sort(key=lambda f: (rank_of(f), id_sort_key(f["id"])))
+        unit.sort(key=lambda f: (rank_of(f), validate.id_sort_key(f["id"])))
     units.sort(
         key=lambda unit: (
             DISPOSITION_ORDER.index(unit[0]["disposition"]),
             min(rank_of(f) for f in unit),
             0 if len(unit) > 1 else 1,
-            min(id_sort_key(f["id"]) for f in unit),
+            min(validate.id_sort_key(f["id"]) for f in unit),
         )
     )
     return units

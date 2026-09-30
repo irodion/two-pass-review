@@ -577,17 +577,11 @@ def main(argv: list[str]) -> int:
     # Refused here rather than left for the validator, which would only see it
     # after both passes had run on a pinned diff: this is a bad invocation, and
     # the bad-invocation exit is what the caller can still act on. The rule is
-    # validate.py's, imported rather than restated, so the two cannot drift.
-    if args.label is not None and not args.label.strip():
-        return fail("--label needs a value; leave the flag off when the run has no label", 2)
-    if args.label is not None and (
-        "\n" in args.label or "\r" in args.label or len(args.label) > validate.SCOPE_LABEL_MAX
-    ):
-        return fail(
-            f"--label must be a single line of at most {validate.SCOPE_LABEL_MAX} characters -- "
-            "it names what the request meant, in the report's run panel, and does not argue it",
-            2,
-        )
+    # validate.py's, called rather than restated, so the two cannot drift.
+    if args.label is not None:
+        problem = validate.label_problem(args.label)
+        if problem:
+            return fail(f"--label {problem}", 2)
 
     if args.mode == "revisions" and not args.head:
         return fail("--head is required under scope mode 'revisions'", 2)

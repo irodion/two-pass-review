@@ -58,8 +58,6 @@ from typing import Any
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # sibling script, same directory
 
-SCHEMA_VERSION = 4
-
 FALSIFIER_ANSWER = "falsification.json"
 DOCS_ANSWER = "docs-notes.json"
 
@@ -180,18 +178,13 @@ def contests(
     return reasons
 
 
-def id_order(finding_id: str) -> tuple[str, int]:
-    """sec-2 before sec-10, the order the passes numbered them in."""
-    match = validate.ID_RE.match(finding_id)
-    return (match.group(1), int(match.group(2))) if match else (finding_id, 0)
-
-
 def links(pairs: list[str], known: dict[str, dict[str, Any]]) -> tuple[dict[str, list[str]], str]:
     """({id: partners}, problem) from the --link pairs.
 
-    The validator would refuse every one of these too. Refused here first
-    because this is where the orchestrator can act on it: the message names
-    the flag it typed, not a field in a file it did not write.
+    The validator would refuse every one of these too, by the same
+    link_problems. Refused here first because this is where the orchestrator
+    can act on it: the message names the flag it typed, not a field in a file
+    it did not write.
     """
     partners: dict[str, list[str]] = {}
     for pair in pairs:
@@ -205,17 +198,9 @@ def links(pairs: list[str], known: dict[str, dict[str, Any]]) -> tuple[dict[str,
                     {},
                     f"--link {pair!r} names {finding_id!r}, which is not a finding in this run",
                 )
-        a, b = known[first], known[second]
-        if a["producer"] == b["producer"]:
-            return {}, (
-                f"--link {pair!r} links two findings from the {a['producer']} pass -- "
-                "corroboration links a finding to one the other pass argued"
-            )
-        if a["disposition"] != b["disposition"]:
-            return {}, (
-                f"--link {pair!r} crosses dispositions ({a['disposition']} vs "
-                f"{b['disposition']}) -- one of the two is mis-tagged, so leave them unlinked"
-            )
+        problems = validate.link_problems(known[first], known[second])
+        if problems:
+            return {}, f"--link {pair!r} is refused: {problems[0]}. Leave the two unlinked"
         for source, target in ((first, second), (second, first)):
             if target not in partners.setdefault(source, []):
                 partners[source].append(target)
@@ -327,7 +312,7 @@ def main(argv: list[str]) -> int:
     if problem:
         return refuse(problem, 2)
     for finding_id, linked in partners.items():
-        known[finding_id]["corroborated_by"] = sorted(linked, key=id_order)
+        known[finding_id]["corroborated_by"] = sorted(linked, key=validate.id_sort_key)
 
     # Falsification. A file beside a 'skipped' is a contradiction worth
     # stopping on: either the check ran and the flag is wrong, or the file is
@@ -385,7 +370,10 @@ def main(argv: list[str]) -> int:
             return refuse(f"--self-check {args.self_check!r} is not a readable JSON file", 2)
 
     artifact: dict[str, Any] = {
-        "schema_version": SCHEMA_VERSION,
+        # The newest merged shape is the one a new merge writes. Named from
+        # validate.py's list, not restated: validate.SCHEMA_VERSION is the
+        # pass files' version, a different number under the same name.
+        "schema_version": validate.MERGED_SCHEMA_VERSIONS[-1],
         "kind": "merged",
         "run": {
             "mode": args.passes,

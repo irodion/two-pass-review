@@ -96,6 +96,20 @@ VERDICTS = ("blocked", "clear")
 TIER_MAX = 64
 
 ID_RE = re.compile(r"^(sec|qa)-([0-9]+)$")
+
+
+def id_sort_key(finding_id: str) -> tuple[str, int]:
+    """sec-2 before sec-10: the order a pass numbered its findings in.
+
+    Here beside ID_RE because two scripts order by it -- the page its cards,
+    the merge its links -- and an id's shape is this file's to define.
+    """
+    match = ID_RE.match(finding_id or "")
+    if not match:
+        return ("", 0)
+    return (match.group(1), int(match.group(2)))
+
+
 # Finding ids as they appear inside running text -- a self-check question names
 # the findings it is about, and this is how the naming is checked. Bounded on
 # both sides so 'sec-3' never matches inside 'sec-31'.
@@ -156,6 +170,30 @@ SCOPE_FIELDS = frozenset(
 # capped for the same reason TIER_MAX is: it renders into the run panel's
 # grid, and nothing downstream trusts it further than escaping it.
 SCOPE_LABEL_MAX = 120
+
+
+def label_problem(label: object) -> str | None:
+    """Why a scope label is refused, or None. The one statement of the rule.
+
+    Two callers ask it at two moments: scope.py, refusing --label before
+    either pass has run on a pinned diff, and this validator, refusing an
+    artifact. Each prefixes its own address. The rule used to be written out at
+    both, and changed at both when a lone carriage return turned out to pass --
+    the drift the import of SCOPE_LABEL_MAX alone was meant to prevent.
+
+    One line means what str.splitlines means, which also covers the separators
+    a newline test misses: a lone carriage return, form feed, U+2028 and the
+    rest. The page renders the label into one grid cell, and none of those
+    belongs in one.
+    """
+    if not isinstance(label, str) or not label.strip():
+        return "must be a non-empty string -- leave it out when the run has no label"
+    if label.splitlines() != [label] or len(label) > SCOPE_LABEL_MAX:
+        return (
+            f"must be a single line of at most {SCOPE_LABEL_MAX} characters -- it names what "
+            "the request meant, in the report's run panel, and does not argue it"
+        )
+    return None
 
 
 class Report:
@@ -942,11 +980,9 @@ def check_run(report: Report, where: str, run: object, version: int) -> None:
     # line. Absent, not null, when the run had none: a scope with no label is a
     # scope nobody described, which is what every run before this field was.
     if "label" in scope:
-        label = scope.get("label")
-        if not isinstance(label, str) or not label.strip():
-            report.add(at, "'label' must be a non-empty string")
-        elif "\n" in label or "\r" in label or len(label) > SCOPE_LABEL_MAX:
-            report.add(at, f"'label' must be a single line of at most {SCOPE_LABEL_MAX} characters")
+        problem = label_problem(scope.get("label"))
+        if problem:
+            report.add(at, f"'label' {problem}")
 
     _nonempty_str(report, at, scope, "base")
     _int(report, at, scope, "files_changed")
@@ -970,6 +1006,36 @@ def check_run(report: Report, where: str, run: object, version: int) -> None:
             _int(report, at, scope, "untracked")
 
 
+def link_problems(first: dict[str, Any], second: dict[str, Any]) -> list[str]:
+    """Why two findings may not corroborate each other, or nothing.
+
+    The two rules a link has that concern only its two ends. Here, stated once,
+    because the merge refuses a --link by them before it writes anything --
+    so the message can name the flag the orchestrator typed -- and this
+    validator refuses an artifact by them after.
+
+    Across dispositions: a link means one of the two was mis-tagged, and a unit
+    spanning dispositions would break the one ordering the page has. Within one
+    pass: corroboration is agreement between the two passes, and two findings
+    from one pass are one model in one context window agreeing with itself. A
+    three-way unit is still reachable, since union-find groups through a
+    partner in the other pass.
+    """
+    problems: list[str] = []
+    if first.get("disposition") != second.get("disposition"):
+        problems.append(
+            "the two cross dispositions ({} vs {}) -- one of them is mis-tagged".format(
+                first.get("disposition"), second.get("disposition")
+            )
+        )
+    if first.get("producer") == second.get("producer"):
+        problems.append(
+            "the two come from the same pass -- corroboration links a finding to one the other "
+            "pass argued"
+        )
+    return problems
+
+
 def check_corroboration(
     report: Report,
     where: str,
@@ -977,10 +1043,7 @@ def check_corroboration(
     by_id: dict[str, dict[str, Any]],
     marks_active: bool,
 ) -> None:
-    """Links resolve, are mutual, and never cross a disposition.
-
-    A link across dispositions means a pass mis-tagged one of the two, and a
-    unit spanning dispositions would break the one ordering the page has.
+    """Links resolve, are mutual, and pass link_problems.
 
     `marks_active` is whether a 'falsified' mark definitely reads as a
     withdrawal here -- a version-2 artifact whose check ran. Where it does
@@ -1026,24 +1089,8 @@ def check_corroboration(
                     at,
                     f"corroboration with {target!r} is one-way; both findings carry the link or neither does",
                 )
-            if finding.get("disposition") != partner.get("disposition"):
-                report.add(
-                    at,
-                    "corroborates {!r} across dispositions ({} vs {}) -- one of the two is mis-tagged".format(
-                        target, finding.get("disposition"), partner.get("disposition")
-                    ),
-                )
-            # Corroboration is agreement between the two passes. Two findings
-            # from one pass are one model in one context window, so linking them
-            # promotes a finding on the strength of its own author agreeing with
-            # itself. A three-way unit is still reachable, since union-find
-            # groups through a partner in the other pass.
-            if finding.get("producer") == partner.get("producer"):
-                report.add(
-                    at,
-                    f"corroborates {target!r} from the same pass; corroboration links a finding to one "
-                    "the other pass argued",
-                )
+            for problem in link_problems(finding, partner):
+                report.add(at, f"corroborates {target!r}, but {problem}")
 
 
 def check_verdict(

@@ -474,7 +474,17 @@ def review_tree(root: str, head: str, run_dir: str) -> tuple[str | None, str | N
     The checkout runs with every filter driver emptied, for filter_overrides'
     reason, and with hooks switched off. A post-checkout hook is the
     developer's own, but a review that runs `npm install` behind the user's
-    back is not one they asked for. This is also where a filter name the -c
+    back is not one they asked for.
+
+    Symlinks are written as plain files holding their target, for the same
+    reason a filtered pointer stays a pointer: it is what the diff shows. Live,
+    a link the reviewed branch points at ~/.aws or anywhere else outside the
+    checkout is one the passes are told to open -- and its contents can reach
+    an excerpt in a report people forward. confine() already refuses such a
+    link for the scripts; this makes the tree agree for the passes. Before the
+    review tree existed, a branch that was not checked out was never on disk
+    at all, so this is exposure the worktree would otherwise have added. A
+    checkout read in place is the user's own, links and all, as before. This is also where a filter name the -c
     override cannot express refuses a revision range, which the blob-to-blob
     diff alone never would: comparing the checkout and checking one out both
     run the filter.
@@ -491,6 +501,8 @@ def review_tree(root: str, head: str, run_dir: str) -> tuple[str | None, str | N
         root,
         "-c",
         "core.hooksPath=/dev/null",
+        "-c",
+        "core.symlinks=false",
         *overrides,
         "worktree",
         "add",

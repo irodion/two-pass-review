@@ -40,10 +40,15 @@ jobs:
         run: python -m compileall -q .agents/skills/two-pass-review/scripts
       - name: import cleanly, with warnings fatal
         working-directory: .agents/skills/two-pass-review/scripts
+        # Every script in the directory, found rather than listed: a script
+        # left off a hand-kept list would import with its warnings never made
+        # fatal, and nothing would say so. The assertion is the guard on the
+        # glob itself -- a wrong directory finds nothing, and importing
+        # nothing passes.
         run: |
           python -W error::DeprecationWarning \
                  -W error::SyntaxWarning \
-                 -c "import markdown_subset, page, validate, render, scope, collect_docs, diff_paths, merge"
+                 -c "import glob, importlib; names = sorted(p[:-3] for p in glob.glob('*.py')); assert 'scope' in names, names; [importlib.import_module(n) for n in names]"
       - name: run the entry points, with warnings fatal
         # Importing a module does not execute its main(), so a deprecation inside
         # one stays invisible to the step above -- datetime.utcnow() in scope.py

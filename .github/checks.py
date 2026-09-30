@@ -267,6 +267,7 @@ def links_resolve(problems: list[str]) -> None:
         os.path.join(ROOT, "CODE_OF_CONDUCT.md"),
         os.path.join(SKILL, "SKILL.md"),
         os.path.join(SKILL, "NOTICE.md"),
+        os.path.join(SKILL, "references", "prompts.md"),
     ]
     for doc in docs:
         with open(doc, encoding="utf-8") as handle:

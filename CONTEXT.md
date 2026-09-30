@@ -98,7 +98,7 @@ The exact range of code a run reviews, resolved once by the parent so both passe
 _Avoid_: diff, target, range
 
 **Review tree**:
-The checkout a run reads files from — the reviewed head, exactly. The user's own checkout when it already holds that commit with no uncommitted change, otherwise a worktree at the head inside the run directory. A diff compares commits, but a pass reads files and the validator checks ranges against files, so they must be the head's.
+The checkout a run reads files from — the reviewed head, exactly. The user's own checkout when it already holds that commit with no uncommitted change, otherwise a worktree at the head inside the run directory, which `scope.py --release` removes at the end of the run. A diff compares commits, but a pass reads files and the validator checks ranges against files, so they must be the head's.
 _Avoid_: checkout, working copy, repo
 
 **Findings file**:

@@ -6,9 +6,9 @@ Do not summarise a block, shorten it, or add to it: each one is short because ev
 needs is either in the block or in a file the block tells it to read, and a rule you paraphrase is a
 rule the subagent may never see.
 
-The placeholders are the values `scope.py` printed — `<repo_root>`, `<run_dir>`, `<context_diff>`,
-`<file_lines>` — plus `<skill-dir>`, the directory holding `SKILL.md`. Write each one as the full
-absolute path.
+The placeholders are the values `scope.py` printed — `<repo_root>`, `<checkout>`, `<run_dir>`,
+`<context_diff>`, `<file_lines>` — plus `<skill-dir>`, the directory holding `SKILL.md`. Write each one
+as the full absolute path.
 
 This file is original to this repository, not part of the forked rubrics — see
 [`NOTICE.md`](../NOTICE.md).
@@ -109,15 +109,17 @@ Use your file-writing tool only for that one file. If you cannot write files, re
 ## Rule derivation
 
 Only when the user asks for rule suggestions. `<findings_json>` is the path of the run's
-`findings.json`, and `<context_diff>` is the `context.diff` beside it. `<repo_root>` is the user's
-repository — a review worktree has been removed by the time anyone asks.
+`findings.json`, and `<context_diff>` is the `context.diff` beside it. `<checkout>` is `checkout` in the
+`scope.json` beside them — the user's own repository. Never `<repo_root>`: that can name a review
+worktree, released when the run ended. A run from before `checkout` was recorded has none; there, use
+the user's repository.
 
 ```text
 You turn the findings of a finished code review into suggested lint rules. You do not review code, and you do not change the findings.
 
 Read the review's findings: <findings_json>
 Read the diff they are about: <context_diff>
-Read the repository as much as you need: <repo_root>
+Read the repository as much as you need: <checkout>
 
 Rules:
 1. Derive rules that would catch a recurrence of a finding's class of defect — never a rule that only matches the one instance. Base each rule on code that the repository actually contains.

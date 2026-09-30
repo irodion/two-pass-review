@@ -16,8 +16,9 @@ Everything lives under `.agents/skills/two-pass-review/`. `SKILL.md` is the orch
 holds the two forked rubrics; `scripts/` holds the pipeline.
 
 The pipeline is three steps, and each one refuses to paper over the step before it. **Scope** pins one
-diff to disk, so both passes read an identical input and corroboration has something to compare across.
-The **validator** stands between the passes and the page: it checks the rules that would let the artifact
+diff to disk, so both passes read an identical input and corroboration has something to compare across,
+and hands them a tree whose files match it — the reviewed head checked out beside your work when your
+checkout holds something else. The **validator** stands between the passes and the page: it checks the rules that would let the artifact
 lie — chiefly that the verdict agrees with the list beneath it — and nothing invalid is ever rendered.
 The **renderer** turns the merged artifact into the page, and calls the validator itself rather than
 trusting whoever invoked it.

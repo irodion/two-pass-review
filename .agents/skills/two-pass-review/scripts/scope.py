@@ -435,9 +435,9 @@ def checkout_holds(root: str, head: str, overrides: list[str]) -> bool:
     A content comparison, not a stat one: diff-index alone reports a file as
     changed whenever its stat information is stale -- touched by an editor or
     a build without being edited -- and a checkout that is merely stat-stale
-    would cost a full worktree. Comparing content
-    runs the clean filter, which is why the emptied overrides go in front of
-    it, exactly as they do for a local-patch diff.
+    would cost a full worktree. Comparing content runs the clean filter, which
+    is why the emptied overrides go in front of it, exactly as they do for a
+    local-patch diff.
 
     Untracked files do not count: head does not contain them, and a pass has
     no reason to open a file the diff and the code around it never name.
@@ -477,7 +477,10 @@ def review_tree(root: str, head: str, run_dir: str) -> tuple[str | None, str | N
     The checkout runs with every filter driver emptied, for filter_overrides'
     reason, and with hooks switched off. A post-checkout hook is the
     developer's own, but a review that runs `npm install` behind the user's
-    back is not one they asked for.
+    back is not one they asked for. This is also where a filter name the -c
+    override cannot express refuses a revision range, which the blob-to-blob
+    diff alone never would: comparing the checkout and checking one out both
+    run the filter.
 
     Symlinks are written as plain files holding their target, for the same
     reason a filtered pointer stays a pointer: it is what the diff shows. Live,
@@ -487,10 +490,7 @@ def review_tree(root: str, head: str, run_dir: str) -> tuple[str | None, str | N
     link for the scripts; this makes the tree agree for the passes. Before the
     review tree existed, a branch that was not checked out was never on disk
     at all, so this is exposure the worktree would otherwise have added. A
-    checkout read in place is the user's own, links and all, as before. This is also where a filter name the -c
-    override cannot express refuses a revision range, which the blob-to-blob
-    diff alone never would: comparing the checkout and checking one out both
-    run the filter.
+    checkout read in place is the user's own, links and all, as before.
     """
     overrides, problem = filter_overrides(root)
     if problem:

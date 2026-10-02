@@ -709,98 +709,108 @@ def main(argv: list[str]) -> int:
         if worktree is not None:
             tree = worktree
 
-    headers = diff_paths.file_headers(patch["text"].split("\n"))
-    named = [header.new for header in headers if header.new is not None]
-    omitted = sum(1 for header in headers if header.deleted)
-    lines_path = os.path.join(run_dir, "file_lines.json")
-    with open(lines_path, "w", encoding="utf-8") as handle:
-        json.dump(file_lines(tree, named), handle, indent=2, sort_keys=True)
+    # From here until scope.json names the worktree and the run directory is
+    # printed, nothing outside this process knows the tree exists. A failure in
+    # between -- a full disk, an interrupt -- prints no run_dir for anyone to
+    # release, and the worktree would stay registered in the user's repository.
+    # So it is removed here, before the failure propagates.
+    try:
+        headers = diff_paths.file_headers(patch["text"].split("\n"))
+        named = [header.new for header in headers if header.new is not None]
+        omitted = sum(1 for header in headers if header.deleted)
+        lines_path = os.path.join(run_dir, "file_lines.json")
+        with open(lines_path, "w", encoding="utf-8") as handle:
+            json.dump(file_lines(tree, named), handle, indent=2, sort_keys=True)
 
-    # Every file header is one path or one deliberate omission, so anything left
-    # over is a header this parser did not understand. Say so. The alternative is
-    # what happened three times in review: a manifest quietly short of the diff it
-    # describes, with the scope line beside it claiming the full count. Not fatal,
-    # and deliberately not an exit status -- the passes read those files for
-    # themselves, exactly as they did before the manifest existed.
-    #
-    # The subtraction is from build_diff's count, not from len(headers), and the
-    # difference is the whole check. Both count `diff --git` lines, so the two
-    # agree today; they are written separately so that a file_headers which one
-    # day stops opening a block gets noticed. Subtract from len(headers) instead
-    # and that parser is being asked to check itself: a block it never opened is
-    # absent from both sides of the subtraction, the remainder is zero, and the
-    # manifest goes quietly short -- which is the exact failure this line exists
-    # to make loud. It only reads a header this parser opened and could not
-    # resolve; it does not read one the parser walked past.
-    unread = patch["files"] - len(named) - omitted
-    if unread:
-        sys.stderr.write(
-            "Warning: {} of {} file header(s) in the diff named no path this could read, so "
-            "file_lines.json is that many entries short.\nThe review is unaffected -- those "
-            "files are counted by whoever cites them -- but the gap is a parser bug worth "
-            "reporting.\n".format(unread, patch["files"])
+        # Every file header is one path or one deliberate omission, so anything left
+        # over is a header this parser did not understand. Say so. The alternative is
+        # what happened three times in review: a manifest quietly short of the diff it
+        # describes, with the scope line beside it claiming the full count. Not fatal,
+        # and deliberately not an exit status -- the passes read those files for
+        # themselves, exactly as they did before the manifest existed.
+        #
+        # The subtraction is from build_diff's count, not from len(headers), and the
+        # difference is the whole check. Both count `diff --git` lines, so the two
+        # agree today; they are written separately so that a file_headers which one
+        # day stops opening a block gets noticed. Subtract from len(headers) instead
+        # and that parser is being asked to check itself: a block it never opened is
+        # absent from both sides of the subtraction, the remainder is zero, and the
+        # manifest goes quietly short -- which is the exact failure this line exists
+        # to make loud. It only reads a header this parser opened and could not
+        # resolve; it does not read one the parser walked past.
+        unread = patch["files"] - len(named) - omitted
+        if unread:
+            sys.stderr.write(
+                "Warning: {} of {} file header(s) in the diff named no path this could read, so "
+                "file_lines.json is that many entries short.\nThe review is unaffected -- those "
+                "files are counted by whoever cites them -- but the gap is a parser bug worth "
+                "reporting.\n".format(unread, patch["files"])
+            )
+
+        scope: dict[str, str | int | None] = {
+            "repo": os.path.basename(root),
+            "mode": args.mode,
+        }
+        # Verbatim, and only when given. It says what the request *meant* -- "working
+        # tree since 2026-08-25 00:00 +0300" -- which nothing else in this object
+        # records: two runs of "changes made today" differed by 3.5x in files, and
+        # only a reader who re-derives the git commands could see why. Nothing here
+        # checks it against the range beside it, and nothing could: the resolution
+        # happened in the conversation, above this script. It is declared
+        # provenance, the page presents it as such, and the resolved base and head
+        # remain the checkable record.
+        if args.label is not None:
+            scope["label"] = args.label
+        scope["base"] = base
+        scope["head"] = head
+        scope["files_changed"] = patch["files"]
+        scope["diff_bytes"] = patch["bytes"]
+        if patch["untracked"] is not None:
+            scope["untracked"] = patch["untracked"]
+
+        printed = (
+            json.dumps(
+                {
+                    # Every later --repo, and the tree the passes read. Absolute,
+                    # because --repo here may have named a subdirectory, which this
+                    # script resolves to the top of the checkout and the others take
+                    # as given -- so a pass handed the directory the user started in
+                    # would have correct locations refused as missing files.
+                    "repo_root": tree,
+                    # The worktree `--release` removes, or null when the checkout
+                    # is read in place. See review_tree.
+                    "worktree": worktree,
+                    # The user's own checkout, which repo_root is not while a
+                    # worktree stands and names nothing once it is released --
+                    # so anything asked for after the run, like rule derivation,
+                    # has a repository to be handed. And release's git runs here.
+                    "checkout": root,
+                    "run_dir": run_dir,
+                    "report_dir": report_dir,
+                    # The artifact's `generated_at`, so the merge has a clock without
+                    # asking a shell for one. It sits outside `scope` deliberately: the
+                    # validator closes that object's field set, and this is not a fact
+                    # about the range.
+                    "now": pinned_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "context_diff": context,
+                    "file_lines": lines_path,
+                    "latest": os.path.join(report_dir, "latest.html"),
+                    "scope": scope,
+                },
+                indent=2,
+            )
+            + "\n"
         )
-
-    scope: dict[str, str | int | None] = {
-        "repo": os.path.basename(root),
-        "mode": args.mode,
-    }
-    # Verbatim, and only when given. It says what the request *meant* -- "working
-    # tree since 2026-08-25 00:00 +0300" -- which nothing else in this object
-    # records: two runs of "changes made today" differed by 3.5x in files, and
-    # only a reader who re-derives the git commands could see why. Nothing here
-    # checks it against the range beside it, and nothing could: the resolution
-    # happened in the conversation, above this script. It is declared
-    # provenance, the page presents it as such, and the resolved base and head
-    # remain the checkable record.
-    if args.label is not None:
-        scope["label"] = args.label
-    scope["base"] = base
-    scope["head"] = head
-    scope["files_changed"] = patch["files"]
-    scope["diff_bytes"] = patch["bytes"]
-    if patch["untracked"] is not None:
-        scope["untracked"] = patch["untracked"]
-
-    printed = (
-        json.dumps(
-            {
-                # Every later --repo, and the tree the passes read. Absolute,
-                # because --repo here may have named a subdirectory, which this
-                # script resolves to the top of the checkout and the others take
-                # as given -- so a pass handed the directory the user started in
-                # would have correct locations refused as missing files.
-                "repo_root": tree,
-                # The worktree `--release` removes, or null when the checkout
-                # is read in place. See review_tree.
-                "worktree": worktree,
-                # The user's own checkout, which repo_root is not while a
-                # worktree stands and names nothing once it is released --
-                # so anything asked for after the run, like rule derivation,
-                # has a repository to be handed. And release's git runs here.
-                "checkout": root,
-                "run_dir": run_dir,
-                "report_dir": report_dir,
-                # The artifact's `generated_at`, so the merge has a clock without
-                # asking a shell for one. It sits outside `scope` deliberately: the
-                # validator closes that object's field set, and this is not a fact
-                # about the range.
-                "now": pinned_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "context_diff": context,
-                "file_lines": lines_path,
-                "latest": os.path.join(report_dir, "latest.html"),
-                "scope": scope,
-            },
-            indent=2,
-        )
-        + "\n"
-    )
-    # One string, written twice, as collect_docs.py does with docs.json: the
-    # merge reads this file rather than a model retyping what was printed, and
-    # there is nothing to drift between the two.
-    with open(os.path.join(run_dir, "scope.json"), "w", encoding="utf-8") as handle:
-        handle.write(printed)
-    sys.stdout.write(printed)
+        # One string, written twice, as collect_docs.py does with docs.json: the
+        # merge reads this file rather than a model retyping what was printed, and
+        # there is nothing to drift between the two.
+        with open(os.path.join(run_dir, "scope.json"), "w", encoding="utf-8") as handle:
+            handle.write(printed)
+        sys.stdout.write(printed)
+    except BaseException:
+        if worktree is not None:
+            git(root, "worktree", "remove", "--force", worktree)
+        raise
     return 0
 
 

@@ -244,16 +244,22 @@ def check_state(
 
 
 def read_collection(run_dir: str) -> tuple[list[str], list[Any]] | None:
-    """collect_docs.py's two lists from docs.json, or None when it is not there.
+    """collect_docs.py's two lists from docs.json, or None when it is not that.
 
     Copied into the artifact as they stand: 'examined' is what the docs check
-    was handed, and 'skipped' is what the collector refused and why.
+    was handed, and 'skipped' is what the collector refused and why. Every
+    entry under 'docs' is checked before its path is read, because a file of
+    some other shape is not the collection, and a traceback is not a refusal.
     """
     collected = read_json(os.path.join(run_dir, "docs.json"))
     if (
         not isinstance(collected, dict)
         or not isinstance(collected.get("docs"), list)
         or not isinstance(collected.get("skipped"), list)
+        or not all(
+            isinstance(entry, dict) and isinstance(entry.get("path"), str)
+            for entry in collected["docs"]
+        )
     ):
         return None
     return [entry["path"] for entry in collected["docs"]], collected["skipped"]
@@ -362,7 +368,7 @@ def main(argv: list[str]) -> int:
         collection = read_collection(run_dir)
         if collection is None:
             return refuse(
-                "--docs-check ran, but the run directory holds no docs.json. collect_docs.py "
+                "--docs-check ran, but the run directory holds no readable docs.json. collect_docs.py "
                 "writes it and the docs check reads its documents from it, so a run without it "
                 "had no docs check -- merge with --docs-check skipped"
             )

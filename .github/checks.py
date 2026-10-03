@@ -129,70 +129,11 @@ def page_script_parses(problems: list[str]) -> None:
         os.unlink(handle.name)
 
 
-HOSTILE = (
-    "[x](javascript:alert(1))",
-    "[x](JaVaScRiPt:alert(1))",
-    "[x](data:text/html,<script>alert(1)</script>)",
-    "[x](vbscript:msgbox)",
-    "<script>alert(1)</script>",
-    "<img src=x onerror=alert(1)>",
-    "<IMG SRC=x ONERROR=alert(1)>",
-)
-HREF = re.compile(r'href="([^"]*)"', re.IGNORECASE)
-
-# Restated here rather than imported from markdown_subset. Judging the output
-# with the module's own is_safe_url makes the oracle regress along with the
-# thing it is judging: flip that function to `return True` and every assertion
-# below still passes, which is exactly the regression this exists to catch.
+# Restated here rather than imported from markdown_subset. Judging the page with
+# that module's own is_safe_url makes the oracle regress along with the thing it
+# is judging: flip that function to `return True` and every link assertion below
+# still passes, which is exactly the regression they exist to catch.
 SAFE_PREFIXES = ("http://", "https://", "mailto:")
-
-
-def _scripts_importable() -> None:
-    """Make the skill's scripts importable, without leaving bytecode beside them.
-
-    Two checks here import from the tree they are checking, and an import
-    writes __pycache__/ next to the scripts. A check has no business leaving
-    anything behind in the working copy -- a .pyc from one got committed once.
-    """
-    sys.dont_write_bytecode = True
-    if SCRIPTS not in sys.path:
-        sys.path.insert(0, SCRIPTS)
-
-
-def sanitiser_holds(problems: list[str]) -> None:
-    """Constraint 2 again, from the other end: the sanitiser is run, not read.
-
-    The static scan above looks at page.py, so a regression in the URL sanitiser
-    would walk straight past it: markdown_subset.py is where a scheme becomes an
-    href, and that is the one place a link in a finding can turn into script. So
-    the sanitiser is exercised on input written to get through it.
-
-    Escaped text is not a finding. '&lt;img src=x onerror=alert(1)&gt;' in the
-    output is the sanitiser working, which is why this asserts on tags and href
-    values rather than grepping for 'onerror'."""
-    _scripts_importable()
-    try:
-        from markdown_subset import Markdown
-    except ImportError as error:  # pragma: no cover - a broken import is the floor job's problem
-        problems.append(f"cannot import markdown_subset: {error}")
-        return
-
-    renderer = Markdown(known_ids=set())
-    for source in HOSTILE:
-        rendered = renderer.render(source)
-        lowered = rendered.lower()
-        for tag in ("<script", "<img", "<iframe", "<svg"):
-            if tag in lowered:
-                problems.append(f"markdown_subset: {tag!r} survived {source!r} unescaped")
-        for url in HREF.findall(rendered):
-            if not url.lower().startswith(SAFE_PREFIXES):
-                problems.append(f"markdown_subset: emitted href={url!r} from {source!r}")
-
-    # The opposite failure -- a sanitiser that strips everything -- would satisfy
-    # every assertion above while making the report's cross-references dead text.
-    safe = renderer.render("[ok](https://example.com)")
-    if 'href="https://example.com"' not in safe:
-        problems.append("markdown_subset: a safe https link no longer renders as a link")
 
 
 # What every payload below tries to plant. Names nothing the page ever uses, so
@@ -222,7 +163,8 @@ def _payload(field: str, block: bool) -> str:
     the sanitiser, and a safe-scheme link carrying an attribute breakout, which
     the sanitiser lets through and only escaping stops. A block field adds the
     markdown structures that build tags of their own, with a payload inside
-    each.
+    each, and the unsafe schemes in the spellings a sanitiser has to refuse
+    whatever their case -- `JaVaScRiPt:`, `data:`, `vbscript:`.
     """
     text = (
         _head(field) + f" </{PLANTED}-tag> \" {PLANTED}-dq=\"1 ' {PLANTED}-sq='1 "
@@ -233,6 +175,8 @@ def _payload(field: str, block: bool) -> str:
     if block:
         text += (
             f"\u2028\n\n- <{PLANTED}-tag> in a list\n\n> <{PLANTED}-tag> in a quote\n\n"
+            f"- [a](JaVaScRiPt:{PLANTED}()) [b](data:text/html,<script>{PLANTED}()</script>) "
+            f"[c](vbscript:{PLANTED}) <IMG SRC=x ONERROR={PLANTED}()>\n\n"
             f'```html"{PLANTED}-dq="1\n</code></pre><{PLANTED}-tag {PLANTED}-dq="1">\n```\n\n'
             f"`<{PLANTED}-tag>` and **<{PLANTED}-tag>**, beside qa-1"
         )
@@ -455,7 +399,7 @@ def _parse(page: str) -> _Collector:
 
 
 def page_escapes_everything(problems: list[str]) -> None:
-    """Constraint 2 across the whole page, where sanitiser_holds covers markdown.
+    """Constraint 2 across the whole page, the markdown sanitiser included.
 
     Every field of a merged artifact that carries text gets a payload, the page
     is rendered, and what a browser would build from it is checked: no tag or
@@ -471,7 +415,11 @@ def page_escapes_everything(problems: list[str]) -> None:
     returns, which tests the escaping and says nothing about what copy_texts
     chose to include. So what a finding's payload must carry -- its body, its
     contest, its paths -- is looked for verbatim as well, independently."""
-    _scripts_importable()
+    # The one check that imports from the tree it is checking, and an import
+    # writes __pycache__/ next to the scripts. A check has no business leaving
+    # anything behind in the working copy -- a .pyc from one got committed once.
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, SCRIPTS)
     try:
         import page
         import validate
@@ -499,7 +447,7 @@ def page_escapes_everything(problems: list[str]) -> None:
             )
 
     for version, artifact in artifacts.items():
-        where = f"page.py (v{version} artifact)"
+        where = f"rendered page (v{version} artifact)"
         # Named, never a traceback: a page.py that raises on hostile text is a
         # finding about page.py, and the checks after this one still owe their
         # answers. The exceptions a render can raise on unexpected data, not a
@@ -541,6 +489,14 @@ def page_escapes_everything(problems: list[str]) -> None:
                     and not value.lower().startswith(SAFE_PREFIXES)
                 ):
                     problems.append(f"{where}: <{tag}> has {name}={value!r}")
+
+        # The opposite failure: a sanitiser that refuses every link would pass
+        # everything above while turning the report's links into dead text. The
+        # payload's safe link has to arrive as a link, its breakout still inside
+        # the value where escaping put it.
+        safe = f'https://e/"{PLANTED}-dq="1'
+        if not any(t == "a" and ("href", safe) in attrs for t, attrs in hostile.tags):
+            problems.append(f"{where}: a safe https link no longer renders as a link")
 
         for tag in COUNTED:
             planted = sum(1 for t, _ in hostile.tags if t == tag)
@@ -624,8 +580,8 @@ def committed_symlink(problems: list[str]) -> None:
 def no_build_artifacts(problems: list[str]) -> None:
     """Nothing generated by running the code belongs in the tree.
 
-    This one is here because it happened: a .pyc was committed, written by the
-    sanitiser check above importing the module it exercises, and picked up by a
+    This one is here because it happened: a .pyc was committed, written by a
+    check here importing the module it exercises, and picked up by a
     `git add -A`. The skill directory is copied wholesale into other people's
     repositories, so a stray .pyc does not just sit there -- it travels, stale
     and for the wrong interpreter."""
@@ -692,7 +648,6 @@ def main() -> int:
     checks = (
         stdlib_only,
         page_script_parses,
-        sanitiser_holds,
         page_escapes_everything,
         committed_symlink,
         no_build_artifacts,
@@ -709,9 +664,9 @@ def main() -> int:
     # not click the button, and it did not open a report. Saying more than that is
     # how a green tick starts standing in for the thing it cannot do.
     sys.stdout.write(
-        "stdlib-only; page SCRIPT parses; sanitiser rejects unsafe schemes; "
-        "a hostile payload in each text field renders as text; symlink relative; "
-        "no build artifacts tracked; links resolve.\n"
+        "stdlib-only; page SCRIPT parses; a hostile payload in each text field renders "
+        "as text and no unsafe link; symlink relative; no build artifacts tracked; "
+        "links resolve.\n"
     )
     return 0
 

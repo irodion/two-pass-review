@@ -151,13 +151,24 @@ anything about reviewing code:
   The whole-page check carries escape-first past the markdown. Titles, paths, labels, document names and
   the copy buttons' payloads reach the page by other routes, and each is one forgotten `esc()` from an
   injection. It builds a valid artifact — both schema shapes a page still renders — with a payload in
-  every field that carries text, renders it, and parses the result as a browser would: no tag or
+  every field that carries text, renders it, and parses the result with Python's HTML parser: no tag or
   attribute a payload planted, no inline handler, no link outside an anchor or a safe scheme, no more
-  scripts, styles or frames than the same artifact renders with harmless text, and copy buttons that
-  decode back to exactly what `copy_payload` built. Its oracle is the HTML parser, never a rule imported
-  from `page.py`. Every field's payload also has to reach the page, because a field that never renders
-  passes every escaping test vacuously — and a field `validate.py` gains fails the check until
-  `_hostile_artifact` carries it.
+  scripts, styles or frames than the same artifact renders with harmless text. What counts as markup is
+  the parser's call, never a rule imported from `page.py`.
+
+  Two things keep it from passing on nothing. Each field's opening — its token, a tag and `&amp;&lt;` —
+  has to appear in the page's *visible* text exactly as written, never just inside a copy button's
+  attribute, which carries every field whether the card shows it or not; that one string proves the
+  field rendered, its markup was escaped rather than deleted, and character references were not decoded
+  once too often. And every field set `validate.py` declares is compared, object by object, against
+  what `_hostile_artifact` carries, so a new field or a new kind of object fails the check until it
+  gets a payload.
+
+  The copy buttons are the one comparison with `page.py`: their attribute has to decode back to exactly
+  what `copy_payload` built. That tests the escaping and nothing about the content, so a finding's
+  body, paths, rationale and contest are also looked for in what is copied, independently. The check
+  was tested by breaking escaping on purpose, field by field, and any change to it should be tested the
+  same way: a check that has only ever passed has not shown it can fail.
 - **`lint and types`** — ruff's configured rule set, the formatter, and `mypy --strict`, pinned.
   The rule set and its exclusions are argued in `pyproject.toml`'s comments; the job only runs what
   that file declares.
@@ -165,8 +176,9 @@ anything about reviewing code:
   runs them. It does not keep its own copy of the commands, because a copy would have passed every time
   the real ones were broken, which by then was three commands across two reviews.
 
-None of this is a test corpus: there are no fixtures and no expected output, only invariants. And none of
-it substitutes for (1) and (2). CI cannot tell you the report is wrong — it can only tell you the scripts
+None of this is a test corpus: there are no fixture files and no expected output, only invariants. The
+one artifact a check needs, the escaping check's, is built in code and judged against invariants, never
+compared with a stored page. And none of it substitutes for (1) and (2). CI cannot tell you the report is wrong — it can only tell you the scripts
 still start.
 
 ## Landing a change

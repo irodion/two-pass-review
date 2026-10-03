@@ -161,11 +161,15 @@ def load(source: str) -> tuple[dict[str, str] | None, str | None]:
 
 
 def read() -> tuple[dict[str, str] | None, str | None]:
-    """load(), on the prompts.md this skill ships."""
+    """load(), on the prompts.md this skill ships.
+
+    A file that is not UTF-8 is as broken as one that is missing, and it gets
+    the same refusal rather than a traceback where scope.py promised exit 5.
+    """
     try:
         with open(SOURCE, encoding="utf-8") as handle:
             return load(handle.read())
-    except OSError as error:
+    except (OSError, UnicodeDecodeError) as error:
         return None, f"cannot read {SOURCE}: {error}"
 
 

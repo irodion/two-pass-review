@@ -115,6 +115,13 @@ You get back three things: the verdict, the path to the report, and any warning 
 pass that died, a check that was skipped or could not be read, a script that complained without
 failing. The findings themselves are in the report, not repeated in the transcript.
 
+Runs are kept in `.two-pass-review/` at the top of your checkout — the report, the artifact it renders
+from, and the diff it reviewed, one directory per run, with `latest.html` always the newest report. The
+newest twenty are kept and older ones are deleted as new runs arrive. The directory carries its own
+`.gitignore`, so git never sees it and you have nothing to add to yours. Runs used to live in the temp
+directory, which macOS empties of anything older than about three days, and that took the old reports
+with it.
+
 ## Reading the report
 
 Findings are ordered by **disposition** — blocking first, then follow-ups, then notes — because that is

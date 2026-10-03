@@ -108,9 +108,9 @@ decides whether a change is good is two things, and neither automates:
    stronger guarantee than any assertion you would have written, and it is available because the renderer
    is deterministic and writes no timestamp into the page. Keep it that way.
 
-Any `findings.json` from a previous run works as the input for (2); they accumulate under
-`<temp-root>/two-pass-review/<repo-slug>-<hash>/`. A larger artifact is a better test, so prefer a real
-review over a hand-made one.
+Any `findings.json` from a previous run works as the input for (2); the newest twenty runs are kept
+under `.two-pass-review/` at the top of the checkout, which ignores itself. A larger artifact is a better
+test, so prefer a real review over a hand-made one.
 
 Style and types are the one automated layer above the floor: `ruff check`, `ruff format --check` and
 `mypy --strict` run in CI (pinned versions, configured in `pyproject.toml`), and

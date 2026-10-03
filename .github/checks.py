@@ -24,7 +24,8 @@ import subprocess
 import sys
 import tempfile
 from html.parser import HTMLParser
-from typing import IO
+from collections.abc import Callable
+from typing import IO, Any
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SKILL = os.path.join(ROOT, ".agents", "skills", "two-pass-review")
@@ -146,9 +147,20 @@ HREF = re.compile(r'href="([^"]*)"', re.IGNORECASE)
 SAFE_PREFIXES = ("http://", "https://", "mailto:")
 
 
+def _scripts_importable() -> None:
+    """Make the skill's scripts importable, without leaving bytecode beside them.
+
+    Two checks here import from the tree they are checking, and an import
+    writes __pycache__/ next to the scripts. A check has no business leaving
+    anything behind in the working copy -- a .pyc from one got committed once.
+    """
+    sys.dont_write_bytecode = True
+    if SCRIPTS not in sys.path:
+        sys.path.insert(0, SCRIPTS)
+
+
 def sanitiser_holds(problems: list[str]) -> None:
-    """Constraint 2 again, from the other end -- and the only check here that runs
-    the code rather than reading it.
+    """Constraint 2 again, from the other end: the sanitiser is run, not read.
 
     The static scan above looks at page.py, so a regression in the URL sanitiser
     would walk straight past it: markdown_subset.py is where a scheme becomes an
@@ -158,11 +170,7 @@ def sanitiser_holds(problems: list[str]) -> None:
     Escaped text is not a finding. '&lt;img src=x onerror=alert(1)&gt;' in the
     output is the sanitiser working, which is why this asserts on tags and href
     values rather than grepping for 'onerror'."""
-    # This is the one check that imports from the tree it is checking, and an
-    # import writes __pycache__/ next to the scripts. A check has no business
-    # leaving anything behind in the working copy -- it got committed once.
-    sys.dont_write_bytecode = True
-    sys.path.insert(0, SCRIPTS)
+    _scripts_importable()
     try:
         from markdown_subset import Markdown
     except ImportError as error:  # pragma: no cover - a broken import is the floor job's problem
@@ -192,28 +200,40 @@ def sanitiser_holds(problems: list[str]) -> None:
 PLANTED = "pwn"
 
 
+def _head(field: str) -> str:
+    """How every payload opens, and what a reader must see of it, verbatim.
+
+    A token naming the field, a tag, and character references. Found in the
+    page's visible text, it proves three things at once: the field rendered at
+    all -- one that never reaches the page passes every escaping test
+    vacuously -- its tag arrived as text rather than being deleted, which is
+    the failure escaping must never turn into, and `&amp;` and `&lt;` read as
+    written rather than as the characters they would decode to.
+    """
+    return f"tok-{field} <{PLANTED}-tag> &amp;&lt;&"
+
+
 def _payload(field: str, block: bool) -> str:
     """Text built to break out of every context the page puts text in.
 
-    It opens with a token naming its field, so the check can tell a field the
-    page escaped from one it never rendered -- a field that does not reach the
-    page passes every escaping test vacuously. Then a tag, a double- and a
-    single-quoted attribute breakout for attribute values, closers for the
-    elements whose content is text rather than markup -- `<title>` among them,
-    where a tag is inert but a closer is not -- a script link for the markdown
-    sanitiser, and character
-    references that must arrive as written. A block field adds the markdown
-    structures that build tags of their own, with a payload inside each.
+    After the head: a double- and a single-quoted attribute breakout, closers
+    for the elements whose content is text rather than markup -- `<title>`
+    among them, where a tag is inert but a closer is not -- a script link for
+    the sanitiser, and a safe-scheme link carrying an attribute breakout, which
+    the sanitiser lets through and only escaping stops. A block field adds the
+    markdown structures that build tags of their own, with a payload inside
+    each.
     """
     text = (
-        f"tok-{field} <{PLANTED}-tag></{PLANTED}-tag> \" {PLANTED}-dq=\"1 ' {PLANTED}-sq='1 "
+        _head(field) + f" </{PLANTED}-tag> \" {PLANTED}-dq=\"1 ' {PLANTED}-sq='1 "
         f"</title></textarea></style></script><script>{PLANTED}()</script> "
-        f"[x](javascript:{PLANTED}()) <img src=x onerror={PLANTED}()> &amp; &lt; &"
+        f'[x](javascript:{PLANTED}()) [y](https://e/"{PLANTED}-dq="1) '
+        f"<img src=x onerror={PLANTED}()>"
     )
     if block:
         text += (
             f"\u2028\n\n- <{PLANTED}-tag> in a list\n\n> <{PLANTED}-tag> in a quote\n\n"
-            f'```html\n</code></pre><{PLANTED}-tag {PLANTED}-dq="1">\n```\n\n'
+            f'```html"{PLANTED}-dq="1\n</code></pre><{PLANTED}-tag {PLANTED}-dq="1">\n```\n\n'
             f"`<{PLANTED}-tag>` and **<{PLANTED}-tag>**, beside qa-1"
         )
     return text
@@ -221,17 +241,24 @@ def _payload(field: str, block: bool) -> str:
 
 def _short(field: str) -> str:
     """The same attack within the one-line, 64-character fields."""
-    return f"tok-{field} <{PLANTED}-tag>\" {PLANTED}-dq=\"1 ' {PLANTED}-sq='1 </script>"
+    return _head(field) + f"\" {PLANTED}-dq=\"1 ' {PLANTED}-sq='1"
 
 
-def _hostile_artifact(version: int, benign: bool = False) -> dict[str, object]:
+def _hostile_artifact(version: int, benign: bool = False) -> dict[str, Any]:
     """A valid merged artifact with a payload in every field that carries text.
+
+    Built here rather than kept as a file, and judged against invariants
+    rather than a stored page: there is no expected output anywhere, which is
+    what keeps it from being a test corpus.
 
     Every field the page escapes rather than looks up: what a pass wrote, what
     the orchestrator passed in, and what the reviewed repository named -- a
     path, a document, the repository itself. Enums, ids, counts and timestamps
     are left out because the validator refuses any value of those it does not
-    already know, so no artifact the renderer accepts can carry one.
+    already know, so no artifact the renderer accepts can carry one. Each field
+    gets its own token, so no field can stand in for another: two examined
+    documents, because a doc note's path has to be one of them and would
+    otherwise be the only proof the examined list renders.
 
     Version 4 carries corroboration, a contest, doc notes and a self-check;
     version 3 carries a withdrawn finding and a pass that found nothing, the
@@ -249,7 +276,7 @@ def _hostile_artifact(version: int, benign: bool = False) -> dict[str, object]:
     def short(field: str) -> str:
         return f"tok-{field}" if benign else _short(field)
 
-    findings: list[dict[str, object]] = [
+    findings: list[dict[str, Any]] = [
         {
             "id": "sec-1",
             "producer": "security",
@@ -271,7 +298,7 @@ def _hostile_artifact(version: int, benign: bool = False) -> dict[str, object]:
             "body_md": block("second-body"),
         },
     ]
-    security: dict[str, object] = {
+    security: dict[str, Any] = {
         "producer": "security",
         "what_holds_up_md": block("holds"),
         "closing_md": block("closing"),
@@ -279,7 +306,7 @@ def _hostile_artifact(version: int, benign: bool = False) -> dict[str, object]:
         "requested_model": short("model"),
         "requested_effort": short("effort"),
     }
-    quality: dict[str, object] = {
+    quality: dict[str, Any] = {
         "producer": "quality",
         "what_holds_up_md": None,
         "closing_md": None,
@@ -304,7 +331,7 @@ def _hostile_artifact(version: int, benign: bool = False) -> dict[str, object]:
         findings[1]["falsified"] = True
         quality["empty_reason_md"] = block("empty")
 
-    artifact: dict[str, object] = {
+    artifact: dict[str, Any] = {
         "schema_version": version,
         "kind": "merged",
         "verdict": "blocked",
@@ -326,11 +353,11 @@ def _hostile_artifact(version: int, benign: bool = False) -> dict[str, object]:
         "passes": [security, quality],
         "findings": findings,
         "docs_check": {
-            "examined": [text("doc")],
+            "examined": [text("doc"), text("noted-doc")],
             "skipped": [{"path": text("skipped-doc"), "reason": text("skip-reason")}],
             "notes": [
                 {
-                    "path": text("doc"),
+                    "path": text("noted-doc"),
                     "kind": "stale",
                     "claim_md": block("claim"),
                     "why_md": block("why"),
@@ -349,6 +376,30 @@ def _hostile_artifact(version: int, benign: bool = False) -> dict[str, object]:
         ]
     return artifact
 
+
+# Where each object validate.py closes a field set over sits in an artifact, by
+# the name of that field set. Compared object by object rather than as one pool
+# of names: a field added to one object under a name another object already
+# uses would otherwise count as carried. A field set validate.py declares and
+# this table does not place fails the check too, so a new kind of object cannot
+# arrive untested either.
+OBJECTS: dict[str, Callable[[dict[str, Any]], list[Any]]] = {
+    "MERGED_FIELDS": lambda a: [a],
+    "RUN_FIELDS": lambda a: [a["run"]],
+    "SCOPE_FIELDS": lambda a: [a["run"]["scope"]],
+    "EMBEDDED_PASS_FIELDS": lambda a: a["passes"],
+    "FINDING_FIELDS": lambda a: a["findings"],
+    "LOCATION_FIELDS": lambda a: [loc for f in a["findings"] for loc in f["locations"]],
+    "DOCS_CHECK_FIELDS": lambda a: [a["docs_check"]],
+    "DOC_NOTE_FIELDS": lambda a: a["docs_check"]["notes"],
+    "DOC_SKIP_FIELDS": lambda a: a["docs_check"]["skipped"],
+    "SELF_CHECK_FIELDS": lambda a: a.get("self_check", []),
+}
+# A standalone pass file's envelope. Inside a merged artifact the same object
+# is EMBEDDED_PASS_FIELDS, placed above.
+NOT_IN_ARTIFACT = frozenset(["PASS_FIELDS"])
+# Fields that cannot carry text, by object.
+NOT_TEXT = {"SCOPE_FIELDS": frozenset(["untracked"])}
 
 # Elements a payload would plant to run code, load something, or restyle the
 # page. The page uses some of them itself -- its one script, its one stylesheet,
@@ -371,24 +422,29 @@ COUNTED = (
     "button",
 )
 
+# What a reader sees without opening anything: text, and the tooltips `title`
+# shows on hover. Not `data-copy`, which carries every field of its finding
+# verbatim whether or not the card renders it.
+VISIBLE_ATTRIBUTES = frozenset(["title"])
+
 
 class _Collector(HTMLParser):
-    """What a browser would build from the page: tags, attributes, and decoded text."""
+    """What a browser would build from the page: tags, attributes, visible text."""
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.tags: list[tuple[str, list[tuple[str, str | None]]]] = []
-        self.text: list[str] = []
+        self.visible: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.tags.append((tag, attrs))
-        self.text.extend(value for _, value in attrs if value)
+        self.visible.extend(v for k, v in attrs if k in VISIBLE_ATTRIBUTES and v)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.handle_starttag(tag, attrs)
 
     def handle_data(self, data: str) -> None:
-        self.text.append(data)
+        self.visible.append(data)
 
 
 def _parse(page: str) -> _Collector:
@@ -405,16 +461,17 @@ def page_escapes_everything(problems: list[str]) -> None:
     is rendered, and what a browser would build from it is checked: no tag or
     attribute a payload planted, no inline event handler, no link to anything
     but an anchor or a safe scheme, and no more scripts, styles, images or
-    frames than the same artifact renders with harmless text. The copy buttons
-    are checked from the other end: the attribute has to decode back to exactly
-    the payload copy_payload built, or the reader's clipboard gets something
-    other than the finding.
+    frames than the same artifact renders with harmless text. Each field's
+    head has to be in the visible text, as written.
 
-    It escapes nothing itself and imports no rule from page.py: the oracle is
-    an HTML parser, so a page.py that stopped escaping a field fails here
-    whichever function it stopped in."""
-    sys.dont_write_bytecode = True
-    sys.path.insert(0, SCRIPTS)
+    What counts as markup is the HTML parser's call, never a rule imported
+    from page.py, so a page.py that stops escaping a field fails here whichever
+    function it stopped in. The copy buttons are the one comparison with
+    page.py: their attribute has to decode back to exactly what copy_payload
+    built, which tests the escaping and says nothing about what copy_payload
+    chose to include. So what a finding's payload must carry -- its body, its
+    contest, its paths -- is looked for verbatim as well, independently."""
+    _scripts_importable()
     try:
         import page
         import validate
@@ -422,55 +479,52 @@ def page_escapes_everything(problems: list[str]) -> None:
         problems.append(f"cannot import page or validate: {error}")
         return
 
-    # Every field the schema knows has to be in the fixture, or named here as one
-    # that cannot carry text. A field added to validate.py and not to
-    # _hostile_artifact would otherwise be the one field this never tests.
-    def keys(value: object) -> set[str]:
-        if isinstance(value, dict):
-            return set(value) | {k for v in value.values() for k in keys(v)}
-        if isinstance(value, list):
-            return {k for v in value for k in keys(v)}
-        return set()
+    artifacts = {version: _hostile_artifact(version) for version in (4, 3)}
 
-    carried = keys(_hostile_artifact(4)) | keys(_hostile_artifact(3))
-    not_text = {"untracked"}
-    schema = (
-        validate.MERGED_FIELDS,
-        validate.RUN_FIELDS,
-        validate.SCOPE_FIELDS,
-        validate.EMBEDDED_PASS_FIELDS,
-        validate.FINDING_FIELDS,
-        validate.LOCATION_FIELDS,
-        validate.DOCS_CHECK_FIELDS,
-        validate.DOC_NOTE_FIELDS,
-        validate.DOC_SKIP_FIELDS,
-        validate.SELF_CHECK_FIELDS,
-    )
-    for missing in sorted(frozenset().union(*schema) - carried - not_text):
+    declared = {name for name in vars(validate) if name.endswith("_FIELDS")}
+    for name in sorted(declared - OBJECTS.keys() - NOT_IN_ARTIFACT):
         problems.append(
-            f"checks.py: _hostile_artifact carries no {missing!r}, so it is never tested"
+            f"checks.py: validate.{name} describes an object _hostile_artifact does not place"
         )
-
-    for version in (4, 3):
-        artifact = _hostile_artifact(version)
-        # The payloads only prove anything about artifacts the renderer accepts,
-        # so the fixture is held to the validator first. A schema change that
-        # breaks it fails here, by name, instead of quietly testing nothing.
-        with tempfile.TemporaryDirectory() as scratch:
-            path = os.path.join(scratch, "findings.json")
-            with open(path, "w", encoding="utf-8") as handle:
-                json.dump(artifact, handle)
-            refused = validate.validate_paths([path])
-        if refused:
+    for name, place in OBJECTS.items():
+        carried: set[str] = set()
+        for artifact in artifacts.values():
+            for obj in place(artifact):
+                carried.update(obj)
+        fields: frozenset[str] = getattr(validate, name, frozenset())
+        for missing in sorted(fields - carried - NOT_TEXT.get(name, frozenset())):
             problems.append(
-                f"checks.py: the hostile v{version} artifact no longer validates -- "
-                + "; ".join(refused)
+                f"checks.py: _hostile_artifact carries no {missing!r} in {name}, "
+                "so it is never tested"
             )
-            continue
 
+    for version, artifact in artifacts.items():
         where = f"page.py (v{version} artifact)"
-        hostile = _parse(page.render_page(artifact))
-        baseline = _parse(page.render_page(_hostile_artifact(version, benign=True)))
+        # Named, never a traceback: a page.py that raises on hostile text is a
+        # finding about page.py, and the checks after this one still owe their
+        # answers. The exceptions a render can raise on unexpected data, not a
+        # blanket catch -- an interrupt is not a problem with the page.
+        try:
+            # The payloads only prove anything about artifacts the renderer
+            # accepts, so the hostile artifact is held to the validator first. A
+            # schema change that breaks it fails here, by name, instead of
+            # quietly testing nothing.
+            with tempfile.TemporaryDirectory() as scratch:
+                path = os.path.join(scratch, "findings.json")
+                with open(path, "w", encoding="utf-8") as handle:
+                    json.dump(artifact, handle)
+                refused = validate.validate_paths([path])
+            if refused:
+                problems.append(
+                    f"checks.py: the hostile v{version} artifact no longer validates -- "
+                    + "; ".join(refused)
+                )
+                continue
+            hostile = _parse(page.render_page(artifact))
+            baseline = _parse(page.render_page(_hostile_artifact(version, benign=True)))
+        except (LookupError, TypeError, ValueError, AttributeError) as error:
+            problems.append(f"{where}: raised {type(error).__name__} on hostile text: {error}")
+            continue
 
         for tag, attrs in hostile.tags:
             if tag.startswith(PLANTED):
@@ -496,22 +550,18 @@ def page_escapes_everything(problems: list[str]) -> None:
                     f"{where}: {planted} <{tag}> element(s) with payloads, {own} without"
                 )
 
-        # Rendered, not dropped: an escaping check passes vacuously on a field
-        # that never reaches the page, and a sanitiser that deletes text is the
-        # opposite failure, which escaping is not allowed to turn into.
-        decoded = "\n".join(hostile.text)
-        for token in sorted(set(re.findall(r"tok-[a-z-]+", json.dumps(artifact)))):
-            if token not in decoded:
-                problems.append(f"{where}: {token[4:]!r} never reaches the page")
-        if f"<{PLANTED}-tag>" not in decoded:
-            problems.append(f"{where}: the payloads' markup was removed rather than escaped")
+        visible = "\n".join(hostile.visible)
+        for field in sorted(set(re.findall(r"tok-([a-z-]+)", json.dumps(artifact)))):
+            if _head(field) not in visible:
+                problems.append(
+                    f"{where}: {field!r} does not show as written -- missing, deleted, or "
+                    "decoded once too often"
+                )
 
-        findings = artifact["findings"]
-        assert isinstance(findings, list)
-        live = {f["id"]: f for f in findings if f.get("falsified") is not True}
         copied = [
             value for _, attrs in hostile.tags for name, value in attrs if name == "data-copy"
         ]
+        live = {f["id"]: f for f in artifact["findings"] if f.get("falsified") is not True}
         for finding in live.values():
             partners = [live[i] for i in finding.get("corroborated_by", []) if i in live]
             payload = page.copy_payload(finding, partners)
@@ -520,6 +570,16 @@ def page_escapes_everything(problems: list[str]) -> None:
                     problems.append(
                         f"{where}: {finding['id']}'s copy button does not decode to its payload"
                     )
+            owed = [finding["body_md"], *(loc["path"] for loc in finding["locations"])]
+            if finding.get("confidence_rationale"):
+                owed.append(finding["confidence_rationale"])
+            # Quoted into the payload a line at a time, so it is owed a line at a time.
+            owed += finding.get("contested_md", "").split("\n")
+            if not any(all(part in value for part in owed) for value in copied if value):
+                problems.append(
+                    f"{where}: no copy button carries {finding['id']}'s body, paths, "
+                    "rationale and contest verbatim"
+                )
 
 
 def _git(problems: list[str], *args: str) -> str | None:
@@ -652,8 +712,8 @@ def main() -> int:
     # how a green tick starts standing in for the thing it cannot do.
     sys.stdout.write(
         "stdlib-only; page SCRIPT parses; sanitiser rejects unsafe schemes; "
-        "page escapes every text field; symlink relative; no build artifacts tracked; "
-        "links resolve.\n"
+        "a hostile payload in each text field renders as text; symlink relative; "
+        "no build artifacts tracked; links resolve.\n"
     )
     return 0
 

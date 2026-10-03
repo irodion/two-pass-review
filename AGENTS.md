@@ -133,8 +133,9 @@ anything about reviewing code:
   inside a `main()` is invisible to it, which is how `datetime.utcnow()` would have got through.
 - **`constraints`** — `.github/checks.py`: every import is stdlib; `page.py`'s `SCRIPT` constant parses as
   JavaScript; `markdown_subset` refuses `javascript:`, `data:` and `vbscript:` when actually run on them;
-  the committed `.claude/skills/` symlink is relative and resolves; every relative link in the docs points
-  at a file a clone has.
+  a page rendered from an artifact with a hostile payload in every text field plants no tag, attribute or
+  link; the committed `.claude/skills/` symlink is relative and resolves; every relative link in the docs
+  points at a file a clone has.
 
   The `SCRIPT` check exists because the page's one script lives inside a Python string, where neither
   `py_compile` nor the 3.10 and 3.13 jobs can see it — a typo would ship a page that renders perfectly and
@@ -146,6 +147,17 @@ anything about reviewing code:
   intact — arguably it matters more now. A pass quotes the code under review, so a hostile repository can
   get a string of its choosing into `body_md`, and the `href` allowlist is what stops that string
   becoming a `javascript:` link. That was never the same thing as the page carrying no script of its own.
+
+  The whole-page check carries escape-first past the markdown. Titles, paths, labels, document names and
+  the copy buttons' payloads reach the page by other routes, and each is one forgotten `esc()` from an
+  injection. It builds a valid artifact — both schema shapes a page still renders — with a payload in
+  every field that carries text, renders it, and parses the result as a browser would: no tag or
+  attribute a payload planted, no inline handler, no link outside an anchor or a safe scheme, no more
+  scripts, styles or frames than the same artifact renders with harmless text, and copy buttons that
+  decode back to exactly what `copy_payload` built. Its oracle is the HTML parser, never a rule imported
+  from `page.py`. Every field's payload also has to reach the page, because a field that never renders
+  passes every escaping test vacuously — and a field `validate.py` gains fails the check until
+  `_hostile_artifact` carries it.
 - **`lint and types`** — ruff's configured rule set, the formatter, and `mypy --strict`, pinned.
   The rule set and its exclusions are argued in `pyproject.toml`'s comments; the job only runs what
   that file declares.

@@ -144,6 +144,29 @@ jobs:
           grep -qF "$run_dir/prompt.rules.md" rules-handover.txt
           grep -qF "$run_dir/findings.json" "$run_dir/prompt.rules.md"
           grep -qF "$(python -c "import json;print(json.load(open('scope.json'))['checkout'])")" "$run_dir/prompt.rules.md"
+          # The excerpt warnings run under the fatal warning flags and refuse
+          # nothing: a verbatim excerpt draws no output at all, and a misquoted
+          # one draws a warning while validation still passes. What a warning
+          # says is not pinned here -- like every other negative check of
+          # validate.py, that is settled ad hoc and thrown away (AGENTS.md).
+          mkdir -p excerpt-check
+          printf 'def total(rows):\n    return sum(rows)\n' > excerpt-check/sample.py
+          echo '{"schema_version": 1, "kind": "pass", "producer": "security"}' > excerpt-check/pass.security.json
+          finding () {
+              printf '{"id": "sec-1", "producer": "security", "disposition": "note", "title": "t", "locations": [{"path": "excerpt-check/sample.py", "start_line": 2, "end_line": 2}], "body_md": "```python\\n%s\\n```\\n\\nArgument."}\n' "$1" \
+                  > excerpt-check/findings.security.jsonl
+              python -W error::DeprecationWarning -W error::SyntaxWarning \
+                     "$S/validate.py" --repo . excerpt-check/findings.security.jsonl \
+                     excerpt-check/pass.security.json 2> excerpt.err || { cat excerpt.err; exit 1; }
+          }
+          finding "    return sum(rows)"
+          test ! -s excerpt.err || { cat excerpt.err; echo "a verbatim excerpt drew output" >&2; exit 1; }
+          finding "return total(rows)"
+          case $(cat excerpt.err) in
+              *Traceback*) cat excerpt.err; exit 1 ;;
+              *Warnings*) ;;
+              *) cat excerpt.err; echo "a misquoted excerpt drew no warning" >&2; exit 1 ;;
+          esac
           : > "$run_dir/findings.security.jsonl"
           cat > "$run_dir/pass.security.json" <<'PASS'
           {"schema_version": 1, "kind": "pass", "producer": "security",
@@ -177,7 +200,7 @@ jobs:
               # refusal on stderr, and the vaguer message would send whoever
               # reads it looking in the wrong place.
               case $output in
-                  *Traceback*|*Warning*)
+                  *Traceback*|*Warning:*)
                       echo "raised instead of refusing" >&2; exit 1 ;;
               esac
               case $output in

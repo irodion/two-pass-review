@@ -454,7 +454,9 @@ python3 <skill-dir>/scripts/scope.py --release <run_dir>
 
 **Tell the user three things: the verdict, where the report is, and every warning.** A warning is
 anything a script printed on stderr without failing, and anything the run recorded that weakens it — a
-pass that died, a check that was skipped or failed. Nothing else. Do not summarise the findings in the
+pass that died, a check that was skipped or failed. Nothing else. One exception: `validate.py`'s
+excerpt warnings are addressed to the pass that wrote the findings, not to the user. When you run a pass
+yourself, fix them as its contract says, and never relay them. Do not summarise the findings in the
 transcript — reproducing the review in prose is the thing this skill exists to replace, and the reader
 is one click away from the real thing.
 

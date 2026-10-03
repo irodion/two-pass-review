@@ -100,6 +100,27 @@ jobs:
           # Outside the checkout: a second copy of the source inside it would be
           # read by every tool that ignores .gitignore for as long as it stood.
           python -c "import os,sys; sys.exit(1 if os.path.realpath(sys.argv[1]).startswith(os.path.realpath('.') + os.sep) else 0)" "$tree"
+          # Every prompt a run sends is filled from prompts.md and handed over as
+          # one printed line naming its file. Checked on both runs, because only
+          # the second has a review tree: there the passes must be pointed at the
+          # tree and not at the checkout, which a run read in place cannot tell
+          # apart.
+          python - <<'PROMPTS'
+          import json, os, sys
+          for printed in ("scope.json", "scope-tree.json"):
+              run = json.load(open(printed))
+              names = ["docs", "falsification", "quality", "security"]
+              if sorted(run["prompts"]) != names:
+                  sys.exit(f"{printed}: prompts printed {sorted(run['prompts'])}")
+              for name in names:
+                  path = os.path.join(run["run_dir"], f"prompt.{name}.md")
+                  text = open(path).read()
+                  if path not in run["prompts"][name] or run["run_dir"] not in text or "<run_dir>" in text:
+                      sys.exit(f"{printed}: {name}'s handover line or filled prompt is wrong")
+              security = open(os.path.join(run["run_dir"], "prompt.security.md")).read()
+              if f"The repository to review: {run['repo_root']}" not in security or f"--repo {run['repo_root']}" not in security:
+                  sys.exit(f"{printed}: the security pass is not pointed at the reviewed tree")
+          PROMPTS
           # Release removes it -- the directory and the registration in this
           # checkout -- and releasing a run read in place is a no-op, not an
           # error, which is what lets SKILL.md run it on every run.
@@ -115,6 +136,14 @@ jobs:
           # merge reads by name. The artifact is merge.py's, not this file's,
           # and render.py proves it renders against the review tree.
           run_dir=$(python -c "import json;print(json.load(open('scope.json'))['run_dir'])")
+          # Rule derivation's prompt is filled when it is asked for, from the
+          # run's scope.json and the prompts.md of the moment, never saved with
+          # the run. It names the user's checkout and the run's findings.
+          python -W error::DeprecationWarning -W error::SyntaxWarning \
+                 "$S/prompts.py" --rules "$run_dir" > rules-handover.txt
+          grep -qF "$run_dir/prompt.rules.md" rules-handover.txt
+          grep -qF "$run_dir/findings.json" "$run_dir/prompt.rules.md"
+          grep -qF "$(python -c "import json;print(json.load(open('scope.json'))['checkout'])")" "$run_dir/prompt.rules.md"
           : > "$run_dir/findings.security.jsonl"
           cat > "$run_dir/pass.security.json" <<'PASS'
           {"schema_version": 1, "kind": "pass", "producer": "security",
@@ -162,6 +191,9 @@ jobs:
           expect_refusal "Refusing to render an invalid artifact" \
               python -W error::DeprecationWarning -W error::SyntaxWarning \
                      "$S/render.py" does-not-exist.json --no-open
+          expect_refusal "holds no scope.json" \
+              python -W error::DeprecationWarning -W error::SyntaxWarning \
+                     "$S/prompts.py" --rules does-not-exist
           # And the collector's: it writes docs.json beside the diff, and a
           # directory it cannot write to has to stop the docs check rather than
           # leave a collection only on stdout, where nothing downstream reads.

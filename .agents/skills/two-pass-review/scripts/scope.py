@@ -23,7 +23,8 @@ review_tree. `--release` undoes that at the end of the run; see release. Flags
 are internal surface, invoked by SKILL.md; natural language is what the user
 types.
 
-Exit status: 0 resolved, 2 bad invocation, 3 needs confirmation, 4 unusable scope.
+Exit status: 0 resolved, 2 bad invocation, 3 needs confirmation, 4 unusable scope,
+5 the skill's own references/prompts.md cannot be filled.
 `--release` exits 0 when nothing of the run's tree is left, and 4 when git
 could not remove it.
 """
@@ -42,6 +43,7 @@ from typing import TypedDict, cast, overload
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import diff_paths  # sibling module, same directory
+import prompts
 import validate
 
 LARGE_BYTES = 500_000
@@ -832,6 +834,18 @@ def main(argv: list[str]) -> int:
     if args.mode == "local-patch" and args.head:
         return fail("--head does not apply to a local working patch", 2)
 
+    # Read before anything is made. A prompts.md this cannot fill is a defect in
+    # the skill, and finding it once the run directory and the review tree exist
+    # would leave both behind. Its own status, because exit 4 says the range is
+    # the problem, and here the user's repository is not.
+    blocks, problem = prompts.read()
+    if blocks is None:
+        return fail(
+            f"references/prompts.md cannot be filled: {problem}. That is a defect in the skill, "
+            "not in this repository",
+            5,
+        )
+
     base = resolve_commit(root, args.base)
     if base is None:
         return fail(f"{args.base!r} does not name a commit in this repository")
@@ -928,6 +942,23 @@ def main(argv: list[str]) -> int:
                 "reporting.\n".format(unread, patch["files"])
             )
 
+        # Every prompt the run sends, filled with this run's paths and written
+        # beside the files it names. What is handed over is one line pointing
+        # at the file, so the orchestrator retypes no path and paraphrases no
+        # rule. Rule derivation is not among them: it is asked for later, and
+        # filled then.
+        handed = prompts.write_run(
+            blocks,
+            run_dir,
+            prompts.run_values(
+                repo_root=tree,
+                checkout=root,
+                run_dir=run_dir,
+                context_diff=context,
+                file_lines=lines_path,
+            ),
+        )
+
         scope: dict[str, str | int | None] = {
             "repo": os.path.basename(root),
             "mode": args.mode,
@@ -976,6 +1007,9 @@ def main(argv: list[str]) -> int:
                     "context_diff": context,
                     "file_lines": lines_path,
                     "latest": os.path.join(report_dir, "latest.html"),
+                    # Each subagent's whole prompt, by name: security, quality,
+                    # docs, falsification. Sent exactly as printed.
+                    "prompts": handed,
                     "scope": scope,
                 },
                 indent=2,

@@ -26,9 +26,17 @@ remedy cite a file it proposes, and a deletion leaves only the deleted name
 to point at -- but what does exist at a bare path must be a file. Without
 the flag those checks are skipped, so old artifacts validate as before.
 
+Also with --repo, a pass's findings are read for the excerpt their body opens
+with, and an excerpt that is not in the cited file as written, sits outside
+the cited lines, or is missing is reported as a warning: on stderr, after any
+problems, changing nothing about the exit status. Warnings are for the pass
+that wrote the findings, which can still re-read the file. The merged
+artifact is not checked this way, and a library caller sees warnings only by
+asking for them -- merge.py and render.py do not.
+
 Every problem is reported with an address the repair loop can act on -- a file
 and, for line-oriented input, the line that carries the defect. Exit status is
-0 when everything validates and 1 when anything does not.
+0 when everything validates and 1 when anything does not, warnings or none.
 """
 
 import argparse
@@ -197,13 +205,22 @@ def label_problem(label: object) -> str | None:
 
 
 class Report:
-    """Collects problems as addressed lines, in the order they were found."""
+    """Collects problems as addressed lines, in the order they were found.
+
+    And warnings, beside them: what is almost certainly a mistake but cannot be
+    proved one, so it is reported to whoever can still fix it and refuses
+    nothing.
+    """
 
     def __init__(self) -> None:
         self.problems: list[str] = []
+        self.warnings: list[str] = []
 
     def add(self, where: str, message: str) -> None:
         self.problems.append(f"{where}: {message}")
+
+    def warn(self, where: str, message: str) -> None:
+        self.warnings.append(f"{where}: {message}")
 
     @property
     def ok(self) -> bool:
@@ -683,19 +700,256 @@ def load_json(report: Report, path: str) -> object:
         return None
 
 
+# --- excerpts ---------------------------------------------------------------
+
+# A fence line wherever a markdown reader sees one: indented inside a list
+# item, or behind a blockquote's `>`.
+FENCE_LINE = re.compile(r"^(?P<prefix>[ \t]*(?:>[ \t]?)*)(?P<fence>`{3,})(?P<info>.*)$")
+
+# What a comment marker looks like at either end of a line, in the languages
+# a pass quotes; and the two kinds of line inside an excerpt that are not
+# quotes -- an elision, and a label naming the file the next lines come from,
+# with or without a line number.
+COMMENT_START = re.compile(r"^\s*(?:<!--|/\*+|\*+/|//+|#+|--|;+)")
+COMMENT_END = re.compile(r"(?:\*+/|-->)\s*$")
+ELISION = re.compile(r"^(?:\.\.\.|…|\[\.\.\.\]|\[…\])$")
+FILE_LABEL = re.compile(
+    r"^(?P<path>[\w./\\-]*\.[A-Za-z0-9]+)"
+    r"(?P<where>(?::\s*|,\s*|\s+\(?)(?:lines?\s*)?\d+(?:\s*[-\u2013]\s*\d+)?\)?)?$"
+)
+
+# The contract's mark for a secret taken out of an excerpt. A piece holding it
+# cannot match the file, and must never be told to: the fix for "not as
+# written" would be to put the secret back.
+REDACTED = "[redacted]"
+
+# A cited file past this is not read for its excerpt: the check is a nudge, and
+# no file worth quoting from is this large.
+EXCERPT_FILE_CEILING = 8 * 1024 * 1024
+
+
+def _is_break(line: str) -> bool:
+    """Whether an excerpt line separates quotes rather than quoting one.
+
+    Wider than the contracts' own `...` and `# path/to/file.ext`, on purpose:
+    passes write `// ...`, `[...]` and `# file.py:12` anyway, and a false
+    warning costs more than a missed one -- a pass told its honest quote is
+    wrong will change it. A bare `name.ext` with no comment marker, no path
+    separator and no line number is code, `self.run` and the like, and stays
+    a quote.
+    """
+    core = line.strip()
+    marked = False
+    while True:
+        trimmed = COMMENT_END.sub("", COMMENT_START.sub("", core)).strip()
+        if trimmed == core:
+            break
+        core, marked = trimmed, True
+    if not core or ELISION.match(core):
+        return True
+    label = FILE_LABEL.match(core)
+    if label is None:
+        return False
+    return bool(marked or label.group("where") or "/" in label.group("path"))
+
+
+def _opening_excerpt(body: str) -> list[list[str]] | None:
+    """The quoted pieces of the fenced block a body opens with; None when it opens with none.
+
+    "Opens with" is the contract's: the excerpt comes first, after at most one
+    lead-in paragraph. A body whose first block comes later -- a remedy after
+    the argument -- has no opening excerpt, and is told that, rather than told
+    to copy its proposed fix out of a file that does not hold it yet.
+
+    In a ```diff block, or one where every line carries a diff sign, the
+    deleted lines are dropped: they are in no file a finding can cite, and a
+    finding about a removed guard has to quote them. What remains is the
+    post-image, which the file does hold.
+    """
+    lines = body.split("\n")
+    paragraphs, in_paragraph = 0, False
+    opener: re.Match[str] | None = None
+    start = 0
+    for index, line in enumerate(lines):
+        opener = FENCE_LINE.match(line)
+        if opener:
+            start = index + 1
+            break
+        if line.strip():
+            paragraphs += 0 if in_paragraph else 1
+            in_paragraph = True
+        else:
+            in_paragraph = False
+    if opener is None or paragraphs > 1:
+        return None
+    depth = opener.group("prefix").count(">")
+    closer = re.compile(rf"[ \t]*`{{{len(opener.group('fence'))},}}[ \t]*")
+    content: list[str] = []
+    for line in lines[start:]:
+        for _ in range(depth):
+            line = re.sub(r"^[ \t]*>[ \t]?", "", line, count=1)
+        if closer.fullmatch(line):
+            break
+        content.append(line)
+
+    info = opener.group("info").strip().split()
+    signed = [line for line in content if line.strip()]
+    if (info and info[0].lower() in ("diff", "patch")) or (
+        signed and all(line.startswith(("+", "-")) for line in signed)
+    ):
+        content = [
+            "" if line.startswith("@@") else line[1:]
+            for line in content
+            if not line.startswith(("-", "\\"))
+        ]
+
+    pieces: list[list[str]] = []
+    current: list[str] = []
+    for line in content:
+        if _is_break(line):
+            if current:
+                pieces.append(current)
+                current = []
+        else:
+            current.append(line.strip())
+    if current:
+        pieces.append(current)
+    return pieces
+
+
+def _file_lines(repo: str, path: str, cache: dict[str, list[str] | None]) -> list[str] | None:
+    """A cited file's lines, stripped, or None where there is nothing to compare with.
+
+    Split on "\n" alone, as line_count counts: a lone carriage return is not a
+    line break to git or to this validator, so it must not be one here, or a
+    correct range is "corrected" to a wrong one. utf-8-sig, so a byte-order
+    mark does not hide the first line. Read once per pass, however many
+    findings cite the file.
+    """
+    if path not in cache:
+        target = confine(repo, path)
+        lines = None
+        if (
+            target is not None
+            and os.path.isfile(target)
+            and os.path.getsize(target) <= EXCERPT_FILE_CEILING
+        ):
+            try:
+                with open(target, encoding="utf-8-sig", errors="replace", newline="") as handle:
+                    lines = [line.strip() for line in handle.read().split("\n")]
+            except OSError:
+                lines = None
+        cache[path] = lines
+    return cache[path]
+
+
+def check_excerpt(
+    report: Report,
+    where: str,
+    finding: dict[str, Any],
+    repo: str,
+    cache: dict[str, list[str] | None],
+) -> None:
+    """Warn when a finding's excerpt is not in the file it cites, or not at the lines it cites.
+
+    A warning, never a refusal, and only in the pass's own validation -- run
+    only when the caller asks for warnings, which the command line does and
+    merge.py and render.py do not. The contract asks for the lines verbatim
+    and for the range read off the file, and the two failures a weak model
+    makes there, a quote retyped from memory and a range read off the diff's
+    hunk header, pass every structural check.
+
+    Tuned toward silence, because a pass treats a warning as a mistake to fix
+    and a false one teaches it to damage honest evidence: whitespace at either
+    end of a line is ignored, a piece holding [REDACTED] is skipped, and a
+    finding whose cited files do not exist -- a file a remedy proposes, one the
+    diff deletes -- is not checked at all, not even for having an excerpt.
+    """
+    body = finding.get("body_md")
+    locations = finding.get("locations")
+    if not isinstance(body, str) or not isinstance(locations, list):
+        return
+    files: dict[str, list[str]] = {}
+    ranges: dict[str, list[tuple[int, int] | None]] = {}
+    for location in locations:
+        if not isinstance(location, dict) or not isinstance(location.get("path"), str):
+            continue
+        path = location["path"]
+        lines = _file_lines(repo, path, cache)
+        if lines is None:
+            continue
+        files[path] = lines
+        start = location.get("start_line")
+        end = location.get("end_line", start)
+        ranges.setdefault(path, []).append(
+            (start, end) if isinstance(start, int) and isinstance(end, int) else None
+        )
+    if not files:
+        return
+
+    raw_id = finding.get("id")
+    name = raw_id if isinstance(raw_id, str) and ID_RE.match(raw_id) else "this finding"
+    pieces = _opening_excerpt(body)
+    if pieces is None:
+        report.warn(
+            where,
+            f"{name}'s body_md does not open with a fenced excerpt of the lines it is about. "
+            "Quote them from the file, verbatim, before the argument",
+        )
+        return
+    for piece in pieces:
+        if any(REDACTED in line.lower() for line in piece):
+            continue
+        size = len(piece)
+        hits = [
+            (path, index + 1)
+            for path, lines in files.items()
+            for index in range(len(lines) - size + 1)
+            if lines[index] == piece[0] and lines[index : index + size] == piece
+        ]
+        if any(
+            span is None or (span[0] <= line and line + size - 1 <= span[1])
+            for path, line in hits
+            for span in ranges[path]
+        ):
+            continue
+        quote = piece[0] if len(piece[0]) <= 60 else piece[0][:57] + "..."
+        if hits:
+            path, line = hits[0]
+            cited = ", ".join(f"{span[0]}-{span[1]}" for span in ranges[path] if span)
+            report.warn(
+                where,
+                f"{name}'s excerpt line {quote!r} is in {path!r} at lines {line}-{line + size - 1}, "
+                f"outside the lines it cites ({cited}). Read the range off the file and fix "
+                "start_line and end_line -- or quote the lines it does cite",
+            )
+        else:
+            report.warn(
+                where,
+                f"{name}'s excerpt line {quote!r} is not in {', '.join(repr(p) for p in files)} "
+                "as written. Re-read the lines and copy them exactly -- not retyped, shortened or "
+                "reformatted. A secret stays out: write [REDACTED] in its place",
+            )
+
+
 def validate_pass(
     report: Report,
     producer: str,
     findings_path: str | None,
     envelope_path: str | None,
     repo: str | None = None,
+    excerpts: bool = False,
 ) -> None:
     findings: list[Any] = []
+    # The excerpt check reads the files the findings cite; once each, per pass.
+    cited: dict[str, list[str] | None] = {}
     ids_by_producer: dict[str, list[int]] = {}
     if findings_path is not None:
         for number, finding in load_jsonl(report, findings_path):
             where = _where(findings_path, number)
             finding_id = check_finding(report, where, finding, in_merged=False, repo=repo)
+            if excerpts and repo is not None and isinstance(finding, dict):
+                check_excerpt(report, where, finding, repo, cited)
             if isinstance(finding, dict) and finding.get("producer") not in (None, producer):
                 report.add(
                     where,
@@ -1519,8 +1773,13 @@ def check_passes(report: Report, where: str, passes: object, findings: list[Any]
 # --- entry point -------------------------------------------------------------
 
 
-def validate_paths(paths: list[str], repo: str | None = None) -> list[str]:
+def validate_paths(
+    paths: list[str], repo: str | None = None, warnings: list[str] | None = None
+) -> list[str]:
     """Validate the given artifacts. Returns a list of addressed problems.
+
+    Warnings, which refuse nothing, are added to `warnings` when the caller
+    passes one -- only the command line does, for the pass that runs it.
 
     `repo` is the checkout the findings are about; when given, locations are
     checked against it. A caller that has one should pass it, render.py
@@ -1557,12 +1816,19 @@ def validate_paths(paths: list[str], repo: str | None = None) -> list[str]:
     for producer in PRODUCERS:
         if producer in pass_findings or producer in pass_envelopes:
             validate_pass(
-                report, producer, pass_findings.get(producer), pass_envelopes.get(producer), repo
+                report,
+                producer,
+                pass_findings.get(producer),
+                pass_envelopes.get(producer),
+                repo,
+                excerpts=warnings is not None,
             )
 
     for path in merged:
         validate_merged(report, path, repo)
 
+    if warnings is not None:
+        warnings.extend(report.warnings)
     return report.problems
 
 
@@ -1584,14 +1850,22 @@ def main(argv: list[str]) -> int:
         if not os.path.isdir(repo):
             sys.stderr.write(f"--repo {args.repo!r} is not a directory\n")
             return 2
-    problems = validate_paths(args.paths, repo)
+    warnings: list[str] = []
+    problems = validate_paths(args.paths, repo, warnings)
     if problems:
         sys.stderr.write("Validation failed. Fix each of these and validate again:\n\n")
         for problem in problems:
             sys.stderr.write(f"  {problem}\n")
         sys.stderr.write("\n")
-        return 1
-    return 0
+    if warnings:
+        sys.stderr.write(
+            "Warnings -- these do not fail validation, but each is almost always a real "
+            "mistake. Fix them in the same attempt:\n\n"
+        )
+        for warning in warnings:
+            sys.stderr.write(f"  {warning}\n")
+        sys.stderr.write("\n")
+    return 1 if problems else 0
 
 
 if __name__ == "__main__":

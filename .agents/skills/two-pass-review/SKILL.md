@@ -35,11 +35,11 @@ separate checkout of the reviewed commit, and every `--repo` after step 1 takes 
 2. **Collect the documents** for the docs check — [§2](#the-docs-check).
    `python3 <skill-dir>/scripts/collect_docs.py --repo <repo_root> --diff <context_diff>`
 3. **Start the security pass, the quality pass and the docs check together**, as three subagents in
-   one message — [§2](#2-run-the-passes-and-the-docs-check). Each one's prompt is in
-   [`references/prompts.md`](references/prompts.md): copy it exactly and fill in its placeholders.
-   Leave out the docs check when step 2 listed no documents.
-4. **When both passes have finished, start the falsification check** — [§3](#3-falsification) — unless
-   they wrote no findings at all.
+   one message — [§2](#2-run-the-passes-and-the-docs-check). Each one's whole prompt is the line step 1
+   printed under `prompts` — `prompts.security`, `prompts.quality`, `prompts.docs` — sent exactly as
+   printed, with nothing added. Leave out the docs check when step 2 listed no documents.
+4. **When both passes have finished, start the falsification check** — [§3](#3-falsification) — with
+   `prompts.falsification` as its whole prompt, unless the passes wrote no findings at all.
 5. **Decide which findings corroborate each other** — usually none — [§4](#corroboration).
 6. **Optionally, write a self-check** to `<run_dir>/self-check.json` — [§4](#self-check).
 7. **Merge** — [§5](#5-merge-render-and-deliver).
@@ -53,7 +53,8 @@ separate checkout of the reviewed commit, and every `--repo` after step 1 takes 
 10. **Tell the user** the verdict, where the report is, and every warning — [§5](#tell-the-user).
 
 Where the host offers no subagents, steps 3 and 4 change: run the security pass and then the quality
-pass yourself, skip the docs check and the falsification check, and say so at the merge with
+pass yourself, each by reading the file its `prompts` line names and doing what it says, skip the docs
+check and the falsification check, and say so at the merge with
 `--passes sequential --falsification skipped --docs-check skipped`.
 
 ## 1. Resolve the scope
@@ -121,7 +122,7 @@ resolving happened in your conversation; the page presents it as declared proven
 "today" is the ambiguity it exists to remove.
 
 It prints JSON holding `repo_root`, `worktree`, `checkout`, `run_dir`, `context_diff`, `file_lines`,
-`now`, `latest` and the resolved `scope`, and writes the same JSON to `<run_dir>/scope.json`, where
+`now`, `latest`, `prompts` and the resolved `scope`, and writes the same JSON to `<run_dir>/scope.json`, where
 `merge.py` reads it. Keep the printed copy: every later step needs its paths.
 
 **Runs live in `.two-pass-review/` at the top of the user's checkout**, one directory per run, and the
@@ -163,6 +164,9 @@ worktree when there is one, and does nothing when the checkout was read in place
 - **Exit 4** ends the run here, with no report — the range does not resolve, is empty, or its head
   could not be checked out. A local patch that resolves to nothing usually means the work is in files
   git has never been told about — say so.
+- **Exit 5** ends the run before anything is made: the skill's own `references/prompts.md` could not be
+  read or filled. Nothing is wrong with the user's repository or their range — say that, pass on the
+  message, and suggest updating or reinstalling the skill.
 
 ## 2. Run the passes and the docs check
 
@@ -188,8 +192,12 @@ independently, and that is evidence only while they were peers — a cheap pass 
 one is not a second opinion. If the user asks for a split anyway, run it and tell them which pass got what.
 Never arrive at one yourself.
 
-**Start each pass with its prompt from [`references/prompts.md`](references/prompts.md), copied
-exactly.** The prompt hands the pass its rubric — by path, so the pass reads all of it rather than your
+**Start each pass with the line `scope.py` printed for it, and nothing else.** `prompts.security` and
+`prompts.quality` each name a file in the run directory: that pass's prompt from
+[`references/prompts.md`](references/prompts.md), its paths already filled. The line is the whole of
+what you send — no summary of the rubric, no advice of your own, no path retyped, because a rule
+you paraphrase is a rule the pass may never see, and a path you retype is one you can mistype. The
+prompt hands the pass its rubric — by path, so the pass reads all of it rather than your
 summary of it — and five inputs: `repo_root`, the path to `context.diff`, the path to `file_lines.json`,
 the `run_dir` to write into, and the command that validates its files against the reviewed tree. It
 also asks for a one-line reply, because the findings are in the pass's files and a reply restating them
@@ -232,7 +240,7 @@ coverage nobody can state. `merge.py` copies both lists into the artifact from i
 the page as the report's coverage claim. **When `collect_docs.py` fails, start no docs-check subagent,
 and merge with `--docs-check skipped`.**
 
-Start the docs check with its prompt from [`references/prompts.md`](references/prompts.md). It is handed
+Start the docs check with `prompts.docs` as its whole prompt. It is handed
 `context.diff` and `docs.json`, reads the documents that file lists, and writes its notes to
 `<run_dir>/docs-notes.json`. It needs neither pass's output, so it runs alongside the passes, at the
 model and effort the passes ran at; on a split run its tier is the user's to name, in the same exchange
@@ -264,8 +272,8 @@ withdraw, edit, or demote. The shape is adapted from OpenCodeReview's Independen
 findings was measured near one in five at the weak tier, so its word travels to the reader and the
 verifying agent instead of moving anything on its own.
 
-Start one fresh subagent with the falsification prompt from [`references/prompts.md`](references/prompts.md),
-once both passes have finished. It reads exactly three files — `context.diff` and the two
+Start one fresh subagent with `prompts.falsification` as its whole prompt, once both passes have
+finished. Apart from its prompt, it reads exactly three files — `context.diff` and the two
 `findings.*.jsonl` — and nothing else: no rubric, no repository, none of the passes' reasoning. The
 starvation is the mechanism. Both passes read the repository as peers, so their errors arrive
 correlated, and only a checker that saw none of what they saw can catch what both misread. Where the
@@ -486,15 +494,22 @@ not a pass and not a check: it carries no rubric, emits no findings, and reads t
 without touching it. Its product is one new sibling file in the run dir; the artifact and the report
 are never reopened, and re-rendering afterwards produces the identical page.
 
-Start one fresh subagent with the rule-derivation prompt from
-[`references/prompts.md`](references/prompts.md): it is handed the run dir's `findings.json`, the pinned
-`context.diff`, and the reviewed repository to read for itself. It is not starved the way the falsifier
-is, because starvation there is the mechanism and here would be a handicap: this stage judges nothing,
-and a rule worth adopting has to match the repository's real languages, its APIs, and whatever linter
-configuration already exists. Model and effort are the user's to name in the asking; otherwise it
-inherits the session's, the same rule the passes run under. Where the host offers no fresh subagent,
-do the work in your own window, following the same prompt — there is no starvation requirement to
-protect.
+Fill its prompt when it is asked for, from the skill as it stands then:
+
+```
+python3 <skill-dir>/scripts/prompts.py --rules <run_dir>
+```
+
+It writes `<run_dir>/prompt.rules.md` from [`references/prompts.md`](references/prompts.md) and prints
+one line; start one fresh subagent with that line as its whole prompt. If it refuses because the run's
+`scope.json` records no `checkout`, run it again with `--checkout` and the user's repository. The
+subagent is handed the run dir's `findings.json`, the pinned `context.diff`, and the reviewed repository
+to read for itself. It is not starved the way the falsifier is, because starvation there is the
+mechanism and here would be a handicap: this stage judges nothing, and a rule worth adopting has to
+match the repository's real languages, its APIs, and whatever linter configuration already exists. Model
+and effort are the user's to name in the asking; otherwise it inherits the session's, the same rule the
+passes run under. Where the host offers no fresh subagent, do the work in your own window, following the
+same prompt — there is no starvation requirement to protect.
 
 The prompt asks for rules that catch a *recurrence* of a finding's defect class, anchored in code the
 repository contains — a semgrep rule by preference, or a config change for a tool the repository already

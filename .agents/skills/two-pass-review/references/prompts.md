@@ -1,14 +1,21 @@
 # Subagent prompts
 
-The exact prompt for every subagent this skill starts. Copy the block under a heading **as it is
-written**, replace every `<placeholder>`, and send the result as the whole of the subagent's prompt.
-Do not summarise a block, shorten it, or add to it: each one is short because everything a subagent
-needs is either in the block or in a file the block tells it to read, and a rule you paraphrase is a
-rule the subagent may never see.
+The exact prompt for every subagent this skill starts. **You do not copy these by hand.** `scope.py`
+fills the first four blocks below with the run's paths, writes each into the run directory as
+`prompt.<name>.md`, and prints under `prompts` the one line that hands it over. The fifth, rule
+derivation, is filled when it is asked for, by `scripts/prompts.py --rules`. Either way the printed line
+is the whole of a subagent's prompt: send it exactly as printed — copied, never retyped — adding
+nothing. Each block is short because everything a subagent needs is either in it or in a file it names,
+and a rule you paraphrase is a rule the subagent may never see.
 
-The placeholders are the values `scope.py` printed — `<repo_root>`, `<checkout>`, `<run_dir>`,
-`<context_diff>`, `<file_lines>` — plus `<skill-dir>`, the directory holding `SKILL.md`. Write each one
-as the full absolute path.
+This file is still the only place a prompt is written: edit a block here and the next run sends the new
+text. Its placeholders are the values `scripts/prompts.py` fills — `<repo_root>`, `<checkout>`,
+`<run_dir>`, `<context_diff>`, `<file_lines>` and `<skill-dir>`, the directory holding `SKILL.md`, in
+the four run prompts; `<checkout>`, `<run_dir>`, `<context_diff>`, `<findings_json>` and `<skill-dir>`
+in rule derivation — each one shell-quoted where it needs it. An unknown placeholder, a missing or
+repeated section, a second block under one heading, or a fence opened inside a block stops `scope.py`
+before it makes anything, so a broken edit here fails in CI rather than in a run. To show a fenced
+example inside a block, open the block with four backticks.
 
 This file is original to this repository, not part of the forked rubrics — see
 [`NOTICE.md`](../NOTICE.md).
@@ -58,7 +65,7 @@ Start it only when `collect_docs.py` listed at least one document under `docs`.
 ```text
 You check whether a code change makes a document for coding agents wrong. You are not a code reviewer. You do not report bugs.
 
-Read these files, and no other file:
+Apart from this prompt, read these files and no other:
 1. The diff: <context_diff>
 2. The list of documents: <run_dir>/docs.json
 3. Every document listed under "docs" in that file. Each "path" is relative to <repo_root>.
@@ -87,7 +94,7 @@ Start it only after both passes are done, and only when they wrote at least one 
 ```text
 You are a falsification check. You are not a reviewer. You look for review findings that the diff itself directly contradicts. You add no findings of your own.
 
-Read these files, and no other file. Do not read the repository, and run no commands:
+Apart from this prompt, read these files and no other. Do not read the repository, and run no commands:
 1. The diff: <context_diff>
 2. Findings, one JSON object per line: <run_dir>/findings.security.jsonl
 3. Findings, one JSON object per line: <run_dir>/findings.quality.jsonl
@@ -108,11 +115,18 @@ Use your file-writing tool only for that one file. If you cannot write files, re
 
 ## Rule derivation
 
-Only when the user asks for rule suggestions. `<findings_json>` is the path of the run's
-`findings.json`, and `<context_diff>` is the `context.diff` beside it. `<checkout>` is `checkout` in the
-`scope.json` beside them — the user's own repository. Never `<repo_root>`: that can name a review
-worktree, released when the run ended. A run from before `checkout` was recorded has none; there, use
-the user's repository.
+Only when the user asks for rule suggestions. It is filled then, from this block as it stands then,
+never from a copy saved with the run:
+
+```
+python3 <skill-dir>/scripts/prompts.py --rules <run_dir>
+```
+
+writes `<run_dir>/prompt.rules.md` and prints the line that hands it over. `<findings_json>` is the
+run's `findings.json`, `<context_diff>` the `context.diff` beside it, and `<checkout>` the user's own
+repository, read from the run's `scope.json` — never the review tree, which `--release` removed when the
+run ended. A run whose `scope.json` records no `checkout` is refused until you add `--checkout <the
+user's repository>`.
 
 ```text
 You turn the findings of a finished code review into suggested lint rules. You do not review code, and you do not change the findings.

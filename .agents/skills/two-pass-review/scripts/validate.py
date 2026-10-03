@@ -784,8 +784,10 @@ def run_sibling(artifact: str, name: str) -> object:
     copied the values and nothing else could catch a slip.
 
     Quietly optional, and this is the load-bearing half. An artifact is
-    re-rendered long after its temp directory is swept, and the documented
-    re-render command names a bare path; an artifact that validates today has
+    re-rendered after it has been copied away on its own, or long after its
+    run directory was pruned -- or, for a run from before runs moved into the
+    checkout, swept from temp -- and the documented re-render command names a
+    bare path; an artifact that validates today has
     to validate then. So absence means the check does not run -- never that
     the artifact is wrong. Unreadable and unparseable are the same case for
     the same reason: nothing here is a defect the repair loop could fix in the

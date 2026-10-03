@@ -15,11 +15,13 @@ Both revision modes take resolved-or-symbolic revisions and record the resolved
 SHAs, because a report saying `main...HEAD` is ambiguous the moment `main` moves.
 
 Prints a JSON object describing the run to stdout, and writes the same bytes to
-scope.json in the run directory, where merge.py reads them. Its `repo_root` is
-the tree the rest of the run reads -- the checkout, or a worktree at the
-reviewed head when the checkout holds something else; see review_tree.
-`--release` undoes that at the end of the run; see release. Flags are internal
-surface, invoked by SKILL.md; natural language is what the user types.
+scope.json in the run directory, where merge.py reads them. The run directory
+sits in `.two-pass-review/` at the top of the checkout; see reports_dir. Its
+`repo_root` is the tree the rest of the run reads -- the checkout, or a
+worktree at the reviewed head when the checkout holds something else; see
+review_tree. `--release` undoes that at the end of the run; see release. Flags
+are internal surface, invoked by SKILL.md; natural language is what the user
+types.
 
 Exit status: 0 resolved, 2 bad invocation, 3 needs confirmation, 4 unusable scope.
 `--release` exits 0 when nothing of the run's tree is left, and 4 when git
@@ -27,10 +29,10 @@ could not remove it.
 """
 
 import argparse
-import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -160,25 +162,142 @@ def resolve_commit(repo: str, revision: str) -> str | None:
     return out.strip() if code == 0 else None
 
 
-def repo_slug(root: str) -> str:
-    name = os.path.basename(os.path.abspath(root)) or "repo"
-    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-").lower() or "repo"
-    digest = hashlib.sha256(os.path.abspath(root).encode("utf-8")).hexdigest()[:8]
-    return f"{slug}-{digest}"
+# Where runs are kept: one directory at the top of the user's checkout, holding
+# a run directory per run and the stable latest.html. See reports_dir.
+REPORTS_DIR = ".two-pass-review"
+
+# The whole of what makes REPORTS_DIR invisible to git. A `.gitignore` applies
+# to its own directory, and `*` matches the file itself too, so nothing under
+# REPORTS_DIR is ever untracked, staged, or diffed.
+SELF_IGNORE = "# Written by two-pass-review. Review runs stay on this machine.\n*\n"
+
+# How many runs REPORTS_DIR keeps; see prune.
+KEEP_RUNS = 20
+
+# A run directory's name: the second it was pinned, then mkdtemp's suffix. Name
+# order is therefore age order, and nothing else in REPORTS_DIR looks like one.
+RUN_NAME = re.compile(r"^\d{8}-\d{6}-[a-z0-9_]+$")
 
 
-def make_private_dir(path: str) -> int:
-    """Create one directory readable only by its owner. Returns an exit status.
+def reports_dir(root: str) -> tuple[str | None, str | None]:
+    """(path, problem): the directory in the checkout that holds every run.
 
-    Call it on each component the tool creates, outermost first: the security of
-    a path is the security of every component, and a private directory under a
-    parent nobody checked is not private.
+    In the checkout rather than the temp directory, because temp is swept: on
+    macOS every file there not touched for about three days is deleted, and a
+    run has to outlive that -- it is re-rendered from its artifact, asked for
+    rule suggestions later, and used as the input for render-and-diff checks.
+    A run is also a directory the passes write into, and the checkout is where
+    every agent's sandbox lets them write. A cache in the home directory, the
+    other obvious place, fails that second test.
+
+    It ignores itself. The repository's own `.gitignore` is never touched, which
+    was the objection that first put runs in temp: an edit to it would show up in
+    the diff of the next review. SELF_IGNORE lives inside the directory instead,
+    the way pytest, mypy and ruff keep their caches out of git, so a run never
+    appears in `git status`, in a local patch, or in its untracked count.
+
+    A repository that tracks anything under the path is refused, because there
+    the self-ignore cannot hold -- git never ignores a tracked file -- and runs
+    would land among the reviewed code's own files. A symlink or a file at the
+    path is refused as make_private_dir refuses one: `O_NOFOLLOW` makes it an
+    error rather than something to detect and then act on separately.
+
+    Deliberately not private the way the review tree's directory is. Those checks
+    exist for a shared `/tmp`; here the checkout's own permissions already decide
+    who can read the code, and a report is no more private than the code it
+    quotes. Each run directory is still created 0700, by mkdtemp.
+    """
+    path = os.path.join(root, REPORTS_DIR)
+    code, tracked, _ = git_text(root, "ls-files", "-z", "--", REPORTS_DIR)
+    if code != 0:
+        return None, f"could not check whether this repository tracks anything under {REPORTS_DIR}/"
+    if tracked:
+        return None, (
+            f"this repository tracks files under {REPORTS_DIR}/, which is where review runs are "
+            "written. Runs there would show up as changes to those files, so move or untrack them "
+            "first"
+        )
+    try:
+        os.mkdir(path)
+    except FileExistsError:
+        pass
+    except OSError as error:
+        return None, f"cannot create {path}: {error}"
+    try:
+        os.close(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY))
+    except OSError:
+        return None, f"{path} is a symlink or not a directory; refusing to write runs through it"
+    # O_EXCL: a .gitignore already here was written by an earlier run, or by the
+    # user on purpose, and either way it is not this run's to replace.
+    try:
+        descriptor = os.open(
+            os.path.join(path, ".gitignore"),
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o644,
+        )
+    except FileExistsError:
+        return path, None
+    except OSError as error:
+        return None, f"cannot write {path}/.gitignore: {error}"
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(SELF_IGNORE)
+    return path, None
+
+
+def prune(reports: str, current: str) -> None:
+    """Remove all but the newest KEEP_RUNS runs. Best effort, and silent.
+
+    Runs moved out of temp so that they would last, and without this they would
+    last for ever, a full copy of every diff reviewed. Twenty is far more than
+    re-rendering or rule derivation ever reaches back for.
+
+    Only directories named like a run are candidates, so latest.html, the
+    .gitignore and anything the user put here are never touched -- nor the run
+    being started, whatever the clock says. A run whose review tree still
+    stands is kept however old it is: its scope.json is the only record of the
+    worktree registered in the user's repository, and `--release` needs it.
+
+    Silent, because the orchestrator reports anything on stderr as a warning
+    about the review, and failing to delete an old run does not weaken this one.
+    """
+    try:
+        names = sorted(name for name in os.listdir(reports) if RUN_NAME.match(name))
+    except OSError:
+        return
+    for name in names[:-KEEP_RUNS]:
+        path = os.path.join(reports, name)
+        if name == os.path.basename(current) or os.path.islink(path) or not os.path.isdir(path):
+            continue
+        try:
+            with open(os.path.join(path, "scope.json"), encoding="utf-8") as handle:
+                worktree = json.load(handle).get("worktree")
+        except (OSError, ValueError, AttributeError):
+            worktree = None
+        if isinstance(worktree, str) and os.path.exists(worktree):
+            continue
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def trees_dir() -> str:
+    """Where review trees are checked out: temp, not the checkout.
+
+    The opposite choice from reports_dir, for the opposite reason. A review tree
+    lasts one run and `--release` removes it, so the sweep that makes temp wrong
+    for runs cannot touch one in use. And a full second copy of the source inside
+    the user's checkout would be found by every tool that does not read
+    .gitignore -- test runners, compilers, linters -- for as long as it stood,
+    which on a run that never reached its release is indefinitely.
+    """
+    return os.path.join(tempfile.gettempdir(), "two-pass-review-trees")
+
+
+def make_private_dir(path: str) -> str | None:
+    """Create one directory readable only by its owner. Returns the problem, or None.
 
     This is modest housekeeping rather than a defence against a determined
     attacker -- anyone with a shell on the machine has easier targets than a
     code review. It earns its lines on a shared build host, where `gettempdir()`
-    is the common `/tmp` and this path is derived from the repository's location
-    and so is guessable.
+    is the common `/tmp` and this path is fixed and so is guessable.
 
     Every check runs against an open descriptor rather than the name, so what is
     inspected is what was opened. `O_NOFOLLOW` makes a planted symlink an error
@@ -191,28 +310,28 @@ def make_private_dir(path: str) -> int:
     except FileExistsError:
         pass
     except OSError as error:
-        return fail(f"cannot create {path}: {error}")
+        return f"cannot create {path}: {error}"
 
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY)
     except OSError:
-        return fail(f"{path} is a symlink or not a directory; refusing to write reports through it")
+        return f"{path} is a symlink or not a directory; refusing to check code out through it"
     try:
         info = os.fstat(descriptor)
         if info.st_uid != os.getuid():
-            return fail(f"{path} is owned by another user; refusing to write reports into it")
+            return f"{path} is owned by another user; refusing to check code out into it"
         if created:
             # mkdir's mode is masked by the umask, so set it on the descriptor.
             os.fchmod(descriptor, 0o700)
         elif info.st_mode & 0o077:
             # Somebody chose this mode. Say so rather than silently undoing it.
-            return fail(
-                f"{path} is readable by other users. Reports are written here, so either "
-                "`chmod 700` it or remove it and let this run recreate it"
+            return (
+                f"{path} is readable by other users. Review trees are checked out here, so "
+                "either `chmod 700` it or remove it and let this run recreate it"
             )
     finally:
         os.close(descriptor)
-    return 0
+    return None
 
 
 def filter_overrides(repo: str) -> tuple[list[str] | None, str | None]:
@@ -424,11 +543,6 @@ def build_diff(
     return {"text": text, "bytes": len(raw), "files": files, "untracked": untracked}, None
 
 
-# Where the review tree goes inside the run directory. A fixed name, because
-# the run directory is already unique to this run.
-REVIEW_TREE = "tree"
-
-
 def checkout_holds(root: str, head: str, overrides: list[str]) -> bool:
     """Whether the checkout at `root` is exactly `head`, with no tracked change.
 
@@ -466,8 +580,8 @@ def review_tree(root: str, head: str, run_dir: str) -> tuple[str | None, str | N
     finding can be refused for a range the reviewed file does contain.
 
     So when the checkout is not exactly `head`, the tree the run reads is a
-    worktree checked out at `head` inside the run directory -- private like
-    the rest of it, and still a git checkout, so `git grep` works there. When
+    worktree checked out at `head` in trees_dir -- private, named after the
+    run directory, and still a git checkout, so `git grep` works there. When
     the checkout is exactly `head`, it is read in place, which is the common
     case and costs nothing: a worktree is a full checkout, and on a large
     repository that is real time and disk. (None, None) means that. What in
@@ -499,7 +613,15 @@ def review_tree(root: str, head: str, run_dir: str) -> tuple[str | None, str | N
     assert overrides is not None
     if checkout_holds(root, head, overrides):
         return None, None
-    path = os.path.join(run_dir, REVIEW_TREE)
+    trees = trees_dir()
+    problem = make_private_dir(trees)
+    if problem:
+        return None, problem
+    # mkdtemp for the reason main() uses it for the run directory: new, unique,
+    # and 0700 from the start. git checks out into an empty directory that
+    # already exists. The prefix is the run directory's name, which is how
+    # release tells this run's tree from any other.
+    path = tempfile.mkdtemp(prefix=os.path.basename(run_dir) + "-", dir=trees)
     code, _, error = git(
         root,
         "-c",
@@ -515,6 +637,7 @@ def review_tree(root: str, head: str, run_dir: str) -> tuple[str | None, str | N
         head,
     )
     if code != 0:
+        shutil.rmtree(path, ignore_errors=True)
         return None, (
             f"could not check out {head} into a worktree for the passes to read: "
             f"{error or 'git worktree add failed'}. Check it out yourself and run again -- "
@@ -565,9 +688,11 @@ def release(run_dir: str) -> int:
     null and composing a git command of its own. A run read in place has
     nothing to release and exits 0.
 
-    It removes only `<run_dir>/tree`, whatever scope.json says. The file
-    names a path this script will hand to `git worktree remove --force`, and
-    a path read from disk is not one to delete on trust. git runs in the
+    It removes only a directory directly inside trees_dir whose name starts
+    with the run directory's, whatever scope.json says. The file names a path
+    this script will hand to `git worktree remove --force`, and a path read
+    from disk is not one to delete on trust -- not the user's own worktree, and
+    not another run's tree. git runs in the
     user's checkout, and removes the registration under its .git/worktrees
     along with the directory -- or the registration alone, when the directory
     was already deleted by hand. Nothing broader: `git worktree prune` would
@@ -589,10 +714,10 @@ def release(run_dir: str) -> int:
     checkout = pinned.get("checkout") if isinstance(pinned, dict) else None
     if worktree is None:
         return 0
-    expected = os.path.realpath(os.path.join(run_dir, REVIEW_TREE))
     if (
         not isinstance(worktree, str)
-        or os.path.realpath(worktree) != expected
+        or os.path.dirname(os.path.realpath(worktree)) != os.path.realpath(trees_dir())
+        or not os.path.basename(worktree).startswith(os.path.basename(run_dir) + "-")
         or not isinstance(checkout, str)
     ):
         return refuse(f"scope.json in {run_dir} does not name this run's own review tree", 2)
@@ -676,12 +801,11 @@ def main(argv: list[str]) -> int:
         )
         return 3
 
-    temp_root = os.path.join(tempfile.gettempdir(), "two-pass-review")
-    report_dir = os.path.join(temp_root, repo_slug(root))
-    for directory in (temp_root, report_dir):
-        status = make_private_dir(directory)
-        if status:
-            return status
+    report_dir, problem = reports_dir(root)
+    if problem:
+        return fail(problem)
+    # Stated for the checker: reports_dir returns a path or a problem.
+    assert report_dir is not None
 
     # One instant, formatted twice: the directory prefix, and the `now` printed
     # below for the artifact's `generated_at`. Taking it once means the report's
@@ -693,6 +817,7 @@ def main(argv: list[str]) -> int:
     # other pinned.
     stamp = pinned_at.strftime("%Y%m%d-%H%M%S-")
     run_dir = tempfile.mkdtemp(prefix=stamp, dir=report_dir)
+    prune(report_dir, run_dir)
 
     context = os.path.join(run_dir, "context.diff")
     with open(context, "w", encoding="utf-8") as handle:

@@ -124,12 +124,18 @@ It prints JSON holding `repo_root`, `worktree`, `checkout`, `run_dir`, `context_
 `now`, `latest` and the resolved `scope`, and writes the same JSON to `<run_dir>/scope.json`, where
 `merge.py` reads it. Keep the printed copy: every later step needs its paths.
 
+**Runs live in `.two-pass-review/` at the top of the user's checkout**, one directory per run, and the
+newest twenty are kept. That directory holds its own `.gitignore`, so git never sees it. **Never add it
+to the repository's `.gitignore`**, and never commit it: it already ignores itself, and an edit to the
+repository's `.gitignore` would show up in the diff of the next review. If `scope.py` refuses because
+the repository *tracks* files there, tell the user — the files are theirs to move.
+
 **The review tree.** The diff compares two commits, but the passes read files, and `validate.py` checks
 every line range against files — so the files have to be the reviewed head's. When your checkout is
 already exactly the head, with no uncommitted change to a tracked file, it is read in place:
 `repo_root` is the checkout and `worktree` is null. Otherwise — a pull request you have not checked
 out, a commit that is not `HEAD`, uncommitted edits — `scope.py` checks the head out into a worktree
-inside the run directory and prints that path as both `repo_root` and `worktree`. Either way,
+in the temp directory and prints that path as both `repo_root` and `worktree`. Either way,
 `repo_root` is the one tree whose files match the diff, so the passes, the docs check and every script
 get it and nothing else. A local patch is always read in place: it *is* the working tree.
 
@@ -426,7 +432,7 @@ Nothing reports back whether a window appeared, so never say one did.
 
 Then release the review tree. The report and the artifact live in the run directory, not in the
 worktree, and a worktree left behind is a full checkout in the temp directory that also stays listed
-in the user's `git worktree list`:
+in the user's `git worktree list`, and keeps its run from ever being pruned:
 
 ```
 python3 <skill-dir>/scripts/scope.py --release <run_dir>
@@ -464,6 +470,9 @@ agent:
 ```
 python3 .agents/skills/two-pass-review/scripts/render.py <path-to-findings.json>
 ```
+
+Every run's `findings.json` is in its run directory under `.two-pass-review/`, for as long as it is one
+of the newest twenty.
 
 ## Deriving rule suggestions
 

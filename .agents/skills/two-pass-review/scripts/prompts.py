@@ -201,15 +201,30 @@ def handover(path: str) -> str:
     )
 
 
+def write_prompt(path: str, text: str) -> str:
+    """Write one filled prompt and return the line that hands it over.
+
+    The one place a prompt file is written, for the run's four and for rule
+    derivation alike. An OSError is the caller's: scope.py lets it reach the
+    block that removes the review tree, and the command line refuses with it.
+    """
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    return handover(path)
+
+
 def write_run(blocks: dict[str, str], run_dir: str, values: dict[str, str]) -> dict[str, str]:
     """Write the four run prompts into the run directory. Returns name -> handover line."""
-    handed: dict[str, str] = {}
-    for name in RUN_SECTIONS.values():
-        path = os.path.join(run_dir, f"prompt.{name}.md")
-        with open(path, "w", encoding="utf-8") as handle:
-            handle.write(fill(blocks[name], values))
-        handed[name] = handover(path)
-    return handed
+    return {
+        name: write_prompt(os.path.join(run_dir, f"prompt.{name}.md"), fill(blocks[name], values))
+        for name in RUN_SECTIONS.values()
+    }
+
+
+def write_rules(blocks: dict[str, str], run_dir: str, checkout: str) -> str:
+    """Write the rule-derivation prompt into the run directory. Returns its handover line."""
+    values = rules_values(checkout=checkout, run_dir=run_dir)
+    return write_prompt(os.path.join(run_dir, "prompt.rules.md"), fill(blocks["rules"], values))
 
 
 def main(argv: list[str]) -> int:
@@ -242,13 +257,11 @@ def main(argv: list[str]) -> int:
     blocks, problem = read()
     if blocks is None:
         return refuse(f"references/prompts.md cannot be filled: {problem}")
-    path = os.path.join(run_dir, "prompt.rules.md")
     try:
-        with open(path, "w", encoding="utf-8") as handle:
-            handle.write(fill(blocks["rules"], rules_values(checkout=checkout, run_dir=run_dir)))
+        line = write_rules(blocks, run_dir, checkout)
     except OSError as error:
-        return refuse(f"cannot write {path}: {error}")
-    sys.stdout.write(handover(path) + "\n")
+        return refuse(f"cannot write the prompt: {error}")
+    sys.stdout.write(line + "\n")
     return 0
 
 

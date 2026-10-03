@@ -174,9 +174,12 @@ SELF_IGNORE = "# Written by two-pass-review. Review runs stay on this machine.\n
 # How many runs REPORTS_DIR keeps; see prune.
 KEEP_RUNS = 20
 
-# A run directory's name: the second it was pinned, then mkdtemp's suffix. Name
-# order is therefore age order, and nothing else in REPORTS_DIR looks like one.
-RUN_NAME = re.compile(r"^\d{8}-\d{6}-[a-z0-9_]+$")
+# A run directory's name begins with the second it was pinned, written by
+# new_run and read back by prune, so name order is age order. The pattern
+# matches only what the stamp writes -- mkdtemp's suffix after it is not this
+# file's to describe -- and nothing else in REPORTS_DIR begins that way.
+RUN_STAMP = "%Y%m%d-%H%M%S-"
+RUN_NAME = re.compile(r"\d{8}-\d{6}-")
 
 
 def reports_dir(root: str) -> tuple[str | None, str | None]:
@@ -244,18 +247,32 @@ def reports_dir(root: str) -> tuple[str | None, str | None]:
     return path, None
 
 
-def prune(reports: str, current: str) -> None:
-    """Remove all but the newest KEEP_RUNS runs. Best effort, and silent.
+def new_run(reports: str, pinned_at: datetime) -> str:
+    """Make this run's directory, after pruning room for it. Returns its path.
+
+    The one place a run's name is written, a few lines from RUN_NAME, which
+    reads it: prune is right only while the two agree, and it is silent when
+    they do not. mkdtemp creates the directory 0700 and guarantees it is new,
+    so two runs starting in the same second cannot share one and overwrite the
+    diff the other pinned. Pruning first means the run being made can never be
+    among what is pruned.
+    """
+    prune(reports, KEEP_RUNS - 1)
+    return tempfile.mkdtemp(prefix=pinned_at.strftime(RUN_STAMP), dir=reports)
+
+
+def prune(reports: str, keep: int) -> None:
+    """Remove all but the newest `keep` runs. Best effort, and silent.
 
     Runs moved out of temp so that they would last, and without this they would
     last for ever, a full copy of every diff reviewed. Twenty is far more than
     re-rendering or rule derivation ever reaches back for.
 
     Only directories named like a run are candidates, so latest.html, the
-    .gitignore and anything the user put here are never touched -- nor the run
-    being started, whatever the clock says. A run whose review tree still
-    stands is kept however old it is: its scope.json is the only record of the
-    worktree registered in the user's repository, and `--release` needs it.
+    .gitignore and anything the user put here are never touched. A run whose
+    review tree still stands is kept however old it is: its scope.json is the
+    only record of the worktree registered in the user's repository, and
+    `--release` needs it.
 
     Silent, because the orchestrator reports anything on stderr as a warning
     about the review, and failing to delete an old run does not weaken this one.
@@ -264,9 +281,9 @@ def prune(reports: str, current: str) -> None:
         names = sorted(name for name in os.listdir(reports) if RUN_NAME.match(name))
     except OSError:
         return
-    for name in names[:-KEEP_RUNS]:
+    for name in names[:-keep]:
         path = os.path.join(reports, name)
-        if name == os.path.basename(current) or os.path.islink(path) or not os.path.isdir(path):
+        if os.path.islink(path) or not os.path.isdir(path):
             continue
         try:
             with open(os.path.join(path, "scope.json"), encoding="utf-8") as handle:
@@ -830,13 +847,7 @@ def main(argv: list[str]) -> int:
     # below for the artifact's `generated_at`. Taking it once means the report's
     # stamp and its run directory can never name different seconds.
     pinned_at = datetime.now(timezone.utc)
-
-    # mkdtemp creates the directory 0700 and guarantees it is new, so two runs
-    # starting in the same second cannot share one and overwrite the diff the
-    # other pinned.
-    stamp = pinned_at.strftime("%Y%m%d-%H%M%S-")
-    run_dir = tempfile.mkdtemp(prefix=stamp, dir=report_dir)
-    prune(report_dir, run_dir)
+    run_dir = new_run(report_dir, pinned_at)
 
     context = os.path.join(run_dir, "context.diff")
     with open(context, "w", encoding="utf-8") as handle:

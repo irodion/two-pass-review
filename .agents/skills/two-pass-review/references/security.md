@@ -198,8 +198,13 @@ and is what the example above does. A quote is the one part of a finding that ca
 the repository byte for byte — it is what lets the reader weigh the argument that follows, and a claim
 that cannot produce the lines it is about was not ready to emit.
 
+Quote the file, not the diff — except a line the diff deletes, which only the diff still holds: quote
+that in a ` ```diff ` block, with the `-` and `+` the diff gives it. Where the excerpt skips lines, write
+`...` on a line of its own; where it moves to another file, start that part with a line
+`# path/to/file.ext`. The validator reads these, and nothing else, as not being quoted code.
+
 One deliberate exception: when the lines themselves hold a secret — a credential, a token, personal
-data — redact the value inside the excerpt and say in the body that you did. The report is a document
+data — write `[REDACTED]` in place of the value inside the excerpt, and say in the body that you did. The report is a document
 people forward, and evidence that a secret exists must not be a second copy of it.
 
 **Write for a reader who is skimming.** The report lands between tasks: its reader decides in seconds
@@ -245,6 +250,12 @@ say what you examined and why nothing survived it. A pass with findings leaves i
 Run the validator the orchestrator gave you against both your files. It reports failures as a
 `line N:` checklist. Fix them from what you already wrote and validate again. **Two attempts**, then stop
 and report what would not validate.
+
+It may also print **warnings**: an excerpt that is not in the file it cites as written, one that sits
+outside the lines the finding cites, or a body with no excerpt at all. A warning does not fail
+validation, but it is almost always a real mistake — a quote retyped from memory, or a range read off
+the diff instead of the file. Re-read the lines in the file and fix the excerpt or the range, in the same
+attempt. Never delete a finding over a warning.
 
 When repair is hard, the honest move is the only move:
 

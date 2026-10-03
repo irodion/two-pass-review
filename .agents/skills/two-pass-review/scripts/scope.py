@@ -29,6 +29,7 @@ could not remove it.
 """
 
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -232,18 +233,35 @@ def reports_dir(root: str) -> tuple[str | None, str | None]:
         return None, f"{path} is a symlink or not a directory; refusing to write runs through it"
     # O_EXCL: a .gitignore already here was written by an earlier run, or by the
     # user on purpose, and either way it is not this run's to replace.
+    target = os.path.join(path, ".gitignore")
     try:
-        descriptor = os.open(
-            os.path.join(path, ".gitignore"),
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-            0o644,
-        )
+        descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
     except FileExistsError:
-        return path, None
+        pass
     except OSError as error:
-        return None, f"cannot write {path}/.gitignore: {error}"
-    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-        handle.write(SELF_IGNORE)
+        return None, f"cannot write {target}: {error}"
+    else:
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write(SELF_IGNORE)
+        except OSError as error:
+            # Not left half-written: an empty file here would be kept by every
+            # later run, under the O_EXCL rule above, until a person removed it.
+            with contextlib.suppress(OSError):
+                os.unlink(target)
+            return None, f"cannot write {target}: {error}"
+    # Whatever the file holds, git is asked rather than the file trusted. One
+    # left empty by an interrupted run, or edited by the user, would otherwise
+    # pass for proof that runs are hidden while every later run showed in `git
+    # status`. The probe names a file that need not exist: check-ignore matches
+    # patterns, not files.
+    code, _, _ = git(root, "check-ignore", "-q", "--", f"{REPORTS_DIR}/probe")
+    if code != 0:
+        return None, (
+            f"git does not ignore {path}, so every run there would show in `git status`. Its "
+            ".gitignore should hold the single pattern `*`: delete that file and run again, and "
+            "a new one is written"
+        )
     return path, None
 
 

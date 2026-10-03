@@ -169,8 +169,13 @@ REPORTS_DIR = ".two-pass-review"
 
 # The whole of what makes REPORTS_DIR invisible to git. A `.gitignore` applies
 # to its own directory, and `*` matches the file itself too, so nothing under
-# REPORTS_DIR is ever untracked, staged, or diffed.
-SELF_IGNORE = "# Written by two-pass-review. Review runs stay on this machine.\n*\n"
+# REPORTS_DIR is ever untracked, staged, or diffed. Git only: the comment says
+# so, because a tool that reads just its own ignore file still walks it.
+SELF_IGNORE = (
+    "# Written by two-pass-review, so that git ignores review runs. Tools that read\n"
+    "# only their own ignore file, like docker build and prettier, need it there.\n"
+    "*\n"
+)
 
 # How many runs REPORTS_DIR keeps; see prune.
 KEEP_RUNS = 20
@@ -198,7 +203,10 @@ def reports_dir(root: str) -> tuple[str | None, str | None]:
     was the objection that first put runs in temp: an edit to it would show up in
     the diff of the next review. SELF_IGNORE lives inside the directory instead,
     the way pytest, mypy and ruff keep their caches out of git, so a run never
-    appears in `git status`, in a local patch, or in its untracked count.
+    appears in `git status`, in a local patch, or in its untracked count. That
+    is git alone. A tool that reads only its own ignore file -- `docker build`,
+    prettier -- still walks the directory, and the README tells users to list
+    it there; nothing here edits those files, which are the reviewed code's.
 
     A repository that tracks anything under the path is refused, because there
     the self-ignore cannot hold -- git never ignores a tracked file -- and runs

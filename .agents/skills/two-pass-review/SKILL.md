@@ -127,7 +127,10 @@ It prints JSON holding `repo_root`, `worktree`, `checkout`, `run_dir`, `context_
 **Runs live in `.two-pass-review/` at the top of the user's checkout**, one directory per run, and the
 newest twenty are kept. That directory holds its own `.gitignore`, so git never sees it. **Never add it
 to the repository's `.gitignore`**, and never commit it: it already ignores itself, and an edit to the
-repository's `.gitignore` would show up in the diff of the next review. If `scope.py` refuses over that
+repository's `.gitignore` would show up in the diff of the next review. Tools that read only their own
+ignore file — `docker build`, prettier — still see the directory; the README tells the user to list it in
+`.dockerignore` and the like. **Do not make those edits yourself** unless the user asks: they change the
+repository under review. If `scope.py` refuses over that
 directory — the repository *tracks* files there, or git does not ignore it — tell the user what it said:
 the fix is theirs to make.
 

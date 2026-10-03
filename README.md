@@ -118,9 +118,16 @@ failing. The findings themselves are in the report, not repeated in the transcri
 Runs are kept in `.two-pass-review/` at the top of your checkout — the report, the artifact it renders
 from, and the diff it reviewed, one directory per run, with `latest.html` always the newest report. The
 newest twenty are kept and older ones are deleted as new runs arrive. The directory carries its own
-`.gitignore`, so git never sees it and you have nothing to add to yours. Runs used to live in the temp
+`.gitignore`, so git never sees it and your `.gitignore` needs nothing. Runs used to live in the temp
 directory, which macOS empties of anything older than about three days, and that took the old reports
 with it.
+
+**Tools that do not read `.gitignore` still see it.** Add `.two-pass-review/` to `.dockerignore`:
+without it, a `COPY . .` built from your checkout puts up to twenty runs into the image — the findings
+and the whole reviewed diff, which can be an unmerged branch or uncommitted work, and which can still
+hold a secret the change removed. Add it, too, to the ignore file of any formatter or packager that reads
+only its own, such as `.prettierignore` — otherwise `prettier --check .` fails on the run's HTML and JSON
+after your first review.
 
 ## Reading the report
 

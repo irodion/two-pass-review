@@ -127,8 +127,9 @@ It prints JSON holding `repo_root`, `worktree`, `checkout`, `run_dir`, `context_
 **Runs live in `.two-pass-review/` at the top of the user's checkout**, one directory per run, and the
 newest twenty are kept. That directory holds its own `.gitignore`, so git never sees it. **Never add it
 to the repository's `.gitignore`**, and never commit it: it already ignores itself, and an edit to the
-repository's `.gitignore` would show up in the diff of the next review. If `scope.py` refuses because
-the repository *tracks* files there, tell the user — the files are theirs to move.
+repository's `.gitignore` would show up in the diff of the next review. If `scope.py` refuses over that
+directory — the repository *tracks* files there, or git does not ignore it — tell the user what it said:
+the fix is theirs to make.
 
 **The review tree.** The diff compares two commits, but the passes read files, and `validate.py` checks
 every line range against files — so the files have to be the reviewed head's. When your checkout is

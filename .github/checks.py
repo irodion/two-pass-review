@@ -467,8 +467,8 @@ def page_escapes_everything(problems: list[str]) -> None:
     What counts as markup is the HTML parser's call, never a rule imported
     from page.py, so a page.py that stops escaping a field fails here whichever
     function it stopped in. The copy buttons are the one comparison with
-    page.py: their attribute has to decode back to exactly what copy_payload
-    built, which tests the escaping and says nothing about what copy_payload
+    page.py: their attribute has to decode back to exactly what copy_texts
+    returns, which tests the escaping and says nothing about what copy_texts
     chose to include. So what a finding's payload must carry -- its body, its
     contest, its paths -- is looked for verbatim as well, independently."""
     _scripts_importable()
@@ -563,9 +563,7 @@ def page_escapes_everything(problems: list[str]) -> None:
         ]
         live = {f["id"]: f for f in artifact["findings"] if f.get("falsified") is not True}
         for finding in live.values():
-            partners = [live[i] for i in finding.get("corroborated_by", []) if i in live]
-            payload = page.copy_payload(finding, partners)
-            for expected in (payload, payload + "\n\n" + page.PROMPT_WRAPPER):
+            for expected in page.copy_texts(finding, page.partners_of(finding, live)):
                 if expected not in copied:
                     problems.append(
                         f"{where}: {finding['id']}'s copy button does not decode to its payload"

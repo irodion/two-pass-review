@@ -43,10 +43,6 @@ RUN_SECTIONS = {
 }
 RULES_SECTION = "Rule derivation"
 
-# Angle-bracketed words a block says to the subagent rather than to this file:
-# the rule-derivation prompt asks for titles that end "(from <ids>)".
-LITERAL = frozenset(["ids"])
-
 # Wide on purpose: a mistyped placeholder -- a capital, a digit -- must be
 # refused as unknown, not shipped as text because it did not look like one.
 PLACEHOLDER = re.compile(r"<([A-Za-z][A-Za-z0-9_-]*)>")
@@ -151,7 +147,7 @@ def load(source: str) -> tuple[dict[str, str] | None, str | None]:
         if len(found) != 1:
             return None, f"'{heading}' holds {len(found)} text blocks, not one"
         allowed = RULES_KEYS if name == "rules" else RUN_KEYS
-        unknown = sorted(set(PLACEHOLDER.findall(found[0])) - allowed - LITERAL)
+        unknown = sorted(set(PLACEHOLDER.findall(found[0])) - allowed)
         if unknown:
             return None, "'{}' uses placeholders nothing fills: {}".format(
                 heading, ", ".join(f"<{u}>" for u in unknown)

@@ -278,62 +278,6 @@ def prune(reports: str, current: str) -> None:
         shutil.rmtree(path, ignore_errors=True)
 
 
-def trees_dir() -> str:
-    """Where review trees are checked out: temp, not the checkout.
-
-    The opposite choice from reports_dir, for the opposite reason. A review tree
-    lasts one run and `--release` removes it, so the sweep that makes temp wrong
-    for runs cannot touch one in use. And a full second copy of the source inside
-    the user's checkout would be found by every tool that does not read
-    .gitignore -- test runners, compilers, linters -- for as long as it stood,
-    which on a run that never reached its release is indefinitely.
-    """
-    return os.path.join(tempfile.gettempdir(), "two-pass-review-trees")
-
-
-def make_private_dir(path: str) -> str | None:
-    """Create one directory readable only by its owner. Returns the problem, or None.
-
-    This is modest housekeeping rather than a defence against a determined
-    attacker -- anyone with a shell on the machine has easier targets than a
-    code review. It earns its lines on a shared build host, where `gettempdir()`
-    is the common `/tmp` and this path is fixed and so is guessable.
-
-    Every check runs against an open descriptor rather than the name, so what is
-    inspected is what was opened. `O_NOFOLLOW` makes a planted symlink an error
-    rather than something to detect and then act on separately.
-    """
-    created = False
-    try:
-        os.mkdir(path, 0o700)
-        created = True
-    except FileExistsError:
-        pass
-    except OSError as error:
-        return f"cannot create {path}: {error}"
-
-    try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY)
-    except OSError:
-        return f"{path} is a symlink or not a directory; refusing to check code out through it"
-    try:
-        info = os.fstat(descriptor)
-        if info.st_uid != os.getuid():
-            return f"{path} is owned by another user; refusing to check code out into it"
-        if created:
-            # mkdir's mode is masked by the umask, so set it on the descriptor.
-            os.fchmod(descriptor, 0o700)
-        elif info.st_mode & 0o077:
-            # Somebody chose this mode. Say so rather than silently undoing it.
-            return (
-                f"{path} is readable by other users. Review trees are checked out here, so "
-                "either `chmod 700` it or remove it and let this run recreate it"
-            )
-    finally:
-        os.close(descriptor)
-    return None
-
-
 def filter_overrides(repo: str) -> tuple[list[str] | None, str | None]:
     """(overrides, problem): one -c per configured filter driver, emptied.
 
@@ -568,6 +512,70 @@ def checkout_holds(root: str, head: str, overrides: list[str]) -> bool:
     return code == 0
 
 
+# The directory in temp that holds every review tree; see trees_dir.
+TREES_DIR = "two-pass-review-trees"
+
+
+def trees_dir() -> str:
+    """Where review trees are checked out: temp, not the checkout.
+
+    The opposite choice from reports_dir, for the opposite reason. A review tree
+    lasts one run and `--release` removes it, so the sweep that makes temp wrong
+    for runs cannot touch one in use. And a full second copy of the source inside
+    the user's checkout would be found by every tool that does not read
+    .gitignore -- test runners, compilers, linters -- for as long as it stood,
+    which on a run that never reached its release is indefinitely.
+
+    Each tree is named exactly as its run directory, which mkdtemp made unique
+    in the checkout. That one rule is how release recognises a tree, from its
+    path alone, so no second spelling of it exists anywhere to drift.
+    """
+    return os.path.join(tempfile.gettempdir(), TREES_DIR)
+
+
+def make_private_dir(path: str) -> str | None:
+    """Create one directory readable only by its owner. Returns the problem, or None.
+
+    This is modest housekeeping rather than a defence against a determined
+    attacker -- anyone with a shell on the machine has easier targets than a
+    code review. It earns its lines on a shared build host, where `gettempdir()`
+    is the common `/tmp` and this path is fixed and so is guessable.
+
+    Every check runs against an open descriptor rather than the name, so what is
+    inspected is what was opened. `O_NOFOLLOW` makes a planted symlink an error
+    rather than something to detect and then act on separately.
+    """
+    created = False
+    try:
+        os.mkdir(path, 0o700)
+        created = True
+    except FileExistsError:
+        pass
+    except OSError as error:
+        return f"cannot create {path}: {error}"
+
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY)
+    except OSError:
+        return f"{path} is a symlink or not a directory; refusing to check code out through it"
+    try:
+        info = os.fstat(descriptor)
+        if info.st_uid != os.getuid():
+            return f"{path} is owned by another user; refusing to check code out into it"
+        if created:
+            # mkdir's mode is masked by the umask, so set it on the descriptor.
+            os.fchmod(descriptor, 0o700)
+        elif info.st_mode & 0o077:
+            # Somebody chose this mode. Say so rather than silently undoing it.
+            return (
+                f"{path} is readable by other users. Review trees are checked out here, so "
+                "either `chmod 700` it or remove it and let this run recreate it"
+            )
+    finally:
+        os.close(descriptor)
+    return None
+
+
 def review_tree(root: str, head: str, run_dir: str) -> tuple[str | None, str | None]:
     """(worktree, problem): a detached worktree at `head`, when the passes need one.
 
@@ -617,11 +625,16 @@ def review_tree(root: str, head: str, run_dir: str) -> tuple[str | None, str | N
     problem = make_private_dir(trees)
     if problem:
         return None, problem
-    # mkdtemp for the reason main() uses it for the run directory: new, unique,
-    # and 0700 from the start. git checks out into an empty directory that
-    # already exists. The prefix is the run directory's name, which is how
-    # release tells this run's tree from any other.
-    path = tempfile.mkdtemp(prefix=os.path.basename(run_dir) + "-", dir=trees)
+    # Named as the run, for trees_dir's reason. os.mkdir keeps what mkdtemp
+    # would give: the directory is new, so removing it on a failed checkout
+    # removes nothing of anyone else's, and it is 0700 from the start -- a umask
+    # can take bits away, never add them. git checks out into an empty
+    # directory that already exists.
+    path = os.path.join(trees, os.path.basename(run_dir))
+    try:
+        os.mkdir(path, 0o700)
+    except OSError as refused:
+        return None, f"cannot create {path} for the review tree: {refused}"
     code, _, error = git(
         root,
         "-c",
@@ -688,11 +701,15 @@ def release(run_dir: str) -> int:
     null and composing a git command of its own. A run read in place has
     nothing to release and exits 0.
 
-    It removes only a directory directly inside trees_dir whose name starts
-    with the run directory's, whatever scope.json says. The file names a path
-    this script will hand to `git worktree remove --force`, and a path read
-    from disk is not one to delete on trust -- not the user's own worktree, and
-    not another run's tree. git runs in the
+    It removes only a directory named exactly as the run directory, inside one
+    named TREES_DIR, whatever scope.json says. The file names a path this
+    script will hand to `git worktree remove --force`, and a path read from
+    disk is not one to delete on trust -- not the user's own worktree, and not
+    another run's tree. The check reads the path's shape and never trees_dir()
+    itself: that reads TMPDIR in whichever process calls it, and a release run
+    with a different TMPDIR from the scope.py call that made the tree would
+    refuse the very tree it is for. git refuses, for its part, any path that is
+    not a worktree of this checkout. git runs in the
     user's checkout, and removes the registration under its .git/worktrees
     along with the directory -- or the registration alone, when the directory
     was already deleted by hand. Nothing broader: `git worktree prune` would
@@ -714,10 +731,12 @@ def release(run_dir: str) -> int:
     checkout = pinned.get("checkout") if isinstance(pinned, dict) else None
     if worktree is None:
         return 0
+    parent, name = (
+        os.path.split(os.path.normpath(worktree)) if isinstance(worktree, str) else ("", "")
+    )
     if (
-        not isinstance(worktree, str)
-        or os.path.dirname(os.path.realpath(worktree)) != os.path.realpath(trees_dir())
-        or not os.path.basename(worktree).startswith(os.path.basename(run_dir) + "-")
+        name != os.path.basename(run_dir)
+        or os.path.basename(parent) != TREES_DIR
         or not isinstance(checkout, str)
     ):
         return refuse(f"scope.json in {run_dir} does not name this run's own review tree", 2)

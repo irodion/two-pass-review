@@ -165,10 +165,10 @@ anything about reviewing code:
   gets a payload.
 
   The copy buttons are the one comparison with `page.py`: their attribute has to decode back to exactly
-  what `copy_payload` built. That tests the escaping and nothing about the content, so a finding's
-  body, paths, rationale and contest are also looked for in what is copied, independently. The check
-  was tested by breaking escaping on purpose, field by field, and any change to it should be tested the
-  same way: a check that has only ever passed has not shown it can fail.
+  what `copy_texts` returns, the one statement of what each button holds. That tests the escaping and
+  nothing about the content, so a finding's body, paths, rationale and contest are also looked for in what
+  is copied, independently. The check was tested by breaking escaping on purpose, field by field, and any
+  change to it should be tested the same way: a check that has only ever passed has not shown it can fail.
 - **`lint and types`** — ruff's configured rule set, the formatter, and `mypy --strict`, pinned.
   The rule set and its exclusions are argued in `pyproject.toml`'s comments; the job only runs what
   that file declares.

@@ -197,6 +197,29 @@ def copy_payload(finding: dict[str, Any], partners: list[dict[str, Any]]) -> str
     return "\n".join(lines)
 
 
+def copy_texts(finding: dict[str, Any], partners: list[dict[str, Any]]) -> tuple[str, str]:
+    """What the two copy buttons put on the clipboard: the finding, then the
+    finding with the agent instruction after it.
+
+    The one statement of both, because more than the page needs them:
+    .github/checks.py decodes each button's attribute and compares it with
+    these, and a second spelling of the suffix there would make a deliberate
+    change here read as an escaping bug.
+    """
+    payload = copy_payload(finding, partners)
+    return payload, payload + "\n\n" + PROMPT_WRAPPER
+
+
+def partners_of(finding: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """The findings a card names as corroborating it: its links, among `by_id`.
+
+    `by_id` holds the findings that stand, so a link to a withdrawn finding --
+    possible only in a version-2 or -3 artifact -- names nothing. Shared with
+    .github/checks.py for copy_texts' reason: a copy payload names its partners.
+    """
+    return [by_id[p] for p in (finding.get("corroborated_by") or []) if p in by_id]
+
+
 # Drawn here rather than fetched or set in a font: an icon font is a sibling
 # asset and this file has none, and the page is read over file:// and out of a
 # mail client. `aria-hidden`, because every one of these sits beside the word it
@@ -225,8 +248,8 @@ ICON_NO_ENTRY = icon(
 )
 
 
-def copy_controls(payload: str) -> str:
-    """Two buttons, one payload, carried in an attribute.
+def copy_controls(texts: tuple[str, str]) -> str:
+    """Two buttons, each carrying one of copy_texts in an attribute.
 
     `esc` gives `quote=True`, which is what makes the value safe in an attribute;
     newlines are then encoded so the opening tag stays on one line. Both are
@@ -248,9 +271,10 @@ def copy_controls(payload: str) -> str:
             f'<span class="copy-label">{text}</span></button>'
         )
 
+    plain, for_agent = texts
     return '<div class="copy">{}{}</div>'.format(
-        button("Copy", ICON_CLIPBOARD, payload),
-        button("Copy for agent", ICON_TERMINAL, payload + "\n\n" + PROMPT_WRAPPER),
+        button("Copy", ICON_CLIPBOARD, plain),
+        button("Copy for agent", ICON_TERMINAL, for_agent),
     )
 
 
@@ -373,7 +397,7 @@ def render_finding(
     # dismissal arrived, and a second full-width row would cost every card --
     # dismissed or not -- a second line of vertical space to say one word.
     bits.append(
-        f'<div class="card-foot">{copy_controls(copy_payload(finding, partners))}{dismiss_control()}</div>'
+        f'<div class="card-foot">{copy_controls(copy_texts(finding, partners))}{dismiss_control()}</div>'
     )
     bits.append("</article>")
     return "\n".join(bits)
@@ -825,14 +849,7 @@ def render_page(merged: dict[str, Any]) -> str:
                 cls=classes,
                 d=disposition,
                 heading=heading,
-                cards="\n".join(
-                    render_finding(
-                        f,
-                        markdown,
-                        [by_id[p] for p in (f.get("corroborated_by") or []) if p in by_id],
-                    )
-                    for f in flat
-                ),
+                cards="\n".join(render_finding(f, markdown, partners_of(f, by_id)) for f in flat),
             )
         )
 

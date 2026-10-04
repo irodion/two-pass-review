@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""The mechanical floor: the two non-negotiable constraints, plus link rot.
+"""The mechanical floor: the two non-negotiable constraints, plus drift a clone would trip on.
+
+Link rot, the committed symlink, build artifacts in the tree, flags the
+documents name that no script takes, and the two output contracts' shared
+paragraphs drifting apart.
 
 Usage:
     python3 .github/checks.py
@@ -603,16 +607,7 @@ def no_build_artifacts(problems: list[str]) -> None:
 def links_resolve(problems: list[str]) -> None:
     """A clone has to contain everything the docs point at. This has shipped
     broken once already -- see 1c60e38."""
-    docs = [
-        os.path.join(ROOT, "README.md"),
-        os.path.join(ROOT, "AGENTS.md"),
-        os.path.join(ROOT, "CONTEXT.md"),
-        os.path.join(ROOT, "CODE_OF_CONDUCT.md"),
-        os.path.join(SKILL, "SKILL.md"),
-        os.path.join(SKILL, "NOTICE.md"),
-        os.path.join(SKILL, "references", "prompts.md"),
-    ]
-    for doc in docs:
+    for doc in DOCS:
         with open(doc, encoding="utf-8") as handle:
             text = handle.read()
         for target in _markdown_targets(text):
@@ -643,6 +638,312 @@ def _markdown_targets(text: str) -> list[str]:
         index = close + 1
 
 
+# Where an orchestrator copies commands from. A flag in these is checked even
+# where no script stands beside it -- SKILL.md says `--confirm-large` in a
+# sentence, and a weak orchestrator types it as written.
+COMMAND_DOCS = (
+    os.path.join(SKILL, "SKILL.md"),
+    os.path.join(SKILL, "references", "prompts.md"),
+)
+# Every document a clone ships, all of them link-checked. The ones past the
+# first two teach other tools' flags too, so only a command naming one of this
+# skill's scripts is held to anything there.
+DOCS = (
+    *COMMAND_DOCS,
+    os.path.join(ROOT, "README.md"),
+    os.path.join(ROOT, "AGENTS.md"),
+    os.path.join(ROOT, "CONTEXT.md"),
+    os.path.join(ROOT, "CODE_OF_CONDUCT.md"),
+    os.path.join(SKILL, "NOTICE.md"),
+)
+# The git flags SKILL.md names in prose, standing alone where no `git` precedes
+# them; inside a git command they are not looked at.
+GIT_FLAGS = frozenset(["--first-parent", "--before"])
+FLAG = re.compile(r"(?<![\w-])--[a-z][a-z0-9-]*")
+SCRIPT = re.compile(r"\b(\w+)\.py\b")
+# Where one shell command ends and the next begins, so that `a.py && git ...`
+# does not hand git's flags to a.py.
+OPERATOR = re.compile(r"&&|\|\||;|\|")
+ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+# A flag a script reads off argv[1] before argparse runs, as a mode of its own:
+# scope.py's `--release RUN_DIR`. It is honoured only as the one flag given.
+SOLO = re.compile(r"""argv\[1:2\]\s*==\s*\[["'](--[a-z][a-z0-9-]*)["']\]""")
+
+
+def _script_flags(name: str) -> tuple[set[str], set[str]] | str:
+    """(every flag, the solo flags) a script takes, or why they could not be read.
+
+    What --help prints, because merge.py builds `--security-model` and its
+    siblings in a loop, and the SOLO pattern, because --release is read before
+    argparse and so never appears in --help. Colour is turned off and stripped
+    anyway: Python 3.14 colours help when FORCE_COLOR is set, and an escape
+    code ending in `m` stands where the lookbehind wants a space.
+    """
+    path = os.path.join(SCRIPTS, f"{name}.py")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            source = handle.read()
+    except OSError as error:
+        return f"cannot read {path}: {error}"
+    solo = set(SOLO.findall(source))
+    flags = set(solo)
+    if 'if __name__ == "__main__":' in source:
+        env = {k: v for k, v in os.environ.items() if k != "FORCE_COLOR"}
+        env |= {"PYTHON_COLORS": "0", "NO_COLOR": "1"}
+        try:
+            shown = subprocess.run(
+                [sys.executable, "-B", path, "--help"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+                env=env,
+            )
+        except subprocess.TimeoutExpired:
+            return f"{name}.py --help did not finish within 60 seconds"
+        flags |= set(FLAG.findall(ANSI.sub("", shown.stdout)))
+    return flags, solo
+
+
+def _subshells(command: str) -> tuple[str, list[str]]:
+    """The command with each `$( ... )` taken out, and what was inside each.
+
+    Taken out so a git call's flags are not read as the script's around it,
+    and kept so a script called inside one -- `run_dir=$(python3 scope.py ...)`
+    -- is checked as a command of its own.
+    """
+    inner: list[str] = []
+    while (start := command.find("$(")) != -1:
+        depth, end = 0, start + 1
+        while end < len(command):
+            depth += {"(": 1, ")": -1}.get(command[end], 0)
+            if depth == 0:
+                break
+            end += 1
+        inner.append(command[start + 2 : end])
+        command = command[:start] + " " + command[end + 1 :]
+    return command, inner
+
+
+def _code(text: str) -> list[str]:
+    """Where commands are written: each fenced block's logical lines, and each inline span.
+
+    An inline span may wrap onto the next line -- the docs are hard-wrapped,
+    and `scope.py\n--release` is one span -- but never across a blank line, and
+    it closes only on a backtick run as long as the one that opened it.
+    """
+    found: list[str] = []
+
+    def fenced(match: re.Match[str]) -> str:
+        found.extend(match.group(1).replace("\\\n", " ").split("\n"))
+        return "\n\n"
+
+    rest = re.sub(r"(?ms)^[ \t]*```[^\n]*\n(.*?)^[ \t]*```[ \t]*$", fenced, text)
+    for paragraph in re.split(r"\n[ \t]*\n", rest):
+        index = 0
+        while (opener := re.search(r"`+", paragraph[index:])) is not None:
+            start = index + opener.end()
+            run = opener.group(0)
+            closer = re.search(rf"(?<!`){run}(?!`)", paragraph[start:])
+            if closer is None:
+                index = start
+                continue
+            found.append(paragraph[start : start + closer.start()].replace("\n", " "))
+            index = start + closer.end()
+    return found
+
+
+def _check_command(
+    command: str,
+    held: bool,
+    flags: dict[str, tuple[set[str], set[str]]],
+    every: set[str],
+    where: str,
+    problems: list[str],
+) -> None:
+    """Hold one command's flags to the scripts it names; `held` holds the rest to any script's."""
+    command, inner = _subshells(command)
+    for nested in inner:
+        _check_command(nested, held, flags, every, where, problems)
+    for simple in OPERATOR.split(command):
+        # A git command's flags are git's to judge -- `--base $(git rev-list
+        # --first-parent ...)` is SKILL.md teaching git, not a script.
+        if simple.split()[:1] == ["git"]:
+            continue
+        named = [m for m in SCRIPT.finditer(simple) if m.group(1) in flags]
+        stray = FLAG.findall(simple[: named[0].start()] if named else simple)
+        if held:
+            for flag in stray:
+                if flag not in every:
+                    problems.append(f"{where}: `{flag}` is a flag of no script here")
+        for index, this in enumerate(named):
+            after = named[index + 1] if index + 1 < len(named) else None
+            script = this.group(1)
+            known, solo = flags[script]
+            given = FLAG.findall(simple[this.end() : after.start() if after else len(simple)])
+            for flag in given:
+                if flag not in known:
+                    problems.append(
+                        f"{where}: `{script}.py {flag}` -- {script}.py takes no such flag"
+                    )
+                elif flag in solo and given != [flag]:
+                    problems.append(
+                        f"{where}: `{script}.py {flag}` comes with other flags, and {script}.py "
+                        f"honours {flag} only as the one flag given"
+                    )
+
+
+def docs_name_real_flags(problems: list[str]) -> None:
+    """Every flag the documents hand an orchestrator is one a script takes, where it takes it.
+
+    The orchestrators this skill is mostly driven by copy a command as written,
+    so a flag renamed in a script and not in SKILL.md is a run that dies on its
+    first step -- and nothing else here would notice, because CI exercises the
+    scripts with the flags it spells itself, not the ones the documents do.
+    """
+    flags: dict[str, tuple[set[str], set[str]]] = {}
+    for name in sorted(SIBLINGS):
+        read = _script_flags(name)
+        if isinstance(read, str):
+            problems.append(f"documented flags: {read}")
+            read = (set(), set())
+        flags[name] = read
+    every = set().union(*(known for known, _ in flags.values())) | GIT_FLAGS
+    for doc in DOCS:
+        where = os.path.relpath(doc, ROOT)
+        try:
+            with open(doc, encoding="utf-8") as handle:
+                text = handle.read()
+        except OSError as error:
+            problems.append(f"{where}: cannot be read for its flags: {error}")
+            continue
+        for command in _code(text):
+            _check_command(command, doc in COMMAND_DOCS, flags, every, where, problems)
+
+
+# The two output contracts tell two passes one set of rules, so most of their
+# paragraphs are the same paragraph twice -- and an edit that reaches one copy
+# is a rule the passes now disagree about. It happened: 2815638 had to put one
+# fix into both by hand. So every paragraph is paired across the contracts by
+# how it opens, once each file's own pass name is taken out, and a pair must
+# read the same. The three lists are the exceptions, each a deliberate choice:
+# a pair that differs on purpose, and a paragraph only one pass is told. One
+# added to a contract without being added to the other or to its list fails,
+# and so does a list entry that no longer names anything.
+OPENING = 40
+DIFFERS: tuple[str, ...] = (
+    "You are the **PASS** pass. The orchestra",
+    '```json {"id": "ID-1", "producer": "PASS',
+    "| field | required | value | |---|---|--",
+    "**Cross-reference your own findings by i",
+    "The merged report is **one list ordered ",
+    "- `blocking` — this change should not me",
+    "Argue the finding and say what to do abo",
+    "**Open with the evidence.** The body's f",
+    "**Write for a reader who is skimming.** ",
+)
+SECURITY_ONLY: tuple[str, ...] = (
+    "1. **Is the defect in code this diff add",
+    "## Sweep the callers before you close",
+    "The breakage this rubric weights most he",
+    "1. **List what the diff changed the shap",
+    "A `note` carries **no severity**. `note`",
+    "## Severity, by worked example",
+    "Calibrate against these, drawn from what",
+    "- **`critical`** — exploitable with no a",
+    "If you are choosing between two levels, ",
+)
+QUALITY_ONLY: tuple[str, ...] = (
+    "1. **Is the problem in code this diff ad",
+    "## Sweep the repository before you close",
+    "The claims this rubric wants are claims ",
+    "1. **For every helper or pattern the dif",
+    "`category` is the **Output Expectations*",
+    "| tier | slug | |---|---| | 1 | `structu",
+    "You emit no severity. Rank is what the t",
+    "Choose by naming the cost: who pays if t",
+)
+# Each file has only its own pass name taken out: a paragraph copied from the
+# other contract and not renamed -- the security pass told to write
+# findings.quality.jsonl -- must not compare equal.
+CONTRACTS = (
+    ("security.md", "security", "sec", SECURITY_ONLY),
+    ("code-quality.md", "quality", "qa", QUALITY_ONLY),
+)
+
+
+def _contract_paragraphs(name: str, own: str, prefix: str) -> dict[str, str] | str:
+    """A contract's output-contract half, paragraph by paragraph, keyed by opening; or what is wrong."""
+    path = os.path.join(SKILL, "references", name)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            text = handle.read()
+    except OSError as error:
+        return f"cannot read {name}: {error}"
+    if "# Output contract" not in text:
+        return f"{name} has no '# Output contract' heading to split the rubric from the contract at"
+    text = text[text.index("# Output contract") :]
+    text = re.sub(rf"\b{own}\b", "PASS", text)
+    text = re.sub(rf"\b{prefix}-(\d+|<n>)", r"ID-\1", text)
+    paragraphs: dict[str, str] = {}
+    for block in re.split(r"\n\s*\n", text):
+        paragraph = " ".join(line.strip() for line in block.strip().split("\n"))
+        if not paragraph:
+            continue
+        opening = paragraph[:OPENING]
+        if opening in paragraphs:
+            return f"{name} has two paragraphs opening {opening!r}, which cannot be paired"
+        paragraphs[opening] = paragraph
+    return paragraphs
+
+
+def contracts_mirror(problems: list[str]) -> None:
+    """The contracts' shared paragraphs read the same, and every difference is a listed one."""
+    sides: dict[str, tuple[dict[str, str], tuple[str, ...]]] = {}
+    for name, own, prefix, only in CONTRACTS:
+        read = _contract_paragraphs(name, own, prefix)
+        if isinstance(read, str):
+            problems.append(f"contracts: {read}")
+            return
+        sides[name] = (read, only)
+    (sec, sec_only), (qa, qa_only) = sides["security.md"], sides["code-quality.md"]
+    for opening in sorted(set(sec) | set(qa)):
+        if opening in sec and opening in qa:
+            left, right = sec[opening], qa[opening]
+            if left != right and opening not in DIFFERS:
+                at = len(os.path.commonprefix([left, right]))
+                problems.append(
+                    f"contracts: the paragraph opening {opening!r} differs -- security.md has "
+                    f"{left[max(0, at - 20) : at + 40]!r}, code-quality.md has "
+                    f"{right[max(0, at - 20) : at + 40]!r}. An edit reached one copy, or the "
+                    "difference is meant and belongs in DIFFERS"
+                )
+            elif left == right and opening in DIFFERS:
+                problems.append(
+                    f"contracts: DIFFERS lists {opening!r}, which now reads the same in both -- "
+                    "take it out of DIFFERS"
+                )
+        else:
+            name, only = (
+                ("security.md", sec_only) if opening in sec else ("code-quality.md", qa_only)
+            )
+            if opening not in only:
+                problems.append(
+                    f"contracts: only {name} has a paragraph opening {opening!r} -- add it to the "
+                    "other contract too, or list it as one pass's alone"
+                )
+    for listed, present, label in (
+        (DIFFERS, set(sec) & set(qa), "DIFFERS"),
+        (SECURITY_ONLY, set(sec) - set(qa), "SECURITY_ONLY"),
+        (QUALITY_ONLY, set(qa) - set(sec), "QUALITY_ONLY"),
+    ):
+        for opening in listed:
+            if opening not in present:
+                problems.append(
+                    f"contracts: {label} lists {opening!r}, which names no such paragraph now"
+                )
+
+
 def main() -> int:
     problems: list[str] = []
     checks = (
@@ -652,6 +953,8 @@ def main() -> int:
         committed_symlink,
         no_build_artifacts,
         links_resolve,
+        docs_name_real_flags,
+        contracts_mirror,
     )
     for check in checks:
         check(problems)
@@ -666,7 +969,7 @@ def main() -> int:
     sys.stdout.write(
         "stdlib-only; page SCRIPT parses; a hostile payload in each text field renders "
         "as text and no unsafe link; symlink relative; no build artifacts tracked; "
-        "links resolve.\n"
+        "links resolve; documented flags exist; mirrored contract paragraphs agree.\n"
     )
     return 0
 

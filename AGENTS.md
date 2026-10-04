@@ -137,7 +137,8 @@ anything about reviewing code:
   JavaScript; a page rendered from an artifact with a hostile payload in every text field plants no tag,
   attribute or unsafe link — `javascript:`, `data:` and `vbscript:` included; the committed
   `.claude/skills/` symlink is relative and resolves; every relative link in the docs points at a file a
-  clone has.
+  clone has; every flag the docs hand an orchestrator is one a script takes; and the paragraphs the two
+  output contracts share still read the same in both.
 
   The `SCRIPT` check exists because the page's one script lives inside a Python string, where neither
   `py_compile` nor the 3.10 and 3.13 jobs can see it — a typo would ship a page that renders perfectly and
@@ -172,6 +173,17 @@ anything about reviewing code:
   nothing about the content, so a finding's body, paths, rationale and contest are also looked for in what
   is copied, independently. The check was tested by breaking escaping on purpose, field by field, and any
   change to it should be tested the same way: a check that has only ever passed has not shown it can fail.
+
+  The flag check and the contract check exist because the orchestrators this skill targets copy text
+  exactly. A flag renamed in a script and not in SKILL.md is a run that dies on its first command, so
+  every command in the docs that names a script is held to that script's flags — what its `--help`
+  prints, and a flag like `scope.py --release` that only works alone — and a flag standing bare in
+  SKILL.md or `prompts.md` to some script's. A rule fixed in one contract and not the other is two
+  passes told different things, and `2815638` had to put one fix into both by hand. So the contracts are
+  compared paragraph by paragraph, paired by how each opens once the file's own pass name is taken out:
+  a pair must read the same, and a paragraph in only one contract fails. The exceptions are three short
+  lists in `checks.py` — `DIFFERS`, `SECURITY_ONLY`, `QUALITY_ONLY` — so a difference is always a choice
+  someone wrote down, and an entry that no longer names anything fails too.
 - **`lint and types`** — ruff's configured rule set, the formatter, and `mypy --strict`, pinned.
   The rule set and its exclusions are argued in `pyproject.toml`'s comments; the job only runs what
   that file declares.

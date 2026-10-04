@@ -764,7 +764,8 @@ def _opening_excerpt(body: str) -> list[list[str]] | None:
     In a ```diff block, or one where every line carries a diff sign, the
     deleted lines are dropped: they are in no file a finding can cite, and a
     finding about a removed guard has to quote them. What remains is the
-    post-image, which the file does hold.
+    post-image, which the file does hold. A block that quotes nothing is None
+    too, unless it is a diff of deletions only.
     """
     lines = body.split("\n")
     paragraphs, in_paragraph = 0, False
@@ -794,9 +795,10 @@ def _opening_excerpt(body: str) -> list[list[str]] | None:
 
     info = opener.group("info").strip().split()
     signed = [line for line in content if line.strip()]
-    if (info and info[0].lower() in ("diff", "patch")) or (
+    diff = bool(info and info[0].lower() in ("diff", "patch")) or bool(
         signed and all(line.startswith(("+", "-")) for line in signed)
-    ):
+    )
+    if diff:
         content = [
             "" if line.startswith("@@") else line[1:]
             for line in content
@@ -814,7 +816,10 @@ def _opening_excerpt(body: str) -> list[list[str]] | None:
             current.append(line.strip())
     if current:
         pieces.append(current)
-    return pieces
+    # A block with nothing quoted in it -- empty, or only `...` and labels -- is
+    # no excerpt, and is told so. A diff of deleted lines alone is the
+    # exception: it quoted what the finding is about, which no file still holds.
+    return pieces if pieces or diff else None
 
 
 def _file_lines(repo: str, path: str, cache: dict[str, list[str] | None]) -> list[str] | None:

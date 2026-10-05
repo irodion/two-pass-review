@@ -701,7 +701,15 @@ def _script_flags(name: str) -> tuple[set[str], set[str]] | str:
             )
         except subprocess.TimeoutExpired:
             return f"{name}.py --help did not finish within 60 seconds"
-        flags |= set(FLAG.findall(ANSI.sub("", shown.stdout)))
+        # Judged by what it printed, never by its exit status: every script here
+        # catches argparse's SystemExit and returns 2, so a perfect --help exits
+        # 2 too. One that raised while importing or building its parser prints
+        # no usage at all, and reading flags off that would blame the documents.
+        shown_text = ANSI.sub("", shown.stdout)
+        if "usage:" not in shown_text:
+            detail = (shown.stderr.strip().splitlines() or ["no output"])[-1]
+            return f"{name}.py --help printed no usage (exit {shown.returncode}): {detail}"
+        flags |= set(FLAG.findall(shown_text))
     return flags, solo
 
 
@@ -757,6 +765,7 @@ def _check_command(
     command: str,
     held: bool,
     flags: dict[str, tuple[set[str], set[str]]],
+    unread: set[str],
     every: set[str],
     where: str,
     problems: list[str],
@@ -764,13 +773,13 @@ def _check_command(
     """Hold one command's flags to the scripts it names; `held` holds the rest to any script's."""
     command, inner = _subshells(command)
     for nested in inner:
-        _check_command(nested, held, flags, every, where, problems)
+        _check_command(nested, held, flags, unread, every, where, problems)
     for simple in OPERATOR.split(command):
         # A git command's flags are git's to judge -- `--base $(git rev-list
         # --first-parent ...)` is SKILL.md teaching git, not a script.
         if simple.split()[:1] == ["git"]:
             continue
-        named = [m for m in SCRIPT.finditer(simple) if m.group(1) in flags]
+        named = [m for m in SCRIPT.finditer(simple) if m.group(1) in flags or m.group(1) in unread]
         stray = FLAG.findall(simple[: named[0].start()] if named else simple)
         if held:
             for flag in stray:
@@ -779,6 +788,8 @@ def _check_command(
         for index, this in enumerate(named):
             after = named[index + 1] if index + 1 < len(named) else None
             script = this.group(1)
+            if script in unread:
+                continue
             known, solo = flags[script]
             given = FLAG.findall(simple[this.end() : after.start() if after else len(simple)])
             for flag in given:
@@ -802,11 +813,13 @@ def docs_name_real_flags(problems: list[str]) -> None:
     scripts with the flags it spells itself, not the ones the documents do.
     """
     flags: dict[str, tuple[set[str], set[str]]] = {}
+    unread: set[str] = set()
     for name in sorted(SIBLINGS):
         read = _script_flags(name)
         if isinstance(read, str):
             problems.append(f"documented flags: {read}")
-            read = (set(), set())
+            unread.add(name)
+            continue
         flags[name] = read
     every = set().union(*(known for known, _ in flags.values())) | GIT_FLAGS
     for doc in DOCS:
@@ -818,7 +831,11 @@ def docs_name_real_flags(problems: list[str]) -> None:
             problems.append(f"{where}: cannot be read for its flags: {error}")
             continue
         for command in _code(text):
-            _check_command(command, doc in COMMAND_DOCS, flags, every, where, problems)
+            # A script whose flags could not be read has its own problem above;
+            # checking the documents against a guess would only bury it.
+            _check_command(
+                command, doc in COMMAND_DOCS and not unread, flags, unread, every, where, problems
+            )
 
 
 # The two output contracts tell two passes one set of rules, so most of their

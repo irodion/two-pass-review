@@ -35,6 +35,9 @@ Note that `cursor/plugins` carries no root licence; licensing there is per-plugi
 - Everything else in this directory — `SKILL.md`, `references/prompts.md`, `scripts/`, `agents/` — is
   original work.
 
+The two lists above are complete. This repository's CI pins each rubric half, as it stands after those
+edits, by SHA-256, so a further edit cannot land unnoticed: it has to change that pin, and be listed here.
+
 ## Prior art that was read and not copied
 
 `scripts/render.py` and `scripts/validate.py` were written against a specification, not against another

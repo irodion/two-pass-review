@@ -2,8 +2,8 @@
 """The mechanical floor: the two non-negotiable constraints, plus drift a clone would trip on.
 
 Link rot, the committed symlink, build artifacts in the tree, flags the
-documents name that no script takes, and the two output contracts' shared
-paragraphs drifting apart.
+documents name that no script takes, the two output contracts' shared
+paragraphs drifting apart, and a change to either forked rubric.
 
 Usage:
     python3 .github/checks.py
@@ -20,6 +20,7 @@ compile on 3.10, which is a separate job.
 """
 
 import ast
+import hashlib
 import json
 import os
 import re
@@ -961,6 +962,46 @@ def contracts_mirror(problems: list[str]) -> None:
                 )
 
 
+# The rubric half of each rubric file -- every byte above the `# Output contract`
+# line -- by SHA-256. The rubrics are forked text (NOTICE.md) and the rubric half
+# is frozen (AGENTS.md), but nothing held either to that: the likeliest edit is
+# a coding agent improving a sentence it was never meant to touch. A change now
+# fails here until the pin changes with it, in the same commit, where a reviewer
+# sees it. Change a pin only for an edit NOTICE.md enumerates, and enumerate it.
+RUBRICS = {
+    "security.md": "06c65e00a7d4d0bb7de79d9bb955e4d853eb370f30e5baa2045d261379e84e79",
+    "code-quality.md": "98d8679b5ff54b52dfa87309d823469ca2591df8e8f1bccc49879278b6cc44b9",
+}
+
+
+def rubrics_frozen(problems: list[str]) -> None:
+    """Each rubric half is the bytes it was pinned at.
+
+    Line endings are made LF first, so a checkout with core.autocrlf on
+    hashes what CI hashes. The divider is matched as a line, so a rubric
+    that ever mentions the words cannot move it.
+    """
+    for name, pinned in RUBRICS.items():
+        where = os.path.join(".agents", "skills", "two-pass-review", "references", name)
+        try:
+            with open(os.path.join(SKILL, "references", name), "rb") as handle:
+                data = handle.read()
+        except OSError as error:
+            problems.append(f"{where}: cannot be read to check its rubric: {error}")
+            continue
+        divider = re.search(rb"(?m)^# Output contract", data)
+        if divider is None:
+            problems.append(f"{where}: no '# Output contract' line, so the rubric half has no end")
+            continue
+        actual = hashlib.sha256(data[: divider.start()].replace(b"\r\n", b"\n")).hexdigest()
+        if actual != pinned:
+            problems.append(
+                f"{where}: the rubric half above '# Output contract' has changed. It is forked text, "
+                "and frozen (AGENTS.md). If this is an edit NOTICE.md enumerates, enumerate it there "
+                f"and pin the new hash in RUBRICS, in the same commit: {actual}"
+            )
+
+
 def main() -> int:
     problems: list[str] = []
     checks = (
@@ -972,6 +1013,7 @@ def main() -> int:
         links_resolve,
         docs_name_real_flags,
         contracts_mirror,
+        rubrics_frozen,
     )
     for check in checks:
         check(problems)
@@ -986,7 +1028,8 @@ def main() -> int:
     sys.stdout.write(
         "stdlib-only; page SCRIPT parses; a hostile payload in each text field renders "
         "as text and no unsafe link; symlink relative; no build artifacts tracked; "
-        "links resolve; documented flags exist; mirrored contract paragraphs agree.\n"
+        "links resolve; documented flags exist; mirrored contract paragraphs agree; "
+        "rubric halves are as pinned.\n"
     )
     return 0
 

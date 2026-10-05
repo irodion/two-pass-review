@@ -83,7 +83,10 @@ because then the balance genuinely does shift. It has not yet.
 `# Output contract` divider. Above it is the rubric, forked from Cursor's `thermos` plugin (MIT); the
 authorised edits are enumerated and complete — see `.agents/skills/two-pass-review/NOTICE.md`. **The
 rubric half is frozen: what the passes look at, weight, or consult is not ours to change there.**
-Finding yourself improving a rubric means the change has left this repo's remit.
+Finding yourself improving a rubric means the change has left this repo's remit. CI holds it to that:
+`.github/checks.py` pins each rubric half by SHA-256 in `RUBRICS`, so any edit fails until the pin
+changes with it — in the same commit, where a reviewer sees it, and only for an edit NOTICE.md
+enumerates.
 
 Below the divider is ours entirely, and it carries more than field tables: recording standards, and
 procedure that makes a demand the rubric already states executable by a weaker model. The caller sweep
@@ -138,7 +141,7 @@ anything about reviewing code:
   attribute or unsafe link — `javascript:`, `data:` and `vbscript:` included; the committed
   `.claude/skills/` symlink is relative and resolves; every relative link in the docs points at a file a
   clone has; every flag the docs hand an orchestrator is one a script takes; and the paragraphs the two
-  output contracts share still read the same in both.
+  output contracts share still read the same in both; and each rubric half is the bytes it was pinned at.
 
   The `SCRIPT` check exists because the page's one script lives inside a Python string, where neither
   `py_compile` nor the 3.10 and 3.13 jobs can see it — a typo would ship a page that renders perfectly and

@@ -1,6 +1,6 @@
 <!-- Forked from cursor/plugins `thermos/skills/thermo-nuclear-review/SKILL.md`, MIT © 2026 Cursor.
      The rubric below is upstream's, unchanged. The output contract at the end is ours.
-     See ../../../../NOTICE.md. -->
+     See ../NOTICE.md. -->
 
 # Thermo Nuclear Review
 

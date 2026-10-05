@@ -24,10 +24,12 @@ Note that `cursor/plugins` carries no root licence; licensing there is per-plugi
 
 ## What changed
 
-- **`references/security.md`** — the rubric is upstream's, byte for byte. An output contract is appended.
+- **`references/security.md`** — the rubric is upstream's, byte for byte, except that its YAML frontmatter
+  is replaced by a provenance comment. An output contract is appended.
 - **`references/code-quality.md`** — the file-size rule is inverted into a cohesion rule and every line-count
   threshold is removed, decomposition moves out of the presumptive-blocker list while staying on the
-  Approval Bar, and clause 7 is reduced to atomicity. Thirteen sites in all. An output contract is appended.
+  Approval Bar, and clause 7 is reduced to atomicity. Thirteen sites in all. Its YAML frontmatter is
+  replaced by a provenance comment, and an output contract is appended.
 - **`LICENSE`** — upstream's permission text is retained to the byte; a second copyright line is added above
   Cursor's, and Cursor's is scoped to `references/`. This directory is copied around as a unit, so it has to
   carry a notice for the original work in it as well as for the forked rubrics. The hash in the table above
@@ -35,8 +37,20 @@ Note that `cursor/plugins` carries no root licence; licensing there is per-plugi
 - Everything else in this directory — `SKILL.md`, `references/prompts.md`, `scripts/`, `agents/` — is
   original work.
 
-The two lists above are complete. This repository's CI pins each rubric half, as it stands after those
-edits, by SHA-256, so a further edit cannot land unnoticed: it has to change that pin, and be listed here.
+This list is complete.
+
+## The rubric text CI pins
+
+The forked text of each rubric — from the end of its provenance comment to the `# Output contract` line,
+with LF line endings — as it stands after the changes above, by SHA-256. This repository's CI fails when
+either one differs, and a failing check blocks a merge to `main`. The pins are kept here, beside the list
+they have to agree with, so that changing one is an edit to this file: a change to a rubric lands only if
+it is listed above and re-pinned below, together.
+
+| File | SHA-256 of the forked text |
+|---|---|
+| `references/security.md` | `aefccbeee3debe2d7dd6e83f97196cc041c36e22b23d88477b19912a02d3efba` |
+| `references/code-quality.md` | `07ad870e4aad29e26217e9fb9567b3b2409229a667976d29e6ca6a34e3864b4d` |
 
 ## Prior art that was read and not copied
 

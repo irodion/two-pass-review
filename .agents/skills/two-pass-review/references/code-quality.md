@@ -1,6 +1,6 @@
 <!-- Forked from cursor/plugins `thermos/skills/thermo-nuclear-code-quality-review/SKILL.md`,
      MIT © 2026 Cursor. The file-size rule is inverted to a cohesion rule and clause 7 is halved —
-     13 sites in all. The output contract at the end is ours. See ../../../../NOTICE.md. -->
+     13 sites in all. The output contract at the end is ours. See ../NOTICE.md. -->
 
 # Thermo-Nuclear Code Quality Review
 

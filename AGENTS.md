@@ -84,9 +84,10 @@ because then the balance genuinely does shift. It has not yet.
 authorised edits are enumerated and complete — see `.agents/skills/two-pass-review/NOTICE.md`. **The
 rubric half is frozen: what the passes look at, weight, or consult is not ours to change there.**
 Finding yourself improving a rubric means the change has left this repo's remit. CI holds it to that:
-`.github/checks.py` pins each rubric half by SHA-256 in `RUBRICS`, so any edit fails until the pin
-changes with it — in the same commit, where a reviewer sees it, and only for an edit NOTICE.md
-enumerates.
+NOTICE.md pins the forked text of each rubric — everything between its provenance comment and the
+divider — by SHA-256, and `.github/checks.py` fails when either differs. The failure says to revert and
+never prints the new hash. A change NOTICE.md authorises is listed there and re-pinned in the same
+table, by whoever authorised it; `checks.rubric_hash()` prints the value.
 
 Below the divider is ours entirely, and it carries more than field tables: recording standards, and
 procedure that makes a demand the rubric already states executable by a weaker model. The caller sweep
@@ -140,8 +141,9 @@ anything about reviewing code:
   JavaScript; a page rendered from an artifact with a hostile payload in every text field plants no tag,
   attribute or unsafe link — `javascript:`, `data:` and `vbscript:` included; the committed
   `.claude/skills/` symlink is relative and resolves; every relative link in the docs points at a file a
-  clone has; every flag the docs hand an orchestrator is one a script takes; and the paragraphs the two
-  output contracts share still read the same in both; and each rubric half is the bytes it was pinned at.
+  clone has; every flag the docs hand an orchestrator is one a script takes; the paragraphs the two
+  output contracts share still read the same in both; and each rubric's forked text is the bytes NOTICE.md
+  pins.
 
   The `SCRIPT` check exists because the page's one script lives inside a Python string, where neither
   `py_compile` nor the 3.10 and 3.13 jobs can see it — a typo would ship a page that renders perfectly and
@@ -205,6 +207,11 @@ still start.
 **Rebase and merge** is the only button GitHub offers here — squash and merge commits are both turned off.
 Both halves are enforced by a ruleset, so this is not a convention you can quietly decline; a merge commit
 is rejected at push time with *"This branch must not contain merge commits."*
+
+The same ruleset makes every CI job a required status check — `constraints`, `lint and types`,
+`python 3.10`, `python 3.13` and `readme install` — so a red run blocks **Rebase and merge** rather than
+advising against it. The requirement names the jobs, so renaming one in `checks.yml` means renaming it in
+the ruleset in the same change; otherwise GitHub waits for a check that never reports, and nothing merges.
 
 The history is therefore linear, and it is meant to stay readable commit by commit. That is not decoration
 here: `git log` is one of the two surviving records of why anything is the way it is, which is the subject

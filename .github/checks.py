@@ -890,17 +890,32 @@ CONTRACTS = (
 )
 
 
-def _contract_paragraphs(name: str, own: str, prefix: str) -> dict[str, str] | str:
-    """A contract's output-contract half, paragraph by paragraph, keyed by opening; or what is wrong."""
+# The line that divides a rubric file: forked rubric above, this repository's
+# output contract below. Matched as a whole line, and found one way only --
+# two ways of finding it were two different splits of one file.
+DIVIDER = re.compile(rb"(?m)^# Output contract[ \t]*\r?$")
+
+
+def _split_rubric(name: str) -> tuple[bytes, bytes] | str:
+    """(rubric half, contract half) of a rubric file; or what is wrong with it."""
     path = os.path.join(SKILL, "references", name)
     try:
-        with open(path, encoding="utf-8") as handle:
-            text = handle.read()
+        with open(path, "rb") as handle:
+            data = handle.read()
     except OSError as error:
-        return f"cannot read {name}: {error}"
-    if "# Output contract" not in text:
-        return f"{name} has no '# Output contract' heading to split the rubric from the contract at"
-    text = text[text.index("# Output contract") :]
+        return f"cannot be read: {error}"
+    found = list(DIVIDER.finditer(data))
+    if len(found) != 1:
+        return f"holds {len(found)} '# Output contract' lines, where it needs exactly one"
+    return data[: found[0].start()], data[found[0].start() :]
+
+
+def _contract_paragraphs(name: str, own: str, prefix: str) -> dict[str, str] | str:
+    """A contract's output-contract half, paragraph by paragraph, keyed by opening; or what is wrong."""
+    split = _split_rubric(name)
+    if isinstance(split, str):
+        return f"{name} {split}"
+    text = split[1].decode("utf-8", "replace")
     text = re.sub(rf"\b{own}\b", "PASS", text)
     text = re.sub(rf"\b{prefix}-(\d+|<n>)", r"ID-\1", text)
     paragraphs: dict[str, str] = {}
@@ -962,43 +977,66 @@ def contracts_mirror(problems: list[str]) -> None:
                 )
 
 
-# The rubric half of each rubric file -- every byte above the `# Output contract`
-# line -- by SHA-256. The rubrics are forked text (NOTICE.md) and the rubric half
-# is frozen (AGENTS.md), but nothing held either to that: the likeliest edit is
-# a coding agent improving a sentence it was never meant to touch. A change now
-# fails here until the pin changes with it, in the same commit, where a reviewer
-# sees it. Change a pin only for an edit NOTICE.md enumerates, and enumerate it.
-RUBRICS = {
-    "security.md": "06c65e00a7d4d0bb7de79d9bb955e4d853eb370f30e5baa2045d261379e84e79",
-    "code-quality.md": "98d8679b5ff54b52dfa87309d823469ca2591df8e8f1bccc49879278b6cc44b9",
-}
+# Where the pins live: a table in NOTICE.md, beside the list of authorised
+# edits, so that changing a pin is an edit to that file -- the one a reviewer
+# reads to see whether the change was authorised.
+NOTICE = os.path.join(SKILL, "NOTICE.md")
+PIN_ROW = re.compile(
+    r"^\|\s*`references/(?P<name>[\w.-]+)`\s*\|\s*`(?P<pin>[0-9a-f]{64})`\s*\|\s*$", re.M
+)
+PINNED = ("security.md", "code-quality.md")
+
+
+def rubric_hash(name: str) -> str:
+    """The SHA-256 of a rubric file's forked text; or what is wrong with the file.
+
+    The forked text is the rubric half less the provenance comment that opens
+    it: that comment is this repository's, like the contract below, and a
+    pointer in it must be fixable without touching the pin. LF line endings,
+    so a checkout with core.autocrlf on hashes what CI hashes.
+
+    A maintainer re-pinning after an edit NOTICE.md authorises prints this
+    with: python3 -c 'import sys; sys.path.insert(0, ".github"); import checks;
+    print(checks.rubric_hash("security.md"))'
+    """
+    split = _split_rubric(name)
+    if isinstance(split, str):
+        return split
+    rubric = split[0]
+    if rubric.lstrip().startswith(b"<!--") and b"-->" in rubric:
+        rubric = rubric[rubric.index(b"-->") + 3 :].lstrip(b"\r\n")
+    return hashlib.sha256(rubric.replace(b"\r\n", b"\n")).hexdigest()
 
 
 def rubrics_frozen(problems: list[str]) -> None:
-    """Each rubric half is the bytes it was pinned at.
+    """Each rubric's forked text is the bytes NOTICE.md pins.
 
-    Line endings are made LF first, so a checkout with core.autocrlf on
-    hashes what CI hashes. The divider is matched as a line, so a rubric
-    that ever mentions the words cannot move it.
+    The rubrics are forked text and frozen (AGENTS.md), and the likeliest edit
+    is a coding agent improving a sentence it was never meant to touch. So the
+    failure says to revert, and never prints the hash that would silence it: a
+    message is the one thing an agent is sure to read and act on, and a
+    re-pin is a person's decision, made in NOTICE.md.
     """
-    for name, pinned in RUBRICS.items():
-        where = os.path.join(".agents", "skills", "two-pass-review", "references", name)
-        try:
-            with open(os.path.join(SKILL, "references", name), "rb") as handle:
-                data = handle.read()
-        except OSError as error:
-            problems.append(f"{where}: cannot be read to check its rubric: {error}")
-            continue
-        divider = re.search(rb"(?m)^# Output contract", data)
-        if divider is None:
-            problems.append(f"{where}: no '# Output contract' line, so the rubric half has no end")
-            continue
-        actual = hashlib.sha256(data[: divider.start()].replace(b"\r\n", b"\n")).hexdigest()
-        if actual != pinned:
+    try:
+        with open(NOTICE, encoding="utf-8") as handle:
+            pins = {m.group("name"): m.group("pin") for m in PIN_ROW.finditer(handle.read())}
+    except OSError as error:
+        problems.append(
+            f"{os.path.relpath(NOTICE, ROOT)}: cannot be read for the rubric pins: {error}"
+        )
+        return
+    for name in PINNED:
+        where = os.path.relpath(os.path.join(SKILL, "references", name), ROOT)
+        actual = rubric_hash(name)
+        if len(actual) != 64:
+            problems.append(f"{where}: {actual}")
+        elif name not in pins:
+            problems.append(f"{where}: NOTICE.md pins no hash for it")
+        elif actual != pins[name]:
             problems.append(
-                f"{where}: the rubric half above '# Output contract' has changed. It is forked text, "
-                "and frozen (AGENTS.md). If this is an edit NOTICE.md enumerates, enumerate it there "
-                f"and pin the new hash in RUBRICS, in the same commit: {actual}"
+                f"{where}: the forked rubric text above '# Output contract' has changed. It is "
+                "frozen (AGENTS.md) -- revert the edit. Only a change NOTICE.md lists as authorised "
+                "may land, and whoever authorises it updates the pin there."
             )
 
 
@@ -1029,7 +1067,7 @@ def main() -> int:
         "stdlib-only; page SCRIPT parses; a hostile payload in each text field renders "
         "as text and no unsafe link; symlink relative; no build artifacts tracked; "
         "links resolve; documented flags exist; mirrored contract paragraphs agree; "
-        "rubric halves are as pinned.\n"
+        "forked rubric text matches NOTICE.md's pins.\n"
     )
     return 0
 

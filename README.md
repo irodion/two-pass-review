@@ -29,7 +29,7 @@ No dependencies, no network, no build step: the scripts want a `python3` of 3.10
 else. The report is one self-contained file — no sibling assets, no embedded JSON, nothing fetched —
 which is why it works over `file://` and still works after you email it to someone. Its whole script is a
 clipboard handler behind the copy buttons, a class toggle behind `Mark dealt with`, and the counting that
-keeps the headings honest as you filter.
+keeps the headings honest as you filter and mark.
 
 ## Installing it somewhere else
 
@@ -170,6 +170,14 @@ loudly they shout, derived from severity for security findings and from category
   disposition, severity, locations and body, plus the confidence rationale when there is one. `Copy for
   agent` appends an instruction asking an agent to verify the finding against the real code and propose
   options. A corroborated finding names its partner rather than pasting it; the partner has its own button.
+- **Under the verdict sit `Copy report as markdown`, and `Copy open blocking for agent` when something
+  blocks.** The report copy is the page as text, for a pull request comment: the verdict, the summary,
+  the scope, the disclaimer and any warnings, every finding by disposition, what each pass said besides
+  its findings, and the docs check with its notes. It leaves out the self-check, whose answers the page
+  keeps folded, and it includes findings you marked dealt with — marks are yours, not the report's. The
+  agent copy holds the blocking findings you are looking at, neither marked dealt with nor hidden by a
+  filter, each as its own `Copy` carries it, with the agent instruction said once at the end. Its count
+  follows your marks and filters, and the button goes when nothing is left.
 - **Every finding can be marked dealt with.** `✓ Mark dealt with` folds the card to its title, strikes
   the title through, and strikes the sidebar entry with it, so the nav stops advertising findings you
   have already dealt with and the page compacts as you read. Once anything is marked, the sidebar offers

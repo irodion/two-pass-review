@@ -176,10 +176,11 @@ anything about reviewing code:
   gets a payload.
 
   The copy buttons are the one comparison with `page.py`: their attribute has to decode back to exactly
-  what `copy_texts` returns, the one statement of what each button holds. That tests the escaping and
-  nothing about the content, so a finding's body, paths, rationale and contest are also looked for in what
-  is copied, independently. The check was tested by breaking escaping on purpose, field by field, and any
-  change to it should be tested the same way: a check that has only ever passed has not shown it can fail.
+  what `copy_texts` returns — or `report_markdown`, for the report's own — the one statement of what each
+  button holds. That tests the escaping and nothing about the content, so a finding's body, paths,
+  rationale and contest are also looked for in what is copied, independently. The check was tested by
+  breaking escaping on purpose, field by field, and any change to it should be tested the same way: a
+  check that has only ever passed has not shown it can fail.
 
   The flag check and the contract check exist because the orchestrators this skill targets copy text
   exactly. A flag renamed in a script and not in SKILL.md is a run that dies on its first command, so

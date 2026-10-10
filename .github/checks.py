@@ -420,13 +420,14 @@ def page_escapes_everything(problems: list[str]) -> None:
     frames than the same artifact renders with harmless text. Each field's
     head has to be in the visible text, as written.
 
-    What counts as markup is the HTML parser's call, never a rule imported
-    from page.py, so a page.py that stops escaping a field fails here whichever
+    What counts as markup is the HTML parser's call, never a rule imported from
+    page.py, so a page.py that stops escaping a field fails here whichever
     function it stopped in. The copy buttons are the one comparison with
     page.py: their attribute has to decode back to exactly what copy_texts
-    returns, which tests the escaping and says nothing about what copy_texts
-    chose to include. So what a finding's payload must carry -- its body, its
-    contest, its paths -- is looked for verbatim as well, independently."""
+    returns -- or report_markdown, for the report's own -- which tests the
+    escaping and says nothing about what either chose to include. So what a
+    finding's payload must carry -- its body, its contest, its paths -- is
+    looked for verbatim as well, independently."""
     # The one check that imports from the tree it is checking, and an import
     # writes __pycache__/ next to the scripts. A check has no business leaving
     # anything behind in the working copy -- a .pyc from one got committed once.
@@ -529,6 +530,10 @@ def page_escapes_everything(problems: list[str]) -> None:
         copied = [
             value for _, attrs in hostile.tags for name, value in attrs if name == "data-copy"
         ]
+        # The report's own button carries every finding, so it would answer for
+        # any one of them below. Only the cards' buttons may.
+        report = page.report_markdown(artifact)
+        cards = [value for value in copied if value != report]
         live = {f["id"]: f for f in artifact["findings"] if f.get("falsified") is not True}
         for finding in live.values():
             for expected in page.copy_texts(finding, page.partners_of(finding, live)):
@@ -541,11 +546,17 @@ def page_escapes_everything(problems: list[str]) -> None:
                 owed.append(finding["confidence_rationale"])
             # Quoted into the payload a line at a time, so it is owed a line at a time.
             owed += finding.get("contested_md", "").split("\n")
-            if not any(all(part in value for part in owed) for value in copied if value):
+            if not any(all(part in value for part in owed) for value in cards if value):
                 problems.append(
                     f"{where}: no copy button carries {finding['id']}'s body, paths, "
                     "rationale and contest verbatim"
                 )
+        # The one payload composed from every finding, carried whole like the
+        # rest: the same comparison, against report_markdown.
+        if report not in copied:
+            problems.append(
+                f"{where}: the report-as-markdown button does not decode to its payload"
+            )
 
 
 def _git(problems: list[str], *args: str) -> str | None:

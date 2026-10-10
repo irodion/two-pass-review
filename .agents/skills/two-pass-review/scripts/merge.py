@@ -109,6 +109,18 @@ def extract_array(text: str) -> list[dict[str, Any]] | None:
     while start is not None and failures < MAX_FAILED_STARTS:
         try:
             value, end = decoder.raw_decode(text, start.start())
+        except json.JSONDecodeError as error:
+            # Cut off: the text ran out inside the value that starts here, so
+            # every later start is inside it too -- a `[]` a reason quotes, an
+            # object an excerpt holds -- and none of them is the answer. Taken
+            # as one, a check killed mid-write read as a check that contested
+            # nothing. An answer that was never finished is one that could
+            # not be read.
+            if error.msg.startswith("Unterminated string") or error.pos >= len(text.rstrip()):
+                return None
+            failures += 1
+            start = ANSWER_START.search(text, start.start() + 1)
+            continue
         # RecursionError is not a ValueError, and before 3.12 the decoder
         # raises it on deep nesting. Uncaught, it turned an unreadable answer
         # into a traceback and cost the whole run, where fail-open says it

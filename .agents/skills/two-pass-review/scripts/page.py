@@ -478,6 +478,14 @@ def render_run_panel(run: dict[str, Any], passes: list[dict[str, Any]]) -> str:
     # empty row would read as a description somebody failed to write.
     if scope.get("label"):
         rows.append(("Requested scope", esc(scope["label"]), True))
+    # How the base below was found, when scope.py found it. No caveat, unlike
+    # the label: the script derived the base from this, so the two agree by
+    # construction. Absent when the caller named the base itself.
+    if scope.get("against"):
+        against = '<span class="chip chip-ref">{}</span>'.format(esc(scope["against"]))
+        rows.append(("Merge-base with", against, True))
+    if scope.get("since"):
+        rows.append(("Since", '<span class="nowrap">{}</span>'.format(esc(scope["since"])), True))
     rows.append(("Base", '<span class="chip">{}</span>'.format(esc(scope["base"])), True))
     if scope.get("head"):
         rows.append(("Head", '<span class="chip">{}</span>'.format(esc(scope["head"])), True))
@@ -1395,6 +1403,10 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
 .kv dt { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0; }
 .kv dd { margin: 1px 0 0; font-size: 13px; overflow-wrap: anywhere; }
 .run-facts .chip { font-size: 11px; line-height: 1.55; overflow-wrap: normal; word-break: keep-all; }
+/* Except a revision as typed: a branch name can outrun the column, and with no
+   hyphen to break at it would push the sidebar into a horizontal scrollbar. Unlike
+   an object id it reads fine across two lines. */
+.run-facts .chip-ref { overflow-wrap: anywhere; }
 .run-note { margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .muted { color: var(--muted); font-size: 14px; }
 .nowrap { white-space: nowrap; }

@@ -315,6 +315,10 @@ def _hostile_artifact(version: int, benign: bool = False) -> dict[str, Any]:
             ],
         },
     }
+    # A scope finds its base one way or the other, never both, so the two
+    # versions split them. `since` has one shape, so it carries no payload, but
+    # it is carried all the same: that is what puts its row under this check.
+    scope = artifact["run"]["scope"]
     if version >= 4:
         artifact["self_check"] = [
             {
@@ -323,6 +327,9 @@ def _hostile_artifact(version: int, benign: bool = False) -> dict[str, Any]:
                 "anchors": ["sec-1"],
             }
         ]
+        scope["against"] = short("against")
+    else:
+        scope["since"] = "2026-10-03T00:00:00+03:00"
     return artifact
 
 
@@ -657,9 +664,6 @@ DOCS = (
     os.path.join(ROOT, "CODE_OF_CONDUCT.md"),
     os.path.join(SKILL, "NOTICE.md"),
 )
-# The git flags SKILL.md names in prose, standing alone where no `git` precedes
-# them; inside a git command they are not looked at.
-GIT_FLAGS = frozenset(["--first-parent", "--before"])
 FLAG = re.compile(r"(?<![\w-])--[a-z][a-z0-9-]*")
 SCRIPT = re.compile(r"\b(\w+)\.py\b")
 # Where one shell command ends and the next begins, so that `a.py && git ...`
@@ -776,8 +780,8 @@ def _check_command(
     for nested in inner:
         _check_command(nested, held, flags, unread, every, where, problems)
     for simple in OPERATOR.split(command):
-        # A git command's flags are git's to judge -- `--base $(git rev-list
-        # --first-parent ...)` is SKILL.md teaching git, not a script.
+        # A git command's flags are git's to judge -- `git fetch origin
+        # pull/<number>/head` is SKILL.md teaching git, not a script.
         if simple.split()[:1] == ["git"]:
             continue
         named = [m for m in SCRIPT.finditer(simple) if m.group(1) in flags or m.group(1) in unread]
@@ -822,7 +826,7 @@ def docs_name_real_flags(problems: list[str]) -> None:
             unread.add(name)
             continue
         flags[name] = read
-    every = set().union(*(known for known, _ in flags.values())) | GIT_FLAGS
+    every = set().union(*(known for known, _ in flags.values()))
     for doc in DOCS:
         where = os.path.relpath(doc, ROOT)
         try:

@@ -151,12 +151,14 @@ loudly they shout, derived from severity for security findings and from category
   not read like one where something tried and everything held. (Reports from older runs may instead
   show a *withdrawn* section; that was this check's earlier, harsher form.)
 - **What the run was pointed at is in the sidebar**, under `Run`: repository, scope mode, the two object
-  ids, the diff size, the model and effort when the run chose them, and — when the range came from a
-  request rather than a revision — the request in words, as *Requested scope*: `working tree since
-  2026-08-25 00:00 +0300`, so "review today's changes" leaves a record of which midnight in which
-  timezone it turned out to mean. They are what was asked for rather than a measurement — nothing in the
-  pipeline can confirm which model answered, and nothing can confirm a description of a range against the
-  range — and the page says so; the resolved range remains what was actually diffed. Anything that
+  ids, the diff size, and the model and effort when the run chose them. When the skill found the base
+  itself, it says how: the branch the base is the merge-base with, or the instant a review of "changes
+  since" starts at — `2026-08-25T00:00:00+03:00`, so "review today's changes" leaves a record of which
+  midnight in which timezone it turned out to mean. When the request named the range in words the run
+  cannot check — a pull request by number — those words are there too, as *Requested scope*. The model,
+  the effort and the words are what was asked for rather than a measurement — nothing in the pipeline can
+  confirm which model answered, and nothing can confirm a description of a range against the range — and
+  the page says so; the resolved range remains what was actually diffed. Anything that
   reduces what the report is worth goes the other way, into the masthead above the
   findings: untracked files that were never diffed, a sequential run, or two passes asked for different
   tiers, because corroboration counts for less between passes that were not peers.

@@ -41,7 +41,9 @@ separate checkout of the reviewed commit, and every `--repo` after step 1 takes 
    printed, with nothing added. Leave out the docs check when step 2 listed no documents.
 4. **When both passes have finished, start the falsification check** — [§3](#3-falsification) — with
    `prompts.falsification` as its whole prompt, unless the passes wrote no findings at all.
-5. **Decide which findings corroborate each other** — usually none — [§4](#corroboration).
+5. **Decide which findings corroborate each other** — usually none — [§4](#corroboration). First print
+   the pairs worth reading; it writes nothing.
+   `python3 <skill-dir>/scripts/merge.py --candidates <run_dir>`
 6. **Optionally, write a self-check** to `<run_dir>/self-check.json` — [§4](#self-check).
 7. **Merge** — [§5](#5-merge-render-and-deliver).
    `python3 <skill-dir>/scripts/merge.py --run-dir <run_dir> --passes parallel --falsification ran --docs-check ran`
@@ -331,6 +333,17 @@ Both passes sometimes argue the same defect from different angles. Link those, a
 Judge this by reading, not by matching strings — the two passes routinely describe one defect with no
 shared phrasing. Findings that **disagree** get no link at all: both render, both argue, and that is the
 information.
+
+**Start from `merge.py --candidates <run_dir>`.** It prints every pair `--link` would accept — one
+finding from each pass, one disposition — whose locations cite overlapping lines in one file, with both
+titles. Those are the pairs most likely to be one defect, and the ones most often left apart. A
+candidate is a place to look, not a link:
+
+- **Read both findings of every candidate**, and link it only by rule 1. Two different defects on the
+  same lines are common — a missing check and a log line in one function — and they stay apart.
+- **A pair that is not a candidate can still be a link** — one pass cited the caller, the other the
+  callee. Look past the list before you merge.
+- An empty list means no overlap, not no corroboration.
 
 Each link is one `--link` at the merge — `--link sec-1,qa-2` — and `merge.py` writes it onto both
 findings, because the validator requires the link to be mutual. It refuses a link across dispositions or

@@ -270,6 +270,11 @@ jobs:
                  "$S/merge.py" --run-dir "$run_dir" --passes sequential \
                  --falsification skipped --docs-check ran > merged.json
           python -c "import json,sys; d=json.load(open('merged.json')); sys.exit(0 if d['verdict'] == 'clear' and d['docs_check'] == 'ran' else 1)"
+          # One pass has nothing to pair across, so the list is empty -- what
+          # this proves is that the mode reads a real run directory and runs.
+          python -W error::DeprecationWarning -W error::SyntaxWarning \
+                 "$S/merge.py" --candidates "$run_dir" > candidates.json
+          python -c "import json,sys; sys.exit(0 if json.load(open('candidates.json'))['candidates'] == [] else 1)"
           python -W error::DeprecationWarning -W error::SyntaxWarning \
                  "$S/render.py" --repo "$(python -c "import json;print(json.load(open('scope.json'))['repo_root'])")" \
                  "$run_dir/findings.json" --no-open

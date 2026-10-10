@@ -6,6 +6,7 @@ up, and nothing here parses markdown -- that is `markdown_subset`.
 """
 
 import html
+import re
 from typing import Any
 
 # Imported by render.py, which is the only file here run directly and the only
@@ -109,6 +110,46 @@ def esc(value: object) -> str:
     return html.escape(str(value), quote=True)
 
 
+def standing(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The findings that stand: all of them, but for a version-2 or -3 withdrawal.
+
+    One statement, because the page's counts and order, its masthead sentence
+    and both of its many-finding copies all ask it, and two answers would split
+    what the page says from what leaves it.
+    """
+    return [f for f in findings if f.get("falsified") is not True]
+
+
+# Where a markdown fence opens or closes: up to three spaces, then three or more
+# backticks or tildes. See close_fences.
+FENCE = re.compile(r" {0,3}(`{3,}|~{3,})(.*)")
+
+
+def close_fences(text: str) -> str:
+    """`text`, with a fence it leaves open closed at its end.
+
+    A pass's markdown is rendered body by body on the page, so a fence one body
+    leaves open costs that card its last lines and nothing more. Pasted into one
+    document beside others -- a pull request comment, the bulk copy -- it runs on
+    through every heading and body after it, and the rest of the paste is code.
+    A closer is the opener's character, at least as long, and nothing else on
+    its line; a backtick opener's info string holds no backtick. CommonMark's
+    rules, as far as a fence needs them.
+    """
+    opener = ""
+    for line in text.split("\n"):
+        match = FENCE.fullmatch(line)
+        if match is None:
+            continue
+        run, rest = match.groups()
+        if not opener:
+            if not (run[0] == "`" and "`" in rest):
+                opener = run
+        elif run[0] == opener[0] and len(run) >= len(opener) and not rest.strip():
+            opener = ""
+    return text + "\n" + opener if opener else text
+
+
 def truncate(text: str, limit: int = 58) -> str:
     text = " ".join(text.split())
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
@@ -136,16 +177,36 @@ PROMPT_WRAPPER = (
     "solutions (options), wait for my choice, always recommend one and explain why."
 )
 
+# What the sidebar's bulk copy puts around the open blocking findings' own
+# payloads. The instruction is the single button's, said once for all of them
+# rather than repeated under each -- and built from it, so the two cannot drift.
+BULK_HEAD = "The open blocking findings from a two-pass-review report, one per section."
+BULK_TAIL = "For each finding above: " + PROMPT_WRAPPER
 
-def copy_payload(finding: dict[str, Any], partners: list[dict[str, Any]]) -> str:
+# Said on the page and in the markdown copy of the report alike, so the copy
+# that leaves the page is qualified exactly as the page is.
+DISCLAIMER = (
+    "This report is machine-written. A finding is a lead until a person has verified it against "
+    "the repository, and a clear verdict means nothing was reported — never that nothing is "
+    "there."
+)
+
+
+def copy_payload(finding: dict[str, Any], partners: list[dict[str, Any]], level: int = 2) -> str:
     """The markdown one copy button puts on the clipboard, for one finding.
 
     Composed from the finding dict rather than scraped from the rendered card:
     `body_md` is right here, and an agent reads the pass's own markdown better
-    than it reads the HTML the pass's markdown turned into. This is the only
-    place the page carries un-rendered source text, and that is deliberate.
+    than it reads the HTML the pass's markdown turned into. The page carries
+    un-rendered source text only in its copy payloads, and that is deliberate.
+    `level` is the heading's: a finding stands alone at two, and sits under its
+    disposition at three in report_markdown.
+
+    Titles go in as written, never through Markdown.plain: they are markdown
+    already, and stripping the backticks off `@dataclass` hands a pull request
+    comment an @-mention of a stranger.
     """
-    lines = ["## {} — {}".format(finding["id"], Markdown.plain(finding["title"])), ""]
+    lines = ["{} {} — {}".format("#" * level, finding["id"], finding["title"]), ""]
 
     axis = finding.get("severity") or CATEGORY_LABEL.get(
         finding.get("category"), finding.get("category")
@@ -186,14 +247,16 @@ def copy_payload(finding: dict[str, Any], partners: list[dict[str, Any]]) -> str
 
     # Named, not pasted. The partner is a second finding with its own button, and
     # two bodies under one button leave the reader unsure what they just copied.
+    # Whole, for the title's reason above: a cut can split a backtick pair.
     for partner in partners:
-        lines.append(
-            'Corroborated by {} — "{}"'.format(
-                partner["id"], truncate(Markdown.plain(partner["title"]), 96)
-            )
-        )
+        lines.append('Corroborated by {} — "{}"'.format(partner["id"], partner["title"]))
 
-    lines += ["", finding["body_md"], "", "— two-pass-review finding {}".format(finding["id"])]
+    lines += [
+        "",
+        close_fences(finding["body_md"]),
+        "",
+        "— two-pass-review finding {}".format(finding["id"]),
+    ]
     return "\n".join(lines)
 
 
@@ -248,33 +311,44 @@ ICON_NO_ENTRY = icon(
 )
 
 
-def copy_controls(texts: tuple[str, str]) -> str:
-    """Two buttons, each carrying one of copy_texts in an attribute.
+def copy_attr(text: str) -> str:
+    """A copy payload as an attribute value.
 
     `esc` gives `quote=True`, which is what makes the value safe in an attribute;
     newlines are then encoded so the opening tag stays on one line. Both are
     escaping, not structure, so escape-first is untouched -- and the handler only
     ever moves this string to the clipboard, never evaluates it.
-
-    Both icons ship on every button and CSS shows one, the same bargain
-    `dismiss_control` strikes with its two captions: the script says *which state*
-    the button is in and never has to know what that state looks like.
     """
+    return esc(text).replace("\n", "&#10;")
 
-    def attr(text: str) -> str:
-        return esc(text).replace("\n", "&#10;")
 
-    def button(text: str, idle: str, payload_text: str) -> str:
-        return (
-            f'<button type="button" class="copy-btn" data-copy="{attr(payload_text)}">'
-            f'<span class="icon-idle">{idle}</span><span class="icon-done">{ICON_CHECK}</span>'
-            f'<span class="copy-label">{text}</span></button>'
-        )
+def copy_button(label: str, idle: str, attrs: str, kind: str = "", badge: str = "") -> str:
+    """One copy button: its caption, its two icons, and `attrs`, already escaped.
 
+    Every copy button on the page is built here, so the markup the handler and
+    the stylesheet expect is written once. Both icons ship on every button and
+    CSS shows one, the same bargain `dismiss_control` strikes with its two
+    captions: the script says *which state* the button is in and never has to
+    know what that state looks like. A badge goes after the caption, never in
+    it, because the handler rewrites the caption's text while it flashes.
+    """
+    return (
+        f'<button type="button" class="copy-btn{" " + kind if kind else ""}" {attrs}>'
+        f'<span class="icon-idle">{idle}</span><span class="icon-done">{ICON_CHECK}</span>'
+        f'<span class="copy-label">{label}</span>{badge}</button>'
+    )
+
+
+def copy_controls(texts: tuple[str, str]) -> str:
+    """Two buttons, each carrying one of copy_texts in an attribute; see copy_attr.
+
+    The plain one is marked `copy-plain`: the sidebar's bulk copy reads each
+    open blocking card's plain payload by that mark, never by position.
+    """
     plain, for_agent = texts
     return '<div class="copy">{}{}</div>'.format(
-        button("Copy", ICON_CLIPBOARD, plain),
-        button("Copy for agent", ICON_TERMINAL, for_agent),
+        copy_button("Copy", ICON_CLIPBOARD, f'data-copy="{copy_attr(plain)}"', kind="copy-plain"),
+        copy_button("Copy for agent", ICON_TERMINAL, f'data-copy="{copy_attr(for_agent)}"'),
     )
 
 
@@ -295,6 +369,123 @@ def dismiss_control() -> str:
         '<span class="dm-done">&#10003; Dealt with &middot; undo</span>'
         "</button>"
     )
+
+
+def report_markdown(merged: dict[str, Any]) -> str:
+    """The report as one markdown document, for a pull request comment.
+
+    Composed in Python and carried whole by one copy button, like every other
+    payload here, so the script only moves it. Everything the page says that
+    reads as text, in the page's order:
+
+    - the verdict, the masthead sentence and the scope;
+    - the disclaimer and every masthead warning;
+    - every standing finding, each exactly as its own `Copy` button carries it,
+      a heading level down;
+    - each pass's own prose;
+    - the docs check -- what was read, and each note in full. The sentence
+      counts flagged documents, and a count with nothing behind it is a
+      pointer to content the paste does not hold.
+
+    Two things are left out. The self-check is a reading aid whose answers are
+    folded away on the page; pasted open it would be a quiz with the answers
+    printed under it. Withdrawn findings, from version-2 and -3 artifacts, are
+    left out as they are left out of every count the page acts on, and the
+    sentence still says they were there. Dismissals do not reach it either:
+    they are one reader's progress through the report, and this is the report.
+    """
+    live = standing(merged["findings"])
+    by_id = {f["id"]: f for f in live}
+    run = merged["run"]
+    scope = run["scope"]
+    if scope.get("head"):
+        span = "`{}..{}`".format(scope["base"][:12], scope["head"][:12])
+    else:
+        span = "`{}` against the working tree".format(scope["base"][:12])
+    lines = [
+        "# Two-pass review of {}: {}".format(
+            scope["repo"], "Blocked" if merged["verdict"] == "blocked" else "Clear"
+        ),
+        "",
+        masthead_sentence(merged),
+        "",
+        "{} · {} · {} files · {}".format(
+            scope["repo"],
+            SCOPE_MODE_LABEL.get(scope["mode"], scope["mode"]),
+            scope["files_changed"],
+            span,
+        ),
+        "",
+        "> " + DISCLAIMER,
+    ]
+    for warning in masthead_warnings(run, merged["passes"], merged["findings"]):
+        lines += ["", "> **Warning:** " + warning]
+
+    for disposition, flat in disposition_groups(live):
+        lines += ["", f"## {DISPOSITION_LABEL[disposition]} · {len(flat)}"]
+        for finding in flat:
+            lines += ["", copy_payload(finding, partners_of(finding, by_id), level=3)]
+
+    for envelope in merged["passes"]:
+        label = PRODUCER_LABEL.get(envelope["producer"], envelope["producer"])
+        for key, heading in PASS_PROSE:
+            if envelope.get(key):
+                lines += ["", f"## {heading} — {label}", "", close_fences(envelope[key])]
+
+    docs_check = merged.get("docs_check")
+    if docs_check is not None:
+        notes = docs_check.get("notes") or []
+        lines += ["", f"## Documentation · {len(notes)}", "", DOCS_DISCLAIMER]
+        examined = docs_check.get("examined") or []
+        skipped = docs_check.get("skipped") or []
+        if examined:
+            lines += ["", "Read against: {}.".format(", ".join(f"`{p}`" for p in examined))]
+        if skipped:
+            lines += [
+                "",
+                "Not read: {}.".format(
+                    "; ".join("`{}` ({})".format(s["path"], s["reason"]) for s in skipped)
+                ),
+            ]
+        for note in notes:
+            kind = DOC_NOTE_KIND_LABEL.get(note["kind"], note["kind"])
+            lines += ["", "### `{}` — {}".format(note["path"], kind)]
+            if note.get("claim_md"):
+                lines += ["", "> " + close_fences(note["claim_md"]).replace("\n", "\n> ")]
+            lines += ["", close_fences(note["why_md"])]
+            if note.get("owed_md"):
+                lines += ["", "**Edit owed:**", "", close_fences(note["owed_md"])]
+    return "\n".join(lines)
+
+
+def bulk_controls(merged: dict[str, Any]) -> str:
+    """The sidebar's copies of more than one finding.
+
+    `Copy open blocking for agent` carries no payload of its own. Which
+    findings it holds is the reader's -- not dismissed, and not hidden by a
+    filter -- so the script reads those blocking cards' own plain payloads at
+    the moment of the click and puts BULK_HEAD and BULK_TAIL around them:
+    strings joined, never markup. Rendered only when something blocks, with a
+    count the script keeps as dismissals and filters move it.
+
+    `Copy report as markdown` is report_markdown, carried whole.
+    """
+    blocking = sum(1 for f in standing(merged["findings"]) if f["disposition"] == "blocking")
+    agent = ""
+    if blocking:
+        agent = copy_button(
+            "Copy open blocking for agent",
+            ICON_TERMINAL,
+            f'data-head="{copy_attr(BULK_HEAD)}" data-tail="{copy_attr(BULK_TAIL)}"',
+            kind="bulk-agent",
+            badge=f'<span class="bulk-count">{blocking}</span>',
+        )
+    report = copy_button(
+        "Copy report as markdown",
+        ICON_CLIPBOARD,
+        f'data-copy="{copy_attr(report_markdown(merged))}"',
+    )
+    return f'<div class="bulk">{agent}{report}</div>'
 
 
 def render_finding(
@@ -411,7 +602,7 @@ def verdict_sentence(verdict: str, findings: list[dict[str, Any]]) -> str:
         for finding in blocking:
             by_producer[finding["producer"]] = by_producer.get(finding["producer"], 0) + 1
         parts = [f"{count} from the {name} pass" for name, count in sorted(by_producer.items())]
-        return "{} of {} findings block this change &mdash; {}.".format(
+        return "{} of {} findings block this change — {}.".format(
             len(blocking), total, " and ".join(parts)
         )
     if total:
@@ -555,14 +746,13 @@ def render_run_panel(run: dict[str, Any], passes: list[dict[str, Any]]) -> str:
     )
 
 
-def render_warnings(
+def masthead_warnings(
     run: dict[str, Any], passes: list[dict[str, Any]], findings: list[dict[str, Any]]
-) -> str:
-    """What the reader has to know before believing the report, in the masthead.
+) -> list[str]:
+    """What the reader has to know before believing the report, as plain text.
 
-    These went to the sidebar's neighbours in the old scope section, under the
-    facts they qualify, which put the one thing on the page that reduces what the
-    findings are worth below the fold. A warning is not reference material.
+    Shared by the masthead and the markdown copy, so a report that leaves the
+    page is qualified exactly as the page is.
     """
     scope = run["scope"]
     warnings: list[str] = []
@@ -588,7 +778,7 @@ def render_warnings(
     if findings and run.get("falsification") == "failed":
         warnings.append(
             "The falsification check ran but its reply could not be read, so every finding was kept "
-            "unexamined &mdash; a finding the diff contradicts would still be standing."
+            "unexamined — a finding the diff contradicts would still be standing."
         )
     if provenance_state(passes)[2]:
         warnings.append(
@@ -596,21 +786,39 @@ def render_warnings(
             "carries less than it appears to: two passes reaching one defect is evidence because "
             "they were peers."
         )
+    return warnings
+
+
+def render_warnings(
+    run: dict[str, Any], passes: list[dict[str, Any]], findings: list[dict[str, Any]]
+) -> str:
+    """The masthead's warnings, as callouts.
+
+    These went to the sidebar's neighbours in the old scope section, under the
+    facts they qualify, which put the one thing on the page that reduces what the
+    findings are worth below the fold. A warning is not reference material.
+    """
     return "".join(
         '<p class="callout"><span class="callout-mark" aria-hidden="true">!</span>'
-        f"<span>{text}</span></p>"
-        for text in warnings
+        f"<span>{esc(text)}</span></p>"
+        for text in masthead_warnings(run, passes, findings)
     )
+
+
+# What a pass writes besides its findings, and the heading each goes under, on
+# the page and in its markdown copy alike.
+PASS_PROSE = (
+    ("what_holds_up_md", "What holds up"),
+    ("closing_md", "Closing notes"),
+    ("empty_reason_md", "Nothing reported"),
+)
 
 
 def render_pass_prose(passes: list[dict[str, Any]], markdown: Markdown) -> str:
     out: list[str] = []
     for envelope in passes:
         producer = envelope["producer"]
-        for key, heading in (
-            ("what_holds_up_md", "What holds up"),
-            ("closing_md", "Closing notes"),
-        ):
+        for key, heading in PASS_PROSE[:2]:
             if not envelope.get(key):
                 continue
             anchor = "prose-{}-{}".format(producer, key.split("_")[0])
@@ -620,8 +828,9 @@ def render_pass_prose(passes: list[dict[str, Any]], markdown: Markdown) -> str:
             )
         if envelope.get("empty_reason_md"):
             out.append(
-                '<section id="prose-{p}-empty" class="prose"><h2>Nothing reported &mdash; {label}</h2>{body}</section>'.format(
+                '<section id="prose-{p}-empty" class="prose"><h2>{h} &mdash; {label}</h2>{body}</section>'.format(
                     p=esc(producer),
+                    h=esc(PASS_PROSE[2][1]),
                     label=producer_label(producer),
                     body=markdown.render(envelope["empty_reason_md"]),
                 )
@@ -681,6 +890,13 @@ def render_withdrawn(withdrawn: list[dict[str, Any]], markdown: Markdown) -> str
 
 
 DOC_NOTE_KIND_LABEL = {"stale": "stale claim", "missing": "missing coverage"}
+
+# The docs section's standing caveat, on the page and in its markdown copy.
+DOCS_DISCLAIMER = (
+    "An advisory check, outside the verdict: it reads the named documents against the diff for "
+    "explicit contradiction only, so a clean result does not promise the documents are current "
+    "— drift a change merely implies is beyond it."
+)
 
 
 def render_docs_check(docs_check: dict[str, Any] | None, markdown: Markdown) -> str:
@@ -756,17 +972,15 @@ def render_docs_check(docs_check: dict[str, Any] | None, markdown: Markdown) -> 
             )
         )
 
-    disclaimer = (
-        "An advisory check, outside the verdict: it reads the named documents against the diff for "
-        "explicit contradiction only, so a clean result does not promise the documents are current "
-        "&mdash; drift a change merely implies is beyond it."
-    )
     return (
         '<section class="docscheck"><h2 id="docscheck">Documentation '
         '<span class="counts">&middot; {count}</span></h2>'
         '<p class="docs-note">{disclaimer}</p>'
         '<p class="docs-coverage">{coverage}</p>\n{cards}</section>'.format(
-            count=len(notes), disclaimer=disclaimer, coverage=coverage, cards="\n".join(cards)
+            count=len(notes),
+            disclaimer=esc(DOCS_DISCLAIMER),
+            coverage=coverage,
+            cards="\n".join(cards),
         )
     )
 
@@ -817,6 +1031,61 @@ def render_self_check(self_check: list[dict[str, Any]], markdown: Markdown) -> s
     )
 
 
+def disposition_groups(live: list[dict[str, Any]]) -> list[tuple[str, list[dict[str, Any]]]]:
+    """The standing findings by disposition, in page order, empty groups left out.
+
+    Shared by the page and its markdown copy, so the two list the findings in
+    one order -- corroborated pairs side by side, as ordered_units puts them.
+    """
+    groups: dict[str, list[dict[str, Any]]] = {d: [] for d in DISPOSITION_ORDER}
+    for unit in ordered_units(live):
+        groups[unit[0]["disposition"]].extend(unit)
+    return [(d, groups[d]) for d in DISPOSITION_ORDER if groups[d]]
+
+
+def masthead_sentence(merged: dict[str, Any]) -> str:
+    """The masthead's one-sentence account of the run, as plain text.
+
+    Plain, and escaped where the page puts it, like everything else: the
+    markdown copy takes it as it is.
+    """
+    findings = merged["findings"]
+    live = standing(findings)
+    withdrawn = [f for f in findings if f.get("falsified") is True]
+    docs_check = merged.get("docs_check")
+    sentence = verdict_sentence(merged["verdict"], live)
+    # The masthead owns the one-sentence account of the run, so the withdrawals
+    # are said here and not only in their own section -- a reader who never
+    # scrolls still learns the passes wrote more than the page is arguing.
+    if withdrawn and live:
+        sentence += " {} more {} withdrawn at the merge.".format(
+            len(withdrawn), "was" if len(withdrawn) == 1 else "were"
+        )
+    elif withdrawn:
+        sentence = (
+            "The only finding was withdrawn at the merge; nothing stands."
+            if len(withdrawn) == 1
+            else f"All {len(withdrawn)} findings were withdrawn at the merge; nothing stands."
+        )
+    # Said in the masthead because it qualifies the sentence just made: some of
+    # the findings counted there are disputed, and a reader who never scrolls
+    # is owed that before the number settles in.
+    contested_count = sum(1 for f in live if f.get("contested_md"))
+    if contested_count:
+        sentence += " The falsification check contests {} of {}.".format(
+            contested_count, "them" if contested_count > 1 else "these"
+        )
+    # Advisory, so it joins the sentence only when it has something to say: a
+    # clean docs check is coverage detail, and the section states it.
+    doc_notes = (docs_check.get("notes") or []) if docs_check is not None else []
+    flagged_docs = {note["path"] for note in doc_notes}
+    if flagged_docs:
+        sentence += " The docs check flagged {} document{}.".format(
+            len(flagged_docs), "" if len(flagged_docs) == 1 else "s"
+        )
+    return sentence
+
+
 def render_page(merged: dict[str, Any]) -> str:
     findings = merged["findings"]
     # Standing findings drive everything the reader acts on -- ordering, counts,
@@ -825,23 +1094,14 @@ def render_page(merged: dict[str, Any]) -> str:
     # record, not a lead. The markdown cross-referencer still knows every id,
     # withdrawn included, because a standing body may cite a withdrawn finding
     # and the link must land on its card rather than dangle.
-    live = [f for f in findings if f.get("falsified") is not True]
+    live = standing(findings)
     withdrawn = [f for f in findings if f.get("falsified") is True]
     markdown = Markdown({f["id"] for f in findings})
     by_id = {f["id"]: f for f in live}
-    units = ordered_units(live)
-
-    groups: dict[str, list[list[dict[str, Any]]]] = {d: [] for d in DISPOSITION_ORDER}
-    for unit in units:
-        groups[unit[0]["disposition"]].append(unit)
 
     main: list[str] = []
     nav: list[str] = []
-    for disposition in DISPOSITION_ORDER:
-        unit_list = groups[disposition]
-        if not unit_list:
-            continue
-        flat = [f for unit in unit_list for f in unit]
+    for disposition, flat in disposition_groups(live):
         present = {f["producer"] for f in flat}
         classes = "group " + " ".join("has-" + p for p in sorted(present))
         counts = "".join(
@@ -917,36 +1177,7 @@ def render_page(merged: dict[str, Any]) -> str:
         )
 
     verdict = merged["verdict"]
-    sentence = verdict_sentence(verdict, live)
-    # The masthead owns the one-sentence account of the run, so the withdrawals
-    # are said here and not only in their own section -- a reader who never
-    # scrolls still learns the passes wrote more than the page is arguing.
-    if withdrawn and live:
-        sentence += " {} more {} withdrawn at the merge.".format(
-            len(withdrawn), "was" if len(withdrawn) == 1 else "were"
-        )
-    elif withdrawn:
-        sentence = (
-            "The only finding was withdrawn at the merge; nothing stands."
-            if len(withdrawn) == 1
-            else f"All {len(withdrawn)} findings were withdrawn at the merge; nothing stands."
-        )
-    # Said in the masthead because it qualifies the sentence just made: some of
-    # the findings counted there are disputed, and a reader who never scrolls
-    # is owed that before the number settles in.
-    contested_count = sum(1 for f in live if f.get("contested_md"))
-    if contested_count:
-        sentence += " The falsification check contests {} of {}.".format(
-            contested_count, "them" if contested_count > 1 else "these"
-        )
-    # Advisory, so it joins the sentence only when it has something to say: a
-    # clean docs check is coverage detail, and the section states it.
-    doc_notes = (docs_check.get("notes") or []) if docs_check is not None else []
-    flagged_docs = {note["path"] for note in doc_notes}
-    if flagged_docs:
-        sentence += " The docs check flagged {} document{}.".format(
-            len(flagged_docs), "" if len(flagged_docs) == 1 else "s"
-        )
+    sentence = masthead_sentence(merged)
     scope = merged["run"]["scope"]
     scope_line = "{} &middot; {} &middot; {} files".format(
         esc(scope["repo"]),
@@ -962,8 +1193,10 @@ def render_page(merged: dict[str, Any]) -> str:
         # stop, and an icon on it would be a second thing claiming to say so.
         verdict_icon=ICON_NO_ENTRY if verdict == "blocked" else "",
         verdict_label="Blocked" if verdict == "blocked" else "Clear",
-        sentence=sentence,
+        sentence=esc(sentence),
         scope_line=scope_line,
+        bulk=bulk_controls(merged),
+        disclaimer=esc(DISCLAIMER),
         nav="\n".join(nav),
         prose_links="".join(prose_links),
         warnings=render_warnings(merged["run"], merged["passes"], merged["findings"]),
@@ -1003,6 +1236,7 @@ PAGE = """<!doctype html>
       <div class="verdict verdict-{verdict}">
         {verdict_icon}<span class="verdict-label">{verdict_label}</span>
       </div>
+      {bulk}
       <div class="filters">
         <p class="filter-title">Pass</p>
         <label for="f-prod-all" class="pill pill-prod-all">Both</label>
@@ -1033,9 +1267,7 @@ PAGE = """<!doctype html>
     <header class="masthead">
       <p class="sentence">{sentence}</p>
       <p class="scope-line">{scope_line}</p>
-      <p class="disclaimer">This report is machine-written. A finding is a lead until a person has
-      verified it against the repository, and a clear verdict means nothing was reported &mdash; never
-      that nothing is there.</p>
+      <p class="disclaimer">{disclaimer}</p>
       {warnings}
     </header>
     {groups}
@@ -1053,8 +1285,9 @@ PAGE = """<!doctype html>
 # The page's whole script: the clipboard handler, and dismissal.
 #
 # Neither one parses, renders or evaluates anything a pass wrote. The copy handler
-# moves a string from a data- attribute to the clipboard; dismissal only ever
-# toggles a class and writes digits it counted itself. A hostile `body_md`
+# moves a string from a data- attribute to the clipboard -- or, for the bulk
+# button, several, joined between two more; dismissal only ever toggles a class
+# and writes digits it counted itself. A hostile `body_md`
 # reaching either is inert -- escaping still does the security work, exactly as it
 # does everywhere else here.
 #
@@ -1097,10 +1330,43 @@ SCRIPT = """
     }, 1200);
   }
 
+  // The blocking cards the reader is looking at: not dismissed, and not hidden
+  // by a filter. Read off what is displayed rather than off the radios, so the
+  // pass and severity filters need no second statement here -- what the
+  // stylesheet hides is not copied, and the count agrees with the headings,
+  // which retally keeps to the same rule. Read again at every use: a click or
+  // a filter can change the answer between any two.
+  function openBlocking() {
+    var cards = document.querySelectorAll(
+      'section.group[data-disposition="blocking"] .finding:not(.dismissed)'
+    );
+    var shown = [];
+    for (var i = 0; i < cards.length; i++) {
+      if (cards[i].getClientRects().length) { shown.push(cards[i]); }
+    }
+    return shown;
+  }
+
+  // Every copy button carries its text except the bulk one, whose text is the
+  // open blocking cards' own plain payloads, in page order, between the head
+  // and tail it carries. Strings joined, never markup: nothing here reaches
+  // the DOM.
+  function textOf(button) {
+    if (!button.classList.contains('bulk-agent')) { return button.getAttribute('data-copy'); }
+    var cards = openBlocking();
+    var parts = [];
+    for (var i = 0; i < cards.length; i++) {
+      var plain = cards[i].querySelector('.copy-plain');
+      if (plain) { parts.push(plain.getAttribute('data-copy')); }
+    }
+    return [button.getAttribute('data-head'), parts.join('\\n\\n---\\n\\n'),
+      button.getAttribute('data-tail')].join('\\n\\n');
+  }
+
   document.addEventListener('click', function (event) {
     var button = event.target.closest ? event.target.closest('.copy-btn') : null;
     if (!button) { return; }
-    var text = button.getAttribute('data-copy');
+    var text = textOf(button);
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(
         function () { flash(button, 'Copied', true); },
@@ -1205,6 +1471,19 @@ SCRIPT = """
     for (var i = 0; i < spans.length; i++) { spans[i].textContent = String(count); }
   }
 
+  // The bulk button's count is the open blocking findings on screen, so it moves
+  // with dismissals and filters, and the button goes once there is nothing left
+  // to copy: a lit control for an empty set, which is the dismissed-link's
+  // reasoning.
+  function refreshBulk() {
+    var button = document.querySelector('.bulk-agent');
+    if (!button) { return; }
+    var count = openBlocking().length;
+    button.hidden = count === 0;
+    var badge = button.querySelector('.bulk-count');
+    if (badge) { badge.textContent = String(count); }
+  }
+
   document.addEventListener('click', function (event) {
     var button = event.target.closest ? event.target.closest('.dismiss') : null;
     if (!button) { return; }
@@ -1218,12 +1497,22 @@ SCRIPT = """
     if (entry) { entry.classList.toggle('dismissed', dismissed); }
     retally(card.getAttribute('data-disposition'));
     refreshDismissedLink();
+    refreshBulk();
   });
 
   // The severity pills hide cards in CSS, like the two filters beside them, but a
   // heading counting cards the reader cannot see is a heading that is wrong. So
   // the one thing the script does here is count again: every disposition, because
   // the filter is global, and only on change, because nothing else moves it.
+  // Every filter can take blocking cards off screen, so every one recounts the
+  // bulk button. Once at load too: a browser that restores radio state on
+  // reload can open the page already filtered.
+  var filters = document.querySelectorAll('input.filter');
+  for (var f = 0; f < filters.length; f++) {
+    filters[f].addEventListener('change', refreshBulk);
+  }
+  refreshBulk();
+
   var severityRadios = document.querySelectorAll('input[name="sev"]');
   for (var s = 0; s < severityRadios.length; s++) {
     severityRadios[s].addEventListener('change', function () {
@@ -1475,6 +1764,14 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
 .copy-btn .icon-idle, .copy-btn .icon-done { display: flex; }
 .copy-btn .icon-done, .copy-btn[data-busy="ok"] .icon-idle { display: none; }
 .copy-btn[data-busy="ok"] .icon-done { display: flex; }
+
+/* The copies of more than one finding, under the verdict they answer to. Stacked,
+   because the sidebar is narrower than the two side by side. `[hidden]` is spelled
+   out because `.copy-btn` sets a display, which the attribute's own rule loses to. */
+.bulk { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: -6px 0 6px; }
+.bulk .copy-btn[hidden] { display: none; }
+.bulk-count { margin-left: 2px; padding: 0 7px; border-radius: 999px; font-size: 11.5px; font-weight: 600;
+  background: var(--block-bg); color: var(--block); }
 
 /* Always visible, never hover-revealed: this page is printed and forwarded by
    email, where there is no hover. Borderless until wanted, so the mark reads as

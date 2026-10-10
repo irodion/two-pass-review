@@ -385,6 +385,10 @@ CANDIDATES_NOTE = (
 
 
 CANDIDATES = "list candidates"
+CANDIDATES_HELP = (
+    "prints the cross-pass pairs that cite overlapping lines, for choosing --link, and writes "
+    "nothing."
+)
 
 
 def candidates(run_dir: str) -> int:
@@ -437,6 +441,11 @@ def main(argv: list[str]) -> int:
     # Before argparse, which requires flags this mode has no use for -- the
     # pattern of scope.py's --release.
     if argv[1:2] == ["--candidates"]:
+        # Help asked of this mode, which would otherwise be read as a run
+        # directory named `--help`.
+        if argv[2:] in (["-h"], ["--help"]):
+            sys.stdout.write(f"usage: merge.py --candidates RUN_DIR\n\n{CANDIDATES_HELP}\n")
+            return 0
         if len(argv) != 3:
             return refuse("--candidates takes one run directory", 2, CANDIDATES)
         return candidates(argv[2])
@@ -445,8 +454,7 @@ def main(argv: list[str]) -> int:
     # a reader looks for the modes.
     parser = argparse.ArgumentParser(
         add_help=True,
-        epilog="merge.py --candidates RUN_DIR, given alone, prints the cross-pass pairs that cite "
-        "overlapping lines, for choosing --link, and writes nothing.",
+        epilog=f"merge.py --candidates RUN_DIR, given alone: {CANDIDATES_HELP}",
     )
     parser.add_argument("--run-dir", required=True)
     # Not `--mode`: that is scope.py's flag for the scope mode, and the two

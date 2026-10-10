@@ -8,8 +8,11 @@ Usage:
              [--model M] [--effort E]
              [--security-model M] [--security-effort E]
              [--quality-model M] [--quality-effort E]
+    merge.py --candidates RUN_DIR
 
 Writes RUN_DIR/findings.json, validates it, and prints a JSON summary.
+`--candidates` writes nothing: it prints the cross-pass pairs that cite
+overlapping lines, for the orchestrator to read before choosing its --links.
 
 The merge used to be the orchestrator hand-writing that file: every finding
 copied back out of the pass files, long escaped bodies included, beside the
@@ -45,7 +48,8 @@ depends on.
 Exit status: 0 merged and valid; 1 a pass's files or the merged artifact do
 not validate, or the run directory lacks what a flag said it holds; 2 a
 malformed command, or a flag refused by name -- a --link, or a check recorded
-'skipped' beside its answer file.
+'skipped' beside its answer file. `--candidates` exits the same way: 0
+printed, 1 a pass's files do not validate, 2 no run directory to read.
 """
 
 import argparse
@@ -71,8 +75,8 @@ def warn(message: str) -> None:
     sys.stderr.write(f"Warning: {message}\n")
 
 
-def refuse(message: str, status: int = 1) -> int:
-    sys.stderr.write(f"Cannot merge: {message}\n")
+def refuse(message: str, status: int = 1, doing: str = "merge") -> int:
+    sys.stderr.write(f"Cannot {doing}: {message}\n")
     return status
 
 
@@ -277,8 +281,173 @@ def read_collection(run_dir: str) -> tuple[list[str], list[Any]] | None:
     return [entry["path"] for entry in collected["docs"]], collected["skipped"]
 
 
+def read_pinned(run_dir: str, doing: str) -> tuple[dict[str, Any], str | None] | int:
+    """(scope.json, the review tree to check ranges against), or the exit status.
+
+    `doing` names the step in a refusal, and only a merge warns: the candidates
+    run before it, and a warning said at both is a warning the user hears twice.
+
+    The tree is the one the passes read. Gone means the worktree was removed
+    before the merge; the ranges were already proven against it when each pass
+    validated, so merging without it loses a re-check, not a check.
+    """
+    pinned = read_json(os.path.join(run_dir, "scope.json"))
+    if not isinstance(pinned, dict) or not isinstance(pinned.get("scope"), dict):
+        return refuse(
+            f"{run_dir} holds no scope.json written by scope.py -- pass the run directory "
+            "scope.py printed",
+            2,
+            doing,
+        )
+    repo: str | None = pinned.get("repo_root")
+    if repo is not None and not os.path.isdir(repo):
+        if doing == "merge":
+            warn(f"{repo} no longer exists, so line ranges are not re-checked against it")
+        repo = None
+    return pinned, repo
+
+
+def read_passes(
+    run_dir: str, repo: str | None, doing: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]] | int:
+    """(each pass's envelope, every finding), or the exit status after refusing.
+
+    Each pass is validated before anything is copied out of it. A pass without
+    an envelope died before finishing, and its findings stay out: the merged
+    artifact requires an envelope for every pass it carries, and the page shows
+    the absence.
+    """
+    envelopes: list[dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
+    for producer in validate.PRODUCERS:
+        findings_path = os.path.join(run_dir, f"findings.{producer}.jsonl")
+        envelope_path = os.path.join(run_dir, f"pass.{producer}.json")
+        if not os.path.exists(envelope_path):
+            if os.path.exists(findings_path) and doing == "merge":
+                warn(
+                    f"the {producer} pass wrote findings but no envelope, so none of its findings "
+                    "are merged. Say which pass died, and offer to re-run just that one"
+                )
+            continue
+        given = [envelope_path] + ([findings_path] if os.path.exists(findings_path) else [])
+        problems = validate.validate_paths(given, repo)
+        if problems:
+            sys.stderr.write(
+                f"Cannot {doing}: the {producer} pass's files do not validate. Send these back to "
+                "that pass to repair:\n\n"
+            )
+            for problem in problems:
+                sys.stderr.write(f"  {problem}\n")
+            return 1
+        envelope = read_json(envelope_path)
+        assert isinstance(envelope, dict)  # validated above
+        envelopes.append(envelope)
+        findings.extend(read_findings(findings_path))
+    return envelopes, findings
+
+
+def overlap(first: dict[str, Any], second: dict[str, Any]) -> tuple[str, int, int] | None:
+    """(path, start, end) of the first line range the two findings share, or None.
+
+    Only locations with lines count. A location naming a whole file overlaps
+    everything else in that file, and a hint that fires on every pair in a file
+    is a list of non-links. Paths are compared normalised: the validator
+    accepts `./a.py` and `a.py` as one file, and two passes spelling it
+    differently is the missed pair this exists to show.
+    """
+    for mine in first["locations"]:
+        for theirs in second["locations"]:
+            path = os.path.normpath(mine["path"])
+            if (
+                path != os.path.normpath(theirs["path"])
+                or "start_line" not in mine
+                or "start_line" not in theirs
+            ):
+                continue
+            start = max(mine["start_line"], theirs["start_line"])
+            end = min(
+                mine.get("end_line", mine["start_line"]),
+                theirs.get("end_line", theirs["start_line"]),
+            )
+            if start <= end:
+                return path, start, end
+    return None
+
+
+# Printed with the pairs, because the orchestrator reading them is the one
+# who has to remember it: the list is where to look, never what to link. It
+# points at SKILL.md's rule rather than restating it, so there is one wording
+# to keep; only the doubt rule is repeated, being the half that matters here.
+CANDIDATES_NOTE = (
+    "Places to look, not links. Read both findings of each pair and judge it by SKILL.md "
+    "section 4, rule 1. If unsure, do not link."
+)
+
+
+CANDIDATES = "list candidates"
+
+
+def candidates(run_dir: str) -> int:
+    """Print the cross-pass pairs worth reading for corroboration, then exit.
+
+    Measured before it was built. On strong-model runs the rule proposed four
+    pairs, and only one was a link, which the orchestrator had already made.
+    On a Haiku bench round it proposed 26: 21 argued one defect, 7 of those
+    the orchestrator had left apart, and most of the other 5 were real
+    agreements too. A small orchestrator misses links that sit on the same
+    lines, and those lines are what this finds. Reads, never writes: a link is
+    still a judgment, made with --link at the merge.
+    """
+    run_dir = os.path.abspath(os.path.expanduser(run_dir))
+    pinned = read_pinned(run_dir, CANDIDATES)
+    if isinstance(pinned, int):
+        return pinned
+    read = read_passes(run_dir, pinned[1], CANDIDATES)
+    if isinstance(read, int):
+        return read
+    _, findings = read
+    first_pass, second_pass = validate.PRODUCERS
+    pairs: list[dict[str, Any]] = []
+    for first in (f for f in findings if f["producer"] == first_pass):
+        for second in (f for f in findings if f["producer"] == second_pass):
+            # Only the pairs --link would accept.
+            if validate.link_problems(first, second):
+                continue
+            shared = overlap(first, second)
+            if shared is None:
+                continue
+            path, start, end = shared
+            pairs.append(
+                {
+                    "ids": [first["id"], second["id"]],
+                    "disposition": first["disposition"],
+                    "path": path,
+                    "lines": f"{start}-{end}" if end != start else str(start),
+                    "titles": [first["title"], second["title"]],
+                }
+            )
+    json.dump(
+        {"note": CANDIDATES_NOTE, "candidates": pairs}, sys.stdout, indent=2, ensure_ascii=False
+    )
+    sys.stdout.write("\n")
+    return 0
+
+
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(add_help=True)
+    # Before argparse, which requires flags this mode has no use for -- the
+    # pattern of scope.py's --release.
+    if argv[1:2] == ["--candidates"]:
+        if len(argv) != 3:
+            return refuse("--candidates takes one run directory", 2, CANDIDATES)
+        return candidates(argv[2])
+
+    # Named in the epilog because argparse never sees it, and --help is where
+    # a reader looks for the modes.
+    parser = argparse.ArgumentParser(
+        add_help=True,
+        epilog="merge.py --candidates RUN_DIR, given alone, prints the cross-pass pairs that cite "
+        "overlapping lines, for choosing --link, and writes nothing.",
+    )
     parser.add_argument("--run-dir", required=True)
     # Not `--mode`: that is scope.py's flag for the scope mode, and the two
     # mean nothing like each other. The page labels this value "Passes".
@@ -296,50 +465,18 @@ def main(argv: list[str]) -> int:
         return 2
 
     run_dir = os.path.abspath(os.path.expanduser(args.run_dir))
-    pinned = read_json(os.path.join(run_dir, "scope.json"))
-    if not isinstance(pinned, dict) or not isinstance(pinned.get("scope"), dict):
-        return refuse(
-            f"{run_dir} holds no scope.json written by scope.py -- merge the run directory "
-            "scope.py printed",
-            2,
-        )
+    read_in = read_pinned(run_dir, "merge")
+    if isinstance(read_in, int):
+        return read_in
+    pinned, repo = read_in
+    read = read_passes(run_dir, repo, "merge")
+    if isinstance(read, int):
+        return read
+    envelopes, findings = read
 
-    # The tree the passes read. Gone means the worktree was removed before the
-    # merge; the ranges were already proven against it when each pass validated,
-    # so merging without it loses a re-check, not a check.
-    repo: str | None = pinned.get("repo_root")
-    if repo is not None and not os.path.isdir(repo):
-        warn(f"{repo} no longer exists, so line ranges are not re-checked against it")
-        repo = None
-
-    # Each pass, validated before anything is copied out of it. A pass without
-    # an envelope died before finishing, and its findings stay out: the merged
-    # artifact requires an envelope for every pass it carries, and the page
-    # shows the absence.
     passes: list[dict[str, Any]] = []
-    findings: list[dict[str, Any]] = []
-    for producer in validate.PRODUCERS:
-        findings_path = os.path.join(run_dir, f"findings.{producer}.jsonl")
-        envelope_path = os.path.join(run_dir, f"pass.{producer}.json")
-        if not os.path.exists(envelope_path):
-            if os.path.exists(findings_path):
-                warn(
-                    f"the {producer} pass wrote findings but no envelope, so none of its findings "
-                    "are merged. Say which pass died, and offer to re-run just that one"
-                )
-            continue
-        given = [envelope_path] + ([findings_path] if os.path.exists(findings_path) else [])
-        problems = validate.validate_paths(given, repo)
-        if problems:
-            sys.stderr.write(
-                f"Cannot merge: the {producer} pass's files do not validate. Send these back to "
-                "that pass to repair:\n\n"
-            )
-            for problem in problems:
-                sys.stderr.write(f"  {problem}\n")
-            return 1
-        envelope = read_json(envelope_path)
-        assert isinstance(envelope, dict)  # validated above
+    for envelope in envelopes:
+        producer = envelope["producer"]
         entry = {k: v for k, v in envelope.items() if k not in ("schema_version", "kind")}
         for field, shared, own in (
             ("requested_model", args.model, getattr(args, f"{producer}_model")),
@@ -349,7 +486,6 @@ def main(argv: list[str]) -> int:
             if value is not None:
                 entry[field] = value
         passes.append(entry)
-        findings.extend(read_findings(findings_path))
     if not passes:
         return refuse("neither pass wrote an envelope, so there is no review to merge")
 

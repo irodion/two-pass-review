@@ -30,7 +30,8 @@ Every `<name>` below is a value `scope.py` prints in step 1 — `<repo_root>`, `
 **`<repo_root>` is not the directory you started in.** It is the tree the review reads, it can be a
 separate checkout of the reviewed commit, and every `--repo` after step 1 takes it.
 
-1. **Pin the scope** — [§1](#1-resolve-the-scope). Keep the JSON it prints.
+1. **Pin the scope** — [§1](#1-resolve-the-scope). Keep the JSON it prints. `--base <rev>` stands for
+   whichever of `--base`, `--against` or `--since` §1's table gives for the request.
    `python3 <skill-dir>/scripts/scope.py --repo <repo> --base <rev> --mode revisions --head <rev>`
 2. **Collect the documents** for the docs check — [§2](#the-docs-check).
    `python3 <skill-dir>/scripts/collect_docs.py --repo <repo_root> --diff <context_diff>`
@@ -64,62 +65,49 @@ where the request does not determine the range, ask the user which of these they
 
 | The user is asking about | Resolve it to |
 |---|---|
-| a pull request | `--mode revisions --base <merge-base of the PR> --head <PR head>` |
+| a pull request | `--mode revisions --against origin/<the PR's base branch> --head <PR head>` |
 | one commit | `--mode revisions --base <commit>^ --head <commit>` |
-| this branch against another | `--mode revisions --base $(git merge-base origin/<other> HEAD) --head HEAD` |
+| this branch against another | `--mode revisions --against origin/<other> --head HEAD` |
 | uncommitted work | `--mode local-patch --base HEAD` |
-| changes since a date | `--base $(git rev-list -1 --first-parent --before=<second before the cutoff> HEAD)` |
+| changes since a date | `--since <date>T<time><UTC offset>`, with either scope mode — see below |
 
 A pull request does not need to be checked out, but its head commit has to exist locally — fetch it
 first if it does not (`git fetch origin pull/<number>/head` on GitHub).
 
-**The other branch is the remote's, fetched.** Run `git fetch origin <other>` and take the merge-base
-with `origin/<other>`, not with a local branch of the same name: a local `main` nobody has pulled lags
-the one the branch will merge into, and a base taken from it reaches back past work that is already
-merged, so the passes review it again. A run of this skill on its own branch reviewed nine commits
-where three were new, because local `main` was six behind. When the local branch and `origin/<other>`
-differ, say which one the range used, in `--label` and when you report. Use the local branch only
-when the user asks for it, or when there is no remote.
+**`--against` takes the remote's branch, fetched.** Run `git fetch origin <other>` first and pass
+`origin/<other>`, not a local branch of the same name: a local `main` nobody has pulled lags the one the
+branch will merge into, and a base taken from it reaches back past work that is already merged, so the
+passes review it again. `scope.py` takes the merge-base itself, and refuses a local branch that is behind
+its remote's copy — exit 2, below. Use the local branch only when the user asks for it, or when there is
+no remote.
 
 A date — "changes made today", "since Monday" — is two questions, and **both are the user's**: the same
-never-guess rule the base lives under. **Which timezone the date means**: `--before` reads the machine's,
-and a review of "today" run at 09:00 in one zone is a different range than in another; ask, never infer.
-And **which scope mode**: `--mode local-patch` reviews the working tree as it stands since that point, `--mode
-revisions --head HEAD` reviews only what was committed.
+never-guess rule the base lives under. **Which timezone the date means**: the machine's zone is not an
+answer, and a review of "today" run at 09:00 in one zone is a different range than in another; ask, never
+infer. And **which scope mode**: `--mode local-patch` reviews the working tree as it stands since that
+point, `--mode revisions --head HEAD` reviews only what was committed.
 
-**`--first-parent` is not optional there.** Without it `rev-list` searches every commit reachable from
-`HEAD` and returns the newest one before the cutoff, wherever it sits — so a branch that merged an older
-side branch after midnight resolves its base to that side branch's tip, and the range flips to the wrong
-side of the merge: it picks up commits from *before* the cutoff and drops the side branch's files, which
-landed on this branch today, from the review entirely. With `--first-parent` the search stays on the
-reviewed branch's own history, and the range is everything that arrived on it since the cutoff, merged
-work included — which is what "changes since" means. On a branch with no merges the flag changes nothing.
-
-**The cutoff is the second before midnight, not midnight.** `--before` is inclusive, so a cutoff of
-`00:00:00` selects a commit made at exactly that instant *as the base* — and a range excludes its own
-base, so that commit drops out of the review with nothing on the page saying so. It is not as unlikely as
-it sounds: commit times are not spread evenly through the day, and a nightly job commits at exactly
-midnight every night. Committer dates are whole seconds, so `23:59:59` on the day before is not an
-approximation of "strictly before midnight" — no commit can sit between the two, and the ranges are the
-same set.
-
-Resolve the cutoff yourself, hand `scope.py` the commit, and record what you resolved as `--label` below
-— the script owns no date arithmetic and no timezone policy, because a script that guessed either would
-be guessing a base by another route.
+Then hand `scope.py` the instant, with its offset: `--since 2026-10-10T00:00+03:00` for "today" asked in
+UTC+3. **Do not turn the date into a commit yourself.** The script finds the last commit before that
+instant on the branch's own first-parent line, so work merged in counts by its merge commit's date and a
+commit made at exactly midnight stays in the range — two rules easily dropped from a hand-typed `git
+rev-list`. It refuses a time with no offset rather than read it in the machine's zone, and records the
+instant in the report. Git records when a commit was made, not when it reached the branch, so work
+*fast-forwarded* in keeps its own commits' dates and counts by those; if the user expects such work in the
+range, say so.
 
 ```
 python3 <skill-dir>/scripts/scope.py --repo <repo> --base <rev> --mode revisions --head <rev>
 ```
 
-**`--label` is optional, and worth passing whenever the range came from a request rather than a
-revision.** It is one line of at most 120 characters, stored verbatim as `scope.label` and shown in the
-report's run panel as *Requested scope*: `--label 'working tree since 2026-08-25 00:00 +0300'`. It says
-what the request *meant*, which nothing else in `scope` records — two field runs of "changes made
-today" differed by more than three times in files changed, and only a reader who re-derived the git
-commands could see why. Nothing checks it against the range beside it and nothing could, since the
-resolving happened in your conversation; the page presents it as declared provenance, and `base` and
-`head` stay the checkable record. So write what you resolved, not what the user said: a label reading
-"today" is the ambiguity it exists to remove.
+**`--label` is optional, and worth passing when the request named the range in words that nothing else
+records** — a pull request by number, a ticket. It is one line of at most 120 characters, stored verbatim
+as `scope.label` and shown in the report's run panel as *Requested scope*: `--label 'pull request #54'`.
+Nothing checks it against the range beside it and nothing could, since the resolving happened in your
+conversation; the page presents it as declared provenance, and `base` and `head` stay the checkable
+record. So write what you resolved, not what the user said: a label reading "today" is the ambiguity it
+exists to remove. `--against` and `--since` need no label to say what they resolved: `scope.py` records
+the branch or the instant itself, beside the base it found.
 
 It prints JSON holding `repo_root`, `worktree`, `checkout`, `run_dir`, `context_diff`, `file_lines`,
 `now`, `latest`, `prompts` and the resolved `scope`, and writes the same JSON to `<run_dir>/scope.json`, where
@@ -160,9 +148,14 @@ worktree when there is one, and does nothing when the checkout was read in place
   passes a convenience and costs the review nothing. Pass it on when you report, and treat it as a bug
   in the skill rather than a problem with the user's repository.
 - **Exit 2** means the command itself was malformed — a missing `--mode` or `--head`, a bad `--label`.
-  That is yours to fix: read the message, correct the command, and run it again.
+  That is yours to fix: read the message, correct the command, and run it again. So is `--against` with
+  a local branch behind its remote's copy: fetch, and pass the name the message gives — or, if the user
+  asked for the local branch itself, the `--base` it gives. **The one exception is a `--since` refused
+  over its offset** — missing, or `-00:00`: the offset is the user's answer, not a correction. Ask them
+  which timezone they mean, and never supply one yourself.
 - **Exit 4** ends the run here, with no report — the range does not resolve, is empty, or its head
-  could not be checked out. A local patch that resolves to nothing usually means the work is in files
+  could not be checked out. Under `--since` it also means nothing on the branch predates the instant, or
+  nothing has landed since it; pass the message on, since either is the user's to judge. A local patch that resolves to nothing usually means the work is in files
   git has never been told about — say so.
 - **Exit 5** ends the run before anything is made: the skill's own `references/prompts.md` could not be
   read or filled. Nothing is wrong with the user's repository or their range — say that, pass on the

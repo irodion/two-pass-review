@@ -170,38 +170,78 @@ SELF_CHECK_FIELDS = frozenset(["question", "answer_md", "anchors"])
 # Enough to prompt reflection, few enough that the reader is not being examined.
 SELF_CHECK_MAX = 4
 SCOPE_FIELDS = frozenset(
-    ["repo", "mode", "label", "base", "head", "files_changed", "diff_bytes", "untracked"]
+    [
+        "repo",
+        "mode",
+        "label",
+        "against",
+        "since",
+        "base",
+        "head",
+        "files_changed",
+        "diff_bytes",
+        "untracked",
+    ]
 )
+# The one shape scope.py writes `since` in: datetime.isoformat() of a
+# whole-second instant at the offset the user gave, which is what the page
+# shows. Anything else in that field was not written by scope.py.
+SINCE_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}")
 # A scope label is one line naming what the request meant, not a paragraph
-# arguing it. Longer than a tier because it carries a date, a time and an
-# offset -- "working tree since 2026-08-25 00:00 +0300" is already 41 -- and
-# capped for the same reason TIER_MAX is: it renders into the run panel's
-# grid, and nothing downstream trusts it further than escaping it.
+# arguing it, and `against` is one revision. Longer than a tier because both
+# can be long in honest use -- a label was first written to carry a date, a
+# time and an offset, "working tree since 2026-08-25 00:00 +0300", and a
+# branch name can run to sixty characters -- and capped for the same reason
+# TIER_MAX is: each renders into the run panel's grid, and nothing downstream
+# trusts it further than escaping it.
 SCOPE_LABEL_MAX = 120
 
 
-def label_problem(label: object) -> str | None:
-    """Why a scope label is refused, or None. The one statement of the rule.
+def _one_line(value: object, empty: str, why: str) -> str | None:
+    """Why a one-line scope field is refused, or None. The one statement of the rule.
 
-    Two callers ask it at two moments: scope.py, refusing --label before
-    either pass has run on a pinned diff, and this validator, refusing an
-    artifact. Each prefixes its own address. The rule used to be written out at
-    both, and changed at both when a lone carriage return turned out to pass --
-    the drift the import of SCOPE_LABEL_MAX alone was meant to prevent.
+    A label and an `against` share it, each with its own words for an empty
+    value and for what the line is for. It used to be written out at both of
+    the label's callers, and changed at both when a lone carriage return turned
+    out to pass -- the drift the import of SCOPE_LABEL_MAX alone was meant to
+    prevent, and the reason a second field reuses it rather than a copy.
 
     One line means what str.splitlines means, which also covers the separators
     a newline test misses: a lone carriage return, form feed, U+2028 and the
-    rest. The page renders the label into one grid cell, and none of those
-    belongs in one.
+    rest. The page renders each of these fields into one grid cell, and none of
+    those belongs in one.
     """
-    if not isinstance(label, str) or not label.strip():
-        return "must be a non-empty string -- leave it out when the run has no label"
-    if label.splitlines() != [label] or len(label) > SCOPE_LABEL_MAX:
-        return (
-            f"must be a single line of at most {SCOPE_LABEL_MAX} characters -- it names what "
-            "the request meant, in the report's run panel, and does not argue it"
-        )
+    if not isinstance(value, str) or not value.strip():
+        return empty
+    if value.splitlines() != [value] or len(value) > SCOPE_LABEL_MAX:
+        return f"must be a single line of at most {SCOPE_LABEL_MAX} characters{why}"
     return None
+
+
+def label_problem(label: object) -> str | None:
+    """Why a scope label is refused, or None.
+
+    Two callers ask it at two moments: scope.py, refusing --label before
+    either pass has run on a pinned diff, and this validator, refusing an
+    artifact. Each prefixes its own address.
+    """
+    return _one_line(
+        label,
+        "must be a non-empty string -- leave it out when the run has no label",
+        " -- it names what the request meant, in the report's run panel, and does not argue it",
+    )
+
+
+def against_problem(against: object) -> str | None:
+    """Why a scope's `against` is refused, or None; asked by the same two callers.
+
+    It is the revision the caller typed, kept verbatim, so it is held to the
+    one-line rule rather than to git's ref-name rules: `main@{1}` is a revision
+    too.
+    """
+    return _one_line(
+        against, "must name a revision", " -- it is one revision, in the report's run panel"
+    )
 
 
 class Report:
@@ -1238,16 +1278,30 @@ def check_run(report: Report, where: str, run: object, version: int) -> None:
     scope_mode = _enum(report, at, scope, "mode", SCOPE_MODES)
 
     # Optional, and unchecked against the range beside it on purpose. The label
-    # says what the user asked for -- "changes made today" resolved to a
-    # timezone and a midnight -- and that resolution happened in the
-    # conversation, where no validator was present. Nothing here can confirm it,
-    # so the only thing worth refusing is a value the page cannot render as one
-    # line. Absent, not null, when the run had none: a scope with no label is a
-    # scope nobody described, which is what every run before this field was.
+    # says what the user asked for in words -- "pull request #54" -- and what
+    # the words meant was settled in the conversation, where no validator was
+    # present. Nothing here can confirm it, so the only thing worth refusing is
+    # a value the page cannot render as one line. Absent, not null, when the
+    # run had none: a scope with no label is a scope nobody described, which is
+    # what every run before this field was.
     if "label" in scope:
         problem = label_problem(scope.get("label"))
         if problem:
             report.add(at, f"'label' {problem}")
+
+    # How scope.py found the base, when it found it: one way or the other, never
+    # both, since each names the whole of how. Absent when the caller named the
+    # base itself, which is every run before these fields.
+    if "against" in scope:
+        problem = against_problem(scope.get("against"))
+        if problem:
+            report.add(at, f"'against' {problem}")
+    if "since" in scope:
+        since = scope.get("since")
+        if not isinstance(since, str) or not SINCE_RE.fullmatch(since):
+            report.add(at, "'since' must look like 2026-10-10T00:00:00+03:00")
+    if "against" in scope and "since" in scope:
+        report.add(at, "'against' and 'since' are two ways to find one base; a scope has one")
 
     _nonempty_str(report, at, scope, "base")
     _int(report, at, scope, "files_changed")

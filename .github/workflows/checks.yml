@@ -130,6 +130,99 @@ jobs:
           test "$(git worktree list | wc -l)" -eq 1
           python -W error::DeprecationWarning -W error::SyntaxWarning \
                  "$S/scope.py" --release "$(python -c "import json;print(json.load(open('scope.json'))['run_dir'])")"
+          # --since and --against do the git a caller used to type by hand, each
+          # with a rule the typing got wrong. Checked in a repository built here
+          # with fixed dates, so the answers are facts of its history and not of
+          # when CI runs: b is the last commit before midnight on main's own
+          # line; the side branch's s is newer and merged since, so a search
+          # off the first-parent line takes s instead; and the commit made at
+          # exactly midnight has to stay inside the range.
+          dated=$(mktemp -d)
+          git -C "$dated" init -q -b main
+          commit () {
+              echo "$2" > "$dated/$2"
+              git -C "$dated" add -A
+              GIT_COMMITTER_DATE=$1 GIT_AUTHOR_DATE=$1 \
+                  git -C "$dated" -c user.name=ci -c user.email=ci@example.invalid commit -q -m "$2"
+          }
+          commit 2026-10-09T10:00:00+03:00 a
+          commit 2026-10-09T22:00:00+03:00 b
+          git -C "$dated" checkout -q -b side HEAD~1
+          commit 2026-10-09T23:30:00+03:00 s
+          git -C "$dated" checkout -q main
+          commit 2026-10-10T00:00:00+03:00 midnight
+          GIT_COMMITTER_DATE=2026-10-10T08:00:00+03:00 \
+              git -C "$dated" -c user.name=ci -c user.email=ci@example.invalid merge -q --no-ff side -m merge
+          commit 2026-10-10T09:00:00+03:00 d
+          python -W error::DeprecationWarning -W error::SyntaxWarning \
+                 "$S/scope.py" --repo "$dated" --since 2026-10-10T00:00+03:00 \
+                 --mode revisions --head HEAD > since.json
+          python - "$(git -C "$dated" rev-parse main~3)" <<'SINCE'
+          import json, sys
+          scope = json.load(open("since.json"))["scope"]
+          diff = open(json.load(open("since.json"))["context_diff"]).read()
+          if scope["base"] != sys.argv[1] or scope["since"] != "2026-10-10T00:00:00+03:00":
+              sys.exit(f"--since resolved {scope['base']} as {scope['since']}, not b")
+          if "\n+++ b/midnight\n" not in diff or "\n+++ b/s\n" not in diff:
+              sys.exit("--since dropped the midnight commit or the merged side branch")
+          SINCE
+          # A time with no offset is refused, never read in the runner's zone --
+          # a bare date too, and -00:00, which says the offset is unknown -- and
+          # every one of those refusals says the answer is the user's. Two
+          # commands, not `test && grep`: set -e ignores a failure anywhere but
+          # at the end of an && list, so the test would have no teeth.
+          for unanswered in 2026-10-10T00:00 2026-10-10 2026-10-10T00:00-00:00; do
+              set +e
+              python "$S/scope.py" --repo "$dated" --since "$unanswered" \
+                     --mode revisions --head HEAD 2> since.err
+              status=$?
+              set -e
+              test "$status" -eq 2
+              grep -q "the user's answer" since.err
+          done
+          # --against is the merge-base, not the branch's tip: origin/main has
+          # moved on to f since feature left it at d.
+          git -C "$dated" checkout -q -b upstream
+          commit 2026-10-10T10:00:00+03:00 f
+          git -C "$dated" update-ref refs/remotes/origin/main upstream
+          git -C "$dated" checkout -q -b feature main
+          commit 2026-10-10T11:00:00+03:00 e
+          against () {
+              python -W error::DeprecationWarning -W error::SyntaxWarning \
+                     "$S/scope.py" --repo "$dated" --against "$1" \
+                     --mode revisions --head HEAD > against.json 2> against.err
+              test ! -s against.err
+              python -c "import json,sys; d=json.load(open('against.json'))['scope']; sys.exit(0 if (d['base'], d['against']) == (sys.argv[1], sys.argv[2]) else 1)" \
+                     "$(git -C "$dated" rev-parse "$2")" "$1"
+          }
+          against origin/main feature~1
+          # A local main behind the remote's copy is refused before anything is
+          # made, naming the copy to use: origin's branch of the same name where
+          # no upstream is set, and the upstream where one is -- here on another
+          # remote, with origin's copy level, so only the upstream can refuse.
+          behind () {
+              runs=$(ls "$dated/.two-pass-review" | wc -l)
+              set +e
+              python "$S/scope.py" --repo "$dated" --against main \
+                     --mode revisions --head HEAD > /dev/null 2> against.err
+              status=$?
+              set -e
+              cat against.err
+              test "$status" -eq 2
+              grep -q -- "--against $1" against.err
+              test "$(ls "$dated/.two-pass-review" | wc -l)" -eq "$runs"
+          }
+          git -C "$dated" branch -f main main~1
+          behind origin/main
+          git -C "$dated" remote add canon "$dated"
+          git -C "$dated" update-ref refs/remotes/canon/main upstream
+          git -C "$dated" config branch.main.remote canon
+          git -C "$dated" config branch.main.merge refs/heads/main
+          git -C "$dated" update-ref refs/remotes/origin/main main
+          behind canon/main
+          # Only ahead of the remote's copy is no risk, and taken as given.
+          git -C "$dated" update-ref refs/remotes/canon/main main~1
+          against main main
           # The merge over a one-pass run: the files a pass with nothing to
           # report writes, an empty answer from the docs check, and the run
           # directory scope.py pinned above, whose scope.json and docs.json the

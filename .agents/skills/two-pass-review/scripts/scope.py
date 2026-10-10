@@ -2,14 +2,17 @@
 """Resolve the review scope, pin it to disk, and author the artifact's scope block.
 
 Usage:
-    scope.py --repo PATH --base REV --mode revisions --head REV
-    scope.py --repo PATH --base REV --mode local-patch
+    scope.py --repo PATH (--base REV | --against REV | --since TIME) --mode revisions --head REV
+    scope.py --repo PATH (--base REV | --against REV | --since TIME) --mode local-patch
     scope.py --release RUN_DIR
 
-`--base` is required and never guessed. A tool that cannot guess a base cannot
+A base is required and never guessed. A tool that cannot guess a base cannot
 be wrong about one -- so where the request does not determine the range, the
 model asks the user rather than inferring a default. There is no auto-detection
-ladder here, and no `main` fallback.
+ladder here, and no `main` fallback. `--against` and `--since` are not
+defaults either: each takes what the user decided -- the branch the work
+merges into, an instant with its UTC offset -- and only does the git that
+turns it into a commit.
 
 Both revision modes take resolved-or-symbolic revisions and record the resolved
 SHAs, because a report saying `main...HEAD` is ambiguous the moment `main` moves.
@@ -163,6 +166,179 @@ def fail(message: str, status: int = 4) -> int:
 def resolve_commit(repo: str, revision: str) -> str | None:
     code, out, _ = git_text(repo, "rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}")
     return out.strip() if code == 0 else None
+
+
+# What --since accepts: a date, a time and a UTC offset, with nothing left to
+# infer. The offset is the point. Which timezone "today" means is the user's
+# answer, and a time without one would be read in this machine's zone -- the
+# guess #45 kept out of this script, and still keeps out: refused, never
+# defaulted. `Z` is accepted because it is an answer, UTC said outright.
+# Written out rather than handed to datetime.fromisoformat, which accepts more
+# on 3.11 than on 3.10, so the floor and a modern interpreter would disagree
+# about what a valid invocation is.
+SINCE_CLOCK = r"(?P<date>\d{4}-\d{2}-\d{2})[T ](?P<time>\d{2}:\d{2}(?::\d{2})?)"
+SINCE_OFFSET = r"(?P<offset>Z|[+-]\d{2}:?\d{2})"
+SINCE = re.compile(SINCE_CLOCK + " ?" + SINCE_OFFSET)
+
+# The shape, never an example. A literal-copying caller handed an example
+# offset fixes its command by copying it, which is the timezone guess this
+# flag exists to refuse.
+SINCE_SHAPE = "YYYY-MM-DDTHH:MM+HH:MM, with the user's own offset"
+
+
+def parse_since(text: str) -> tuple[datetime | None, str | None]:
+    """The instant --since names, or why it names none.
+
+    Anything that does not end in an offset -- a bare date as much as a date
+    and a time -- is refused as offsetless, so every refusal that could be
+    "fixed" by inventing a timezone says to ask instead.
+    """
+    match = SINCE.fullmatch(text)
+    if match is None:
+        if not re.search(SINCE_OFFSET + "$", text):
+            return None, (
+                f"{text!r} has no UTC offset. Which timezone the date means is the user's answer "
+                f"-- ask them, never infer it -- and pass it as {SINCE_SHAPE}"
+            )
+        return None, f"{text!r} is not a date, a time and a UTC offset, written {SINCE_SHAPE}"
+    # RFC 3339 spells "the offset is unknown" -00:00, and %z would read it as
+    # UTC -- an unanswered question recorded as an answered one.
+    if match["offset"].replace(":", "") == "-0000":
+        return None, (
+            f"{text!r} ends in -00:00, which means the offset is unknown. Which timezone the date "
+            "means is the user's answer -- ask them; +00:00 or Z is UTC"
+        )
+    clock = match["time"] if match["time"].count(":") == 2 else match["time"] + ":00"
+    # %z takes Z, +03:00 and +0300 alike, on the floor as on a modern
+    # interpreter, and refuses a minute past 59 or an offset of a day.
+    try:
+        instant = datetime.strptime(
+            f"{match['date']} {clock}{match['offset']}", "%Y-%m-%d %H:%M:%S%z"
+        )
+    except ValueError:
+        return None, f"{text!r} is not a real date, time and UTC offset"
+    return instant, None
+
+
+def shallow(root: str) -> bool:
+    """Whether this clone stops short of its history's roots.
+
+    Asked only once a search for a base has come back empty, because then the
+    answer changes what the empty result means: a commit nobody fetched, not
+    one that does not exist.
+    """
+    _, out, _ = git_text(root, "rev-parse", "--is-shallow-repository")
+    return out.strip() == "true"
+
+
+def base_since(root: str, tip: str, since: datetime) -> tuple[str | None, str | None]:
+    """The commit a review of everything since `since` diffs against, or why none.
+
+    Two rules, both easy to drop from a command typed by hand.
+
+    The cutoff is the second before the instant. `--before` is inclusive, so
+    a cutoff of exactly midnight selects a commit made at midnight *as the
+    base*, and a range excludes its base -- that commit drops out of the review
+    with nothing saying so. A nightly job commits at exactly midnight every
+    night. Committer dates are whole seconds, so no commit sits between the two
+    and the ranges are the same set.
+
+    `--first-parent` keeps the search on the reviewed branch's own line.
+    Without it rev-list returns the newest commit before the cutoff anywhere
+    reachable, so a branch that merged an older side branch since then takes
+    that side branch's tip as its base: the range picks up commits from before
+    the cutoff and drops the side branch's files, which arrived today. With it,
+    work merged in counts by its merge commit's date -- which is what "changes
+    since" means.
+
+    What git records is when a commit was made, never when it reached a
+    branch, so that holds only where a merge commit marks the arrival. A
+    fast-forward makes none: commits fast-forwarded in today keep yesterday's
+    dates, sit on the first-parent line, and count as yesterday's. Nothing in
+    the repository says otherwise, so nothing here can.
+
+    The date reaches git in its object-header form, `@<seconds> +0000`, which
+    git reads exactly. A bare `@<seconds>` goes to its fuzzy date parser, which
+    happens to read a ten-digit number right and reads a short one as something
+    else entirely.
+    """
+    cutoff = int(since.timestamp()) - 1
+    if cutoff < 0:
+        return None, f"{since.isoformat()} predates every commit git can record"
+    code, out, error = git_text(
+        root, "rev-list", "-1", "--first-parent", f"--before=@{cutoff} +0000", tip
+    )
+    if code != 0:
+        return None, error or "git could not search the history for a base"
+    if not out.strip():
+        return None, "nothing on {}'s first-parent line was committed before {}{}".format(
+            tip[:12],
+            since.isoformat(),
+            " -- this clone is shallow, so the commit before it may never have been fetched"
+            if shallow(root)
+            else ", so there is no commit to take as the base",
+        )
+    return out.strip(), None
+
+
+def base_against(root: str, against: str, tip: str) -> tuple[str | None, str | None]:
+    """The merge-base of `tip` with the commit `against` names, or why none."""
+    other = resolve_commit(root, against)
+    if other is None:
+        return None, f"{against!r} does not name a commit in this repository"
+    code, out, error = git_text(root, "merge-base", other, tip)
+    # git says nothing and exits 1 when two histories share no commit it has.
+    if code == 1 and not out.strip():
+        if shallow(root):
+            return None, (
+                f"{against!r} and {tip[:12]} share no commit this shallow clone has fetched -- "
+                "deepen it (git fetch --unshallow) and run again"
+            )
+        return None, f"{against!r} and {tip[:12]} share no history, so they have no merge-base"
+    if code != 0:
+        return None, error or "git could not find the merge-base"
+    return out.strip(), None
+
+
+def behind_remote(root: str, against: str, tip: str) -> str | None:
+    """Why `against`, a local branch its remote's copy has moved past, is refused.
+
+    The base is meant to be the remote's branch, fetched -- the one the work
+    will merge into. A local `main` nobody has pulled lags it, and a merge-base
+    taken from that reaches back past work already merged, so the passes review
+    it again: one run of this skill on its own branch reviewed nine commits
+    where three were new. Refused before anything is made, so a re-run leaves
+    no run and no review tree behind. A local branch only *ahead* of its
+    remote's copy is no such risk -- its merge-base is at least as recent --
+    and is taken as given. A caller who does mean a lagging local branch says
+    so with --base, which takes any commit, this one included.
+
+    The remote's copy is the branch's upstream, read through for-each-ref:
+    `refs/heads/main@{upstream}` is no revision git accepts, while `main@{u}`
+    would read a tag of the same name first. Where no upstream is set, it is
+    origin's branch of the same name, which is what SKILL.md tells callers to
+    fetch.
+    """
+    code, full, _ = git_text(root, "rev-parse", "--symbolic-full-name", against)
+    full = full.strip()
+    if code != 0 or not full.startswith("refs/heads/"):
+        return None
+    _, remote, _ = git_text(root, "for-each-ref", "--format=%(upstream)", full)
+    remote = remote.strip()
+    if not remote.startswith("refs/remotes/"):
+        remote = "refs/remotes/origin/" + full[len("refs/heads/") :]
+    if resolve_commit(root, remote) is None:
+        return None
+    code, behind, _ = git_text(root, "rev-list", "--count", f"{full}..{remote}")
+    if code != 0 or behind.strip() == "0":
+        return None
+    name = remote[len("refs/remotes/") :]
+    return (
+        f"--against {against} is a local branch {behind.strip()} commit(s) behind {name}, so a "
+        f"base taken from it reaches back past work {name} already has, and the passes would "
+        f"review that again. Fetch it and pass --against {name}. If the user asked for the local "
+        f'branch itself, pass --base "$(git merge-base {against} {tip})" instead'
+    )
 
 
 # Where runs are kept: one directory at the top of the user's checkout, holding
@@ -802,7 +978,16 @@ def main(argv: list[str]) -> int:
 
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("--repo", required=True)
-    parser.add_argument("--base", required=True)
+    # Three ways to name one base, exactly one of them required. The latter two
+    # resolve it here, from facts the caller has already settled with the user
+    # -- which branch, which instant in which timezone -- because the rules for
+    # turning those into a commit were rules a caller applied by hand, and the
+    # caller is the one most likely to drop a flag. See base_against and
+    # base_since. None of them guesses: each names its base outright.
+    bases = parser.add_mutually_exclusive_group(required=True)
+    bases.add_argument("--base")
+    bases.add_argument("--against")
+    bases.add_argument("--since")
     parser.add_argument("--mode", required=True, choices=("revisions", "local-patch"))
     parser.add_argument("--head")
     parser.add_argument("--label")
@@ -828,6 +1013,15 @@ def main(argv: list[str]) -> int:
         problem = validate.label_problem(args.label)
         if problem:
             return fail(f"--label {problem}", 2)
+    if args.against is not None:
+        problem = validate.against_problem(args.against)
+        if problem:
+            return fail(f"--against {problem}", 2)
+    since = None
+    if args.since is not None:
+        since, problem = parse_since(args.since)
+        if problem:
+            return fail(f"--since {problem}", 2)
 
     if args.mode == "revisions" and not args.head:
         return fail("--head is required under scope mode 'revisions'", 2)
@@ -846,14 +1040,32 @@ def main(argv: list[str]) -> int:
             5,
         )
 
-    base = resolve_commit(root, args.base)
-    if base is None:
-        return fail(f"{args.base!r} does not name a commit in this repository")
     head = None
     if args.mode == "revisions":
         head = resolve_commit(root, args.head)
         if head is None:
             return fail(f"{args.head!r} does not name a commit in this repository")
+
+    if args.base is not None:
+        base = resolve_commit(root, args.base)
+        if base is None:
+            return fail(f"{args.base!r} does not name a commit in this repository")
+    else:
+        # Where the search for the base starts: the reviewed head, or for a
+        # local patch the commit the working tree sits on.
+        tip = head or resolve_commit(root, "HEAD")
+        if tip is None:
+            return fail("HEAD names no commit yet, so there is no history to take a base from")
+        if since is not None:
+            base, problem = base_since(root, tip, since)
+        else:
+            base, problem = base_against(root, args.against, tip)
+        if base is None:
+            return fail(problem or "git could not resolve a base")
+        if args.against is not None:
+            problem = behind_remote(root, args.against, args.head or "HEAD")
+            if problem:
+                return fail(problem, 2)
 
     patch, error = build_diff(root, args.mode, base, head)
     if patch is None:
@@ -863,8 +1075,14 @@ def main(argv: list[str]) -> int:
             return fail(
                 "the working tree matches {} -- there is nothing to review. The {} untracked file(s) "
                 "here are invisible to git diff; stage or commit them to bring them in".format(
-                    args.base, patch["untracked"] if patch["untracked"] is not None else 0
+                    args.base or base[:12],
+                    patch["untracked"] if patch["untracked"] is not None else 0,
                 )
+            )
+        if since is not None and base == head:
+            return fail(
+                f"nothing reached {head[:12]}'s first-parent line at or after "
+                f"{since.isoformat()} -- there is nothing to review"
             )
         return fail("that range is empty -- there is nothing to review")
 
@@ -963,16 +1181,27 @@ def main(argv: list[str]) -> int:
             "repo": os.path.basename(root),
             "mode": args.mode,
         }
-        # Verbatim, and only when given. It says what the request *meant* -- "working
-        # tree since 2026-08-25 00:00 +0300" -- which nothing else in this object
-        # records: two runs of "changes made today" differed by 3.5x in files, and
-        # only a reader who re-derives the git commands could see why. Nothing here
-        # checks it against the range beside it, and nothing could: the resolution
-        # happened in the conversation, above this script. It is declared
-        # provenance, the page presents it as such, and the resolved base and head
-        # remain the checkable record.
+        # Verbatim, and only when given. It says what the request named in words
+        # nothing else in this object records -- "pull request #54". It began as
+        # the record of a date's resolution, after two runs of "changes made
+        # today" differed by 3.5x in files and only a reader who re-derived the
+        # git commands could see why; `since` below records that now, and records
+        # it checked. Nothing here checks the label against the range beside it,
+        # and nothing could: what the words meant was settled in the
+        # conversation, above this script. It is declared provenance, the page
+        # presents it as such, and the resolved base and head remain the
+        # checkable record.
         if args.label is not None:
             scope["label"] = args.label
+        # How the base was found, when this script found it. Unlike the label
+        # these are checked: the base beside them was derived from them, here,
+        # so the page states them without the label's caveat. What they cannot
+        # say is whether the user meant that branch or that instant -- that
+        # answer was given in the conversation, as it always was.
+        if args.against is not None:
+            scope["against"] = args.against
+        if since is not None:
+            scope["since"] = since.isoformat()
         scope["base"] = base
         scope["head"] = head
         scope["files_changed"] = patch["files"]

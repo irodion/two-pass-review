@@ -383,9 +383,9 @@ def report_markdown(merged: dict[str, Any]) -> str:
     - every standing finding, each exactly as its own `Copy` button carries it,
       a heading level down;
     - each pass's own prose;
-    - the docs check -- what was read, and each note in full. The sentence
-      counts flagged documents, and a count with nothing behind it is a
-      pointer to content the paste does not hold.
+    - the docs check -- what was read, and each note in full, or that its
+      reply was lost. The sentence counts flagged documents, and a count with
+      nothing behind it is a pointer to content the paste does not hold.
 
     Two things are left out. The self-check is a reading aid whose answers are
     folded away on the page; pasted open it would be a quiz with the answers
@@ -433,6 +433,8 @@ def report_markdown(merged: dict[str, Any]) -> str:
                 lines += ["", f"## {heading} — {label}", "", close_fences(envelope[key])]
 
     docs_check = merged.get("docs_check")
+    if docs_check is None and run.get("docs_check") == "failed":
+        lines += ["", "## Documentation", "", DOCS_LOST]
     if docs_check is not None:
         notes = docs_check.get("notes") or []
         lines += ["", f"## Documentation · {len(notes)}", "", DOCS_DISCLAIMER]
@@ -891,6 +893,16 @@ def render_withdrawn(withdrawn: list[dict[str, Any]], markdown: Markdown) -> str
 
 DOC_NOTE_KIND_LABEL = {"stale": "stale claim", "missing": "missing coverage"}
 
+# What the docs section says when the check ran and its reply could not be
+# read -- `run.docs_check` "failed", which writes no `docs_check` object. Said
+# in the section rather than left to the run panel's one word, so a reader
+# who skips the panel, and the markdown copy, still learn no document was
+# checked: an absent section reads as a check with nothing to say.
+DOCS_LOST = (
+    "The docs check ran, but its reply could not be read, so no document was checked against the "
+    "diff."
+)
+
 # The docs section's standing caveat, on the page and in its markdown copy.
 DOCS_DISCLAIMER = (
     "An advisory check, outside the verdict: it reads the named documents against the diff for "
@@ -899,7 +911,9 @@ DOCS_DISCLAIMER = (
 )
 
 
-def render_docs_check(docs_check: dict[str, Any] | None, markdown: Markdown) -> str:
+def render_docs_check(
+    docs_check: dict[str, Any] | None, state: str | None, markdown: Markdown
+) -> str:
     """The docs check's record: what was read, and any conflict it reported.
 
     Advisory, and drawn that way: a doc note is not a finding -- no id, no
@@ -911,7 +925,12 @@ def render_docs_check(docs_check: dict[str, Any] | None, markdown: Markdown) -> 
     no explicit contradiction, which the standing note says in so many words.
     """
     if docs_check is None:
-        return ""
+        if state != "failed":
+            return ""
+        return (
+            '<section class="docscheck"><h2 id="docscheck">Documentation</h2>'
+            f'<p class="docs-note">{esc(DOCS_LOST)}</p></section>'
+        )
     examined = docs_check.get("examined") or []
     notes = docs_check.get("notes") or []
     skipped = docs_check.get("skipped") or []
@@ -1169,6 +1188,8 @@ def render_page(merged: dict[str, Any]) -> str:
                 len(docs_check.get("notes") or [])
             )
         )
+    elif merged["run"].get("docs_check") == "failed":
+        prose_links.append('<li><a href="#docscheck">Documentation &middot; unread</a></li>')
 
     self_check = merged.get("self_check") or []
     if self_check:
@@ -1204,7 +1225,7 @@ def render_page(merged: dict[str, Any]) -> str:
         groups="\n".join(main),
         withdrawn=render_withdrawn(withdrawn, markdown),
         prose=render_pass_prose(merged["passes"], markdown),
-        docscheck=render_docs_check(docs_check, markdown),
+        docscheck=render_docs_check(docs_check, merged["run"].get("docs_check"), markdown),
         selfcheck=render_self_check(self_check, markdown),
         script=SCRIPT,
     )

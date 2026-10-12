@@ -967,16 +967,31 @@ def release(run_dir: str) -> int:
     return 0
 
 
+RELEASE_HELP = (
+    "removes the review tree the run made, if it made one, at the end of every run, including "
+    "one that ends early."
+)
+
+
 def main(argv: list[str]) -> int:
     # A mode of its own rather than a flag among the others: it takes a run
     # directory and nothing else, and the scope flags are all required.
     if argv[1:2] == ["--release"]:
+        # Help asked of this mode, which would otherwise be read as a run
+        # directory named `--help` -- and, with no tree to remove, exit 0.
+        if argv[2:] in (["-h"], ["--help"]):
+            sys.stdout.write(f"usage: scope.py --release RUN_DIR\n\n{RELEASE_HELP}\n")
+            return 0
         if len(argv) != 3:
             sys.stderr.write("Cannot release the review tree: --release takes one run directory\n")
             return 2
         return release(argv[2])
 
-    parser = argparse.ArgumentParser(add_help=True)
+    # Named in the epilog because argparse never sees it, and --help is where
+    # a reader looks for the modes.
+    parser = argparse.ArgumentParser(
+        add_help=True, epilog=f"scope.py --release RUN_DIR, given alone: {RELEASE_HELP}"
+    )
     parser.add_argument("--repo", required=True)
     # Three ways to name one base, exactly one of them required. The latter two
     # resolve it here, from facts the caller has already settled with the user

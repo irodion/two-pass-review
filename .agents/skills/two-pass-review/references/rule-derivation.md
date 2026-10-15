@@ -1,10 +1,14 @@
 # Deriving rule suggestions
 
-It is not a pass and not a check: it carries no rubric, emits no findings, and reads the finding list
-without touching it. Its product is one new sibling file in the run dir; the artifact and the report
-are never reopened, and re-rendering afterwards produces the identical page.
+Rule derivation is not a pass and not a check: it carries no rubric, emits no findings, and reads the
+finding list without touching it. Its product is one new sibling file in the run dir; the artifact and
+the report are never reopened, and re-rendering afterwards produces the identical page.
 
-Fill its prompt when it is asked for, from the skill as it stands then:
+**Use the run the user names.** If they name none, ask which one, listing the newest few run
+directories under `.two-pass-review/` at the top of their checkout — never pick one yourself. That
+directory is `<run_dir>` below.
+
+Fill the rule-derivation prompt from the skill as it stands now, never from a copy saved with the run:
 
 ```
 python3 <skill-dir>/scripts/prompts.py --rules <run_dir>

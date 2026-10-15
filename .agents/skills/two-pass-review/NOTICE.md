@@ -34,8 +34,8 @@ Note that `cursor/plugins` carries no root licence; licensing there is per-plugi
   Cursor's, and Cursor's is scoped to `references/`. This directory is copied around as a unit, so it has to
   carry a notice for the original work in it as well as for the forked rubrics. The hash in the table above
   is therefore the hash of `thermos/LICENSE` as taken, not of this file as it now stands.
-- Everything else in this directory — `SKILL.md`, `references/prompts.md`, `scripts/`, `agents/` — is
-  original work.
+- Everything else in this directory — `SKILL.md`, `references/prompts.md`,
+  `references/rule-derivation.md`, `scripts/`, `agents/` — is original work.
 
 This list is complete.
 

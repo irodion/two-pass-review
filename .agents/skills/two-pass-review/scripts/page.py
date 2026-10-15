@@ -1524,10 +1524,13 @@ SCRIPT = """
     // The finding's lane on the map -- its id, its line, its mark in the
     // falsification band -- found by the same id under a data- attribute.
     // Ids are the validator's sec-N and qa-N, so they quote safely in a selector.
+    // A class of the map's own, not `dismissed`: `Hide dismissed` takes whatever
+    // carries that one out of the page, and the map fades a finding instead of
+    // dropping its line.
     var lane = document.querySelectorAll(
       '[data-lane="' + card.id.replace('finding-', '') + '"]'
     );
-    for (var l = 0; l < lane.length; l++) { lane[l].classList.toggle('dismissed', dismissed); }
+    for (var l = 0; l < lane.length; l++) { lane[l].classList.toggle('lm-dismissed', dismissed); }
     retally(card.getAttribute('data-disposition'));
     refreshDismissedLink();
     refreshBulk();

@@ -1879,9 +1879,13 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
 .body code, .sc-answer code, .sc-item summary code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .89em;
   background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+/* The size and the line height are the <pre>'s, not the <code>'s inside it. A
+   line box is at least as tall as its block's own font sets it -- the strut --
+   so a 12.5px <code> inside a <pre> still at the body's 16px and 1.6 kept every
+   line 25.6px apart, and a quoted function read as double-spaced. */
 .body pre, .sc-answer pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
-  padding: 12px 14px; overflow-x: auto; }
-.body pre code, .sc-answer pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.5; }
+  padding: 12px 14px; overflow-x: auto; font-size: 12.5px; line-height: 1.5; }
+.body pre code, .sc-answer pre code { background: none; padding: 0; font-size: inherit; }
 .xref { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); }
 a { color: var(--accent); }
 

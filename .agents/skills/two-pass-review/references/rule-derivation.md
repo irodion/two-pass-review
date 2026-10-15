@@ -1,8 +1,6 @@
 # Deriving rule suggestions
 
-On demand only: the user asks, in their own words, any time after a merge — nothing runs this on its
-own, and no run is incomplete without it. Like re-rendering, it works from any past artifact. It is
-not a pass and not a check: it carries no rubric, emits no findings, and reads the finding list
+It is not a pass and not a check: it carries no rubric, emits no findings, and reads the finding list
 without touching it. Its product is one new sibling file in the run dir; the artifact and the report
 are never reopened, and re-rendering afterwards produces the identical page.
 

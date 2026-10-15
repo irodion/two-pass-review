@@ -968,8 +968,8 @@ def release(run_dir: str) -> int:
 
 
 RELEASE_HELP = (
-    "removes the review tree the run made, if it made one, at the end of every run, including "
-    "one that ends early."
+    "removes the review tree of RUN_DIR, the run_dir scope.py printed, and does nothing when the "
+    "run read the checkout in place. Safe on every run, including one that ended early."
 )
 
 

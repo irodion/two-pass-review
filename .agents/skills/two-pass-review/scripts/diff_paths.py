@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Read a unified diff's file headers into the paths they name. Stdlib only, 3.10 syntax.
+"""Read a unified diff's file headers into the paths they name, and count each file's
+changed lines. Stdlib only, 3.10 syntax.
 
 Not a script -- a library two of them share. `scope.py` needs the post-image of
 every changed file, to write the line-count manifest; `collect_docs.py` needs
@@ -33,11 +34,17 @@ class Header(NamedTuple):
     failure, and a caller that wants to notice its own blind spots needs to tell
     those apart. Nothing here reports that: the module returns one record per
     block and lets each caller do its own arithmetic.
+
+    `added` and `removed` count the block's body lines, `+` and `-`. They come
+    from this walk and no second one because only this walk knows where a
+    block's header ends -- see file_headers.
     """
 
     old: str | None
     new: str | None
     deleted: bool
+    added: int = 0
+    removed: int = 0
 
 
 def unquote_path(field: str) -> tuple[str, int] | None:
@@ -207,19 +214,31 @@ def file_headers(lines: Iterable[str]) -> list[Header]:
     new: str | None = None
     deleted = False
     started = False
+    added = removed = 0
 
     for line in lines:
         line = line.rstrip("\n")
         if line.startswith("diff --git "):
             if started:
-                headers.append(Header(old, new, deleted))
+                headers.append(Header(old, new, deleted, added, removed))
             started = True
             in_header = True
             deleted = False
+            added = removed = 0
             # The same path on both sides until the block says otherwise, which
             # is the whole of what a mode change or an empty file ever says.
             old = new = unrenamed_path(line[len("diff --git ") :])
-        elif not started or not in_header:
+        elif not started:
+            continue
+        elif not in_header:
+            # The body, where a line's first character is all it says about
+            # itself: `+` added, `-` removed, a space unchanged, `@@` a hunk and
+            # `\` git's note about a final newline. A removed `-- comment` reads
+            # `--- comment` here, which is why the count lives in this walk.
+            if line.startswith("+"):
+                added += 1
+            elif line.startswith("-"):
+                removed += 1
             continue
         elif line.startswith("@@"):
             in_header = False
@@ -255,5 +274,5 @@ def file_headers(lines: Iterable[str]) -> list[Header]:
             old = None
 
     if started:
-        headers.append(Header(old, new, deleted))
+        headers.append(Header(old, new, deleted, added, removed))
     return headers

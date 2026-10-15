@@ -1192,7 +1192,7 @@ def main(argv: list[str]) -> int:
             ),
         )
 
-        scope: dict[str, str | int | None] = {
+        scope: dict[str, str | int | list[dict[str, str | int]] | None] = {
             "repo": os.path.basename(root),
             "mode": args.mode,
         }
@@ -1220,6 +1220,18 @@ def main(argv: list[str]) -> int:
         scope["base"] = base
         scope["head"] = head
         scope["files_changed"] = patch["files"]
+        # Each changed file and the lines its block adds and removes, for the
+        # report's map, which draws every changed file as a row. Read from the
+        # pinned patch, as the count above is and for its reason: a second `git
+        # diff --numstat` could disagree with context.diff. A deletion goes by
+        # the path it had; a header named nothing readable is already counted
+        # in the warning above, and has no path to list.
+        scope["files"] = [
+            {"path": path, "added": header.added, "removed": header.removed}
+            for header in headers
+            for path in [header.new if header.new is not None else header.old]
+            if path is not None
+        ]
         scope["diff_bytes"] = patch["bytes"]
         if patch["untracked"] is not None:
             scope["untracked"] = patch["untracked"]

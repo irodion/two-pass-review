@@ -306,8 +306,8 @@ ICON_TERMINAL = icon(
 ICON_CHECK = icon('<polyline points="20 6 9 17 4 12"></polyline>', stroke="2")
 ICON_NO_ENTRY = icon(
     '<circle cx="12" cy="12" r="10"></circle><line x1="4.9" y1="4.9" x2="19.1" y2="19.1"></line>',
-    size=15,
-    stroke="2",
+    size=22,
+    stroke="2.2",
 )
 
 
@@ -1152,7 +1152,7 @@ def render_page(merged: dict[str, Any]) -> str:
         )
         nav.append(
             f'<div class="{classes}" data-disposition="{disposition}"><p class="nav-group">'
-            f'<a href="#group-{disposition}">{DISPOSITION_LABEL[disposition].upper()}</a> '
+            f'<a href="#group-{disposition}">{DISPOSITION_LABEL[disposition]}</a> '
             f'<span class="counts">&middot; {counts}</span></p><ul>{entries}</ul></div>'
         )
 
@@ -1547,26 +1547,42 @@ SCRIPT = """
 """
 
 CSS = """
+/* Faces the reader's machine already has, because the page loads nothing: it is
+   read over file:// and out of mail clients, often offline. Futura carries the
+   page's own voice -- headings, labels, controls, the verdict -- and Charter the
+   passes' prose; both ship with macOS and iOS, and each stack ends in a face
+   every other system has. Code and paths stay monospaced, and only they do.
+
+   Each disposition owns a colour and a weight, and keeps both wherever a finding
+   is drawn: a card's edge and its line on the map are the same mark. Blocking
+   is red and heaviest; follow-up is amber, with a darker amber for text, which a
+   line's amber is too light to be; a note is slate, and dashed where it is a
+   line. */
 :root {
-  --bg: #fbfaf8; --panel: #ffffff; --ink: #1c1a18; --ink-2: #4d4843; --muted: #6b6560;
-  --line: #e2ddd6;
-  --accent: #7a4b2a; --block: #a32a1e; --block-bg: #fbeae7; --block-edge: #f0cdc6;
-  --follow: #7a5c12; --note: #5a6570;
-  --code-bg: #f4f1ec; --chip-bg: #efeae2; --shadow: 0 1px 2px rgba(28,26,24,.06);
+  --bg: #ffffff; --panel: #ffffff; --ink: #14171c; --ink-2: #3e434b; --muted: #626872;
+  --line: #e3e5e9;
+  --accent: #2f5f9e; --block: #c5221f; --block-bg: #fbeae8; --block-edge: #f0cdc6;
+  --follow: #8e5d00; --follow-line: #d08700; --note: #5d6e84;
+  --code-bg: #f4f5f7; --chip-bg: #f1f2f4; --zebra: #f6f7f8; --shadow: none;
+  --block-fill: #c5221f;
+  --text: Charter, "Bitstream Charter", Cambria, Georgia, serif;
+  --disp: Futura, "Century Gothic", "Avenir Next", "Liberation Sans", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #17161a; --panel: #1e1d22; --ink: #e9e6e1; --ink-2: #c2bcb5; --muted: #a09a94;
-    --line: #34323a;
-    --accent: #d59a6c; --block: #f08b7e; --block-bg: #3a201d; --block-edge: #5e332d;
-    --follow: #d6b45c; --note: #96a1ae;
-    --code-bg: #26252b; --chip-bg: #2b2a31; --shadow: none;
+    --bg: #15171b; --panel: #1c1f24; --ink: #e8eaed; --ink-2: #c3c7cd; --muted: #9aa1ab;
+    --line: #2e333b;
+    --accent: #8db4f0; --block: #ff8a80; --block-bg: #3a1f1e; --block-edge: #5e302c;
+    --follow: #f0b755; --follow-line: #e0a33b; --note: #9fb0c6;
+    --code-bg: #23272e; --chip-bg: #262a31; --zebra: #1a1d22; --shadow: none;
+    --block-fill: #b3312a;
   }
 }
 * { box-sizing: border-box; }
 body {
   margin: 0; background: var(--bg); color: var(--ink);
-  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font: 16px/1.6 var(--text);
 }
 /* `fixed`, not `absolute`. Clicking a <label> focuses the control it names, and
    the browser scrolls that control into view -- and an absolutely-positioned
@@ -1578,7 +1594,8 @@ body {
   opacity: 0; pointer-events: none; }
 .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 40px;
   max-width: 1240px; margin: 0 auto; padding: 32px 28px 96px; align-items: start; }
-.sidebar { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; font-size: 14px; }
+.sidebar { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; font-size: 14px;
+  font-family: var(--disp); }
 /* The sidebar is sticky against the page *and* a scroll container of its own, so
    its first children -- the verdict badge and the filter pills -- are the first
    things out of it once the nav overflows. Sticky again one level in keeps them:
@@ -1597,11 +1614,15 @@ main { min-width: 0; }
    on every screen and not just the first. Below 900px it is not: the sidebar
    goes static and the badge scrolls away with it, because a single-column layout
    has no second column to persist anything in. */
-.verdict { display: flex; align-items: center; gap: 7px; border-radius: 8px; padding: 10px 14px;
-  margin-bottom: 18px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: 13px; }
+/* Filled when it blocks, outlined when it is clear: the one solid block of colour
+   in the sidebar is the one fact that should stop a merge. Its own red, not
+   `--block`: the dark theme lightens that one so red text stays legible, and as
+   a fill under white the lighter red glared. */
+.verdict { display: flex; align-items: center; gap: 10px; border-radius: 4px; padding: 11px 16px;
+  margin-bottom: 18px; font: 700 26px/1.1 var(--disp); letter-spacing: .01em; }
 .verdict .icon { flex-shrink: 0; }
-.verdict-blocked { background: var(--block-bg); color: var(--block); border: 1px solid var(--block); }
-.verdict-clear { background: var(--chip-bg); color: var(--ink); border: 1px solid var(--line); }
+.verdict-blocked { background: var(--block-fill); color: #ffffff; border: 1.5px solid var(--block-fill); }
+.verdict-clear { background: var(--panel); color: var(--ink); border: 1.5px solid var(--ink); }
 /* .sentence keeps its 8px top margin now that it leads the masthead. It is what
    lands the sentence level with the sidebar badge, so the two read as one unit
    and the masthead loses no signal. */
@@ -1611,9 +1632,9 @@ main { min-width: 0; }
 
 /* No margin: the gap under the filters is the head's padding now, see above. */
 .filters { margin-bottom: 0; }
-.filter-title { margin: 12px 0 6px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
-.pill { display: inline-block; padding: 3px 10px; margin: 0 4px 4px 0; border: 1px solid var(--line);
-  border-radius: 999px; cursor: pointer; font-size: 13px; background: var(--panel); }
+.filter-title { margin: 14px 0 6px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.pill { display: inline-block; padding: 3px 11px; margin: 0 4px 4px 0; border: 1px solid var(--line);
+  border-radius: 999px; cursor: pointer; font: 13px/1.5 var(--disp); background: var(--panel); }
 #f-prod-all:checked ~ .layout .pill-prod-all,
 #f-prod-security:checked ~ .layout .pill-prod-security,
 #f-prod-quality:checked ~ .layout .pill-prod-quality,
@@ -1646,7 +1667,7 @@ main { min-width: 0; }
 #f-dism-hide:checked ~ .layout .dism-hide { display: none; }
 #f-dism-hide:checked ~ .layout .dism-show { display: inline; }
 
-nav .nav-group { margin: 16px 0 6px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+nav .nav-group { margin: 16px 0 6px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
 /* The first group's top margin used to collapse into the filters' bottom margin
    and disappear. Padding does not collapse, so without this the gap would be
    22 + 16 and the unscrolled page would no longer match what it was. The rule
@@ -1658,7 +1679,7 @@ nav ul { list-style: none; margin: 0; padding: 0; }
 nav li { margin: 0 0 3px; line-height: 1.35; }
 nav a { color: var(--ink); text-decoration: none; }
 nav a:hover { text-decoration: underline; }
-.nav-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); }
+.nav-id { font-family: var(--mono); font-size: 12px; color: var(--muted); }
 [data-disposition="blocking"] .nav-id { color: var(--block); font-weight: 700; }
 .nav-prose { margin-top: 18px; }
 .nav-prose a { color: var(--muted); }
@@ -1698,8 +1719,12 @@ nav a:hover { text-decoration: underline; }
 #f-prod-security:checked ~ .layout .group.sev-empty-security,
 #f-prod-quality:checked ~ .layout .group.sev-empty-quality { display: none; }
 
-h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+/* Sentence case, at the size of a heading. The tracked small capitals this
+   replaced were the same treatment as every label on the page, so a section
+   started with something that looked like one more field name. */
+h2 { font: 600 19px/1.3 var(--disp); color: var(--ink);
   border-bottom: 1px solid var(--line); padding-bottom: 8px; margin: 42px 0 18px; }
+h2 .counts { color: var(--muted); font-weight: 400; }
 .counts { font-variant-numeric: tabular-nums; }
 
 /* The run's facts, under the nav rather than above the findings. Two columns for
@@ -1707,10 +1732,10 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
    half -- and a full 40-character SHA must not break mid-hash either, because
    half an object id on each of two lines is not a thing anyone can copy. */
 .run { margin-top: 26px; padding-top: 16px; border-top: 1px solid var(--line); }
-.run-title { margin: 0 0 10px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.run-title { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
 .run-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin: 0; }
 .kv-wide { grid-column: 1 / -1; }
-.kv dt { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0; }
+.kv dt { font-size: 12px; color: var(--muted); margin: 0; }
 .kv dd { margin: 1px 0 0; font-size: 13px; overflow-wrap: anywhere; }
 .run-facts .chip { font-size: 11px; line-height: 1.55; overflow-wrap: normal; word-break: keep-all; }
 /* Except a revision as typed: a branch name can outrun the column, and with no
@@ -1720,8 +1745,8 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
 .run-note { margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .muted { color: var(--muted); font-size: 14px; }
 .nowrap { white-space: nowrap; }
-.finding-head h3 code { font-size: .92em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
+.finding-head h3 code { font-size: .86em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px;
+  font-family: var(--mono); font-weight: 600; }
 
 /* The disclaimer is on every page and the warnings are not, so it stays quiet --
    muted like the scope line, never tinted. Tint it and the run-specific warnings
@@ -1737,32 +1762,35 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
 
 /* The left edge carries the disposition, so a card says which of the three lists
    it is in without the reader having to find the heading it is under -- which is
-   what a deep-linked or filtered page costs otherwise. */
-.finding { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--note);
-  border-radius: 10px; padding: 18px 22px 15px; margin: 0 0 14px; box-shadow: var(--shadow); }
-.finding[data-disposition="blocking"] { border-left-color: var(--block); }
-.finding[data-disposition="follow-up"] { border-left-color: var(--follow); }
+   what a deep-linked or filtered page costs otherwise. It is drawn as the
+   finding's line on the map is, colour and weight and dash alike, so the two
+   read as one mark. A card with no disposition -- a doc note, a withdrawn
+   finding -- keeps a neutral hairline, because any line style would claim one. */
+.finding { background: var(--panel); border: 1px solid var(--line); border-left: 2px solid var(--line);
+  border-radius: 6px; padding: 18px 22px 15px; margin: 0 0 14px; box-shadow: var(--shadow); }
+.finding[data-disposition="blocking"] { border-left: 6px solid var(--block); }
+.finding[data-disposition="follow-up"] { border-left: 3px solid var(--follow-line); }
+.finding[data-disposition="note"] { border-left: 2px dashed var(--note); }
 .meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; margin-bottom: 7px; }
-.fid { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
-  letter-spacing: .04em; font-weight: 700; color: var(--note); }
+.fid { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--note); }
 [data-disposition="blocking"] .fid { color: var(--block); }
 [data-disposition="follow-up"] .fid { color: var(--follow); }
 /* `text-wrap: pretty` where it is supported, and nothing where it is not: a
    widowed last word is the failure it prevents, which is a wobble and not a bug. */
-.finding-head h3 { margin: 0; font-size: 19px; line-height: 1.3; font-weight: 600;
+.finding-head h3 { margin: 0; font-size: 21px; line-height: 1.3; font-weight: 700;
   letter-spacing: -.005em; text-wrap: pretty; }
-.meta-label { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.meta-label { font: 13px/1.4 var(--disp); color: var(--muted); }
 /* Dashed underline rather than a dashed pill: the border said `there is more
    here` in the same shape the severity uses to say `this is how loud it is`. */
 .meta-conf { border-bottom: 1px dashed var(--line); }
-.tag { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; padding: 2px 8px;
-  border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-weight: 600; }
+.tag { font: 600 12px/1.4 var(--disp); padding: 1px 9px;
+  border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
 .tag-critical, .tag-high { color: var(--block); border-color: var(--block); }
 .tag-medium { color: var(--follow); border-color: var(--follow); }
 
 .locations { margin: 11px 0 0; display: flex; flex-wrap: wrap; gap: 6px; }
 /* Inert on purpose: a chip that looks like a link and is not one is a lie. */
-.chip { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+.chip { font-family: var(--mono); font-size: 12.5px;
   background: var(--chip-bg); border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px;
   user-select: all; -webkit-user-select: all; text-decoration: none; cursor: text; }
 .chip-primary { border-color: var(--accent); color: var(--accent); }
@@ -1775,10 +1803,10 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
 .card-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
   margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .copy { display: flex; gap: 8px; }
-.copy-btn { display: flex; align-items: center; gap: 6px; font: inherit; font-size: 12.5px;
-  color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 5px;
-  padding: 4px 10px; cursor: pointer; }
-.copy-btn:hover { color: var(--ink); border-color: var(--accent); }
+.copy-btn { display: flex; align-items: center; gap: 6px; font: 13px/1.4 var(--disp);
+  color: var(--ink-2); background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+  padding: 4px 12px; cursor: pointer; }
+.copy-btn:hover { color: var(--ink); border-color: var(--ink); }
 .copy-btn[data-busy] { color: var(--accent); border-color: var(--accent); }
 /* Both icons ship; this picks. `ok` only -- the check is a claim that the text
    is on the clipboard, and on the failure path it is not. */
@@ -1797,10 +1825,10 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
 /* Always visible, never hover-revealed: this page is printed and forwarded by
    email, where there is no hover. Borderless until wanted, so the mark reads as
    quieter than the two buttons it shares the strip with. */
-.dismiss { margin-left: auto; font: inherit; font-size: 12.5px; color: var(--muted);
-  background: var(--panel); border: 1px solid transparent; border-radius: 5px;
-  padding: 4px 10px; cursor: pointer; }
-.dismiss:hover { color: var(--ink); border-color: var(--accent); }
+.dismiss { margin-left: auto; font: 13px/1.4 var(--disp); color: var(--muted);
+  background: var(--panel); border: 1px solid transparent; border-radius: 999px;
+  padding: 4px 12px; cursor: pointer; }
+.dismiss:hover { color: var(--ink); border-color: var(--ink); }
 
 /* Dismissal is a class, set by the script on the card and on its sidebar entry.
    The mark reaches the nav because a struck card under an unstruck nav entry
@@ -1858,8 +1886,8 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
    page's colour for `attend to this, it does not block`. Never the blocking
    red: red would say the finding lost, and the check is wrong often enough
    that the card must not pre-judge the winner. */
-.contested { border-left: 2px solid var(--follow); padding-left: 11px; margin: 13px 0 0;
-  font-size: 13.5px; line-height: 1.5; color: var(--muted); }
+.contested { border-left: 2px solid var(--follow-line); padding-left: 11px; margin: 13px 0 0;
+  font-size: 14.5px; line-height: 1.5; color: var(--muted); }
 .contested p { margin: 4px 0 0; }
 .contested-label { color: var(--follow); font-weight: 600; margin: 0; }
 .meta-contested { color: var(--follow); }
@@ -1870,14 +1898,14 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
    asserted and the rest is why -- they were rendered identically, so a reader
    skimming for what the finding says had to read the whole card to find out.
    `> p:first-child`, so a body that opens with a list is left alone. */
-.body p { margin: 10px 0 0; font-size: 15px; line-height: 1.55; color: var(--ink-2); }
-.body > p:first-child { margin-top: 13px; font-size: 16.5px; line-height: 1.5; color: var(--ink); }
+.body p { margin: 10px 0 0; font-size: 16px; line-height: 1.6; color: var(--ink-2); }
+.body > p:first-child { margin-top: 13px; font-size: 18px; line-height: 1.5; color: var(--ink); }
 .body ul, .body ol { margin: 12px 0; padding-left: 22px; }
 .body li { margin: 4px 0; }
 .body blockquote { margin: 12px 0; padding: 2px 14px; border-left: 3px solid var(--line); color: var(--muted); }
 .body code, .chip { overflow-wrap: anywhere; }
 .body code, .sc-answer code, .sc-item summary code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .89em;
+  font-family: var(--mono); font-size: .82em;
   background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
 /* The size and the line height are the <pre>'s, not the <code>'s inside it. A
    line box is at least as tall as its block's own font sets it -- the strut --
@@ -1889,12 +1917,13 @@ h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: va
 .xref { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); }
 a { color: var(--accent); }
 
-/* The questions read as sentences, not as the prose sections' uppercase labels:
-   a summary here is the thing being asked, and small-caps would file it as
-   furniture. The answer stays collapsed until the reader opens it, which is the
-   native <details> behaviour and the whole interaction. */
+/* The questions read as sentences in the reading face, not in the face the
+   prose sections' labels use: a summary here is the thing being asked, and a
+   label's face would file it as furniture. The answer stays collapsed until the
+   reader opens it, which is the native <details> behaviour and the whole
+   interaction. */
 .sc-note { color: var(--muted); font-size: 13px; line-height: 1.5; margin: -8px 0 16px; }
-.sc-item { border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
+.sc-item { border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
   padding: 0 18px; margin: 0 0 10px; }
 .sc-item summary { cursor: pointer; padding: 12px 0; font-size: 15.5px; line-height: 1.45; }
 .sc-item[open] summary { border-bottom: 1px solid var(--line); }
@@ -1910,12 +1939,10 @@ a { color: var(--accent); }
 .docs-note, .docs-coverage { color: var(--muted); font-size: 13px; line-height: 1.5; }
 .docs-note { margin: -8px 0 12px; }
 .docs-coverage { margin: 0 0 16px; }
-.doc-owed-label { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
-  margin: 12px 0 0; }
+.doc-owed-label { font: 600 13px/1.4 var(--disp); color: var(--ink-2); margin: 12px 0 0; }
 
-.prose details { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 0 18px; }
-.prose summary { cursor: pointer; padding: 12px 0; font-size: 13px; letter-spacing: .06em;
-  text-transform: uppercase; color: var(--muted); }
+.prose details { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 0 18px; }
+.prose summary { cursor: pointer; padding: 12px 0; font: 14px/1.4 var(--disp); color: var(--muted); }
 .prose details[open] summary { border-bottom: 1px solid var(--line); margin-bottom: 8px; }
 .prose details > *:last-child { margin-bottom: 16px; }
 

@@ -663,10 +663,11 @@ def _markdown_targets(text: str) -> list[str]:
 COMMAND_DOCS = (
     os.path.join(SKILL, "SKILL.md"),
     os.path.join(SKILL, "references", "prompts.md"),
+    os.path.join(SKILL, "references", "rule-derivation.md"),
 )
 # Every document a clone ships, all of them link-checked. The ones past the
-# first two teach other tools' flags too, so only a command naming one of this
-# skill's scripts is held to anything there.
+# command documents teach other tools' flags too, so only a command naming one
+# of this skill's scripts is held to anything there.
 DOCS = (
     *COMMAND_DOCS,
     os.path.join(ROOT, "README.md"),

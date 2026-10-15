@@ -179,10 +179,12 @@ SCOPE_FIELDS = frozenset(
         "base",
         "head",
         "files_changed",
+        "files",
         "diff_bytes",
         "untracked",
     ]
 )
+SCOPE_FILE_FIELDS = frozenset(["path", "added", "removed"])
 # The one shape scope.py writes `since` in: datetime.isoformat() of a
 # whole-second instant at the offset the user gave, which is what the page
 # shows. Anything else in that field was not written by scope.py.
@@ -1304,8 +1306,32 @@ def check_run(report: Report, where: str, run: object, version: int) -> None:
         report.add(at, "'against' and 'since' are two ways to find one base; a scope has one")
 
     _nonempty_str(report, at, scope, "base")
-    _int(report, at, scope, "files_changed")
+    files_changed = _int(report, at, scope, "files_changed")
     _int(report, at, scope, "diff_bytes")
+
+    # Each changed file and its churn, as scope.py read them from the patch, for
+    # the page's map. Optional: absent from every run before the map drew all of
+    # a change's files, and the page then maps only the files findings cite. It
+    # may run short of files_changed -- a header scope.py could not read names no
+    # path, and scope.py warns of it -- but never past it.
+    if "files" in scope:
+        files = scope.get("files")
+        if not isinstance(files, list):
+            report.add(at, "'files' must be a list")
+        else:
+            for index, entry in enumerate(files):
+                here = f"{at} files[{index}]"
+                if not isinstance(entry, dict):
+                    report.add(here, "must be a JSON object")
+                    continue
+                _check_unknown(report, here, entry, SCOPE_FILE_FIELDS, "file")
+                _nonempty_str(report, here, entry, "path")
+                _int(report, here, entry, "added")
+                _int(report, here, entry, "removed")
+            if files_changed is not None and len(files) > files_changed:
+                report.add(
+                    at, f"'files' lists {len(files)} files but 'files_changed' is {files_changed}"
+                )
 
     head = scope.get("head")
     if scope_mode == "local-patch":

@@ -296,6 +296,9 @@ def _hostile_artifact(version: int, benign: bool = False) -> dict[str, Any]:
                 "base": text("base"),
                 "head": text("head"),
                 "files_changed": 1,
+                # Shown on the line map alone, as a row of its own: the one
+                # place a changed file's path reaches the page.
+                "files": [{"path": text("changed-path"), "added": 2, "removed": 1}],
                 "diff_bytes": 1,
             },
         },
@@ -343,6 +346,7 @@ OBJECTS: dict[str, Callable[[dict[str, Any]], list[Any]]] = {
     "MERGED_FIELDS": lambda a: [a],
     "RUN_FIELDS": lambda a: [a["run"]],
     "SCOPE_FIELDS": lambda a: [a["run"]["scope"]],
+    "SCOPE_FILE_FIELDS": lambda a: a["run"]["scope"].get("files", []),
     "EMBEDDED_PASS_FIELDS": lambda a: a["passes"],
     "FINDING_FIELDS": lambda a: a["findings"],
     "LOCATION_FIELDS": lambda a: [loc for f in a["findings"] for loc in f["locations"]],
@@ -355,7 +359,10 @@ OBJECTS: dict[str, Callable[[dict[str, Any]], list[Any]]] = {
 # is EMBEDDED_PASS_FIELDS, placed above.
 NOT_IN_ARTIFACT = frozenset(["PASS_FIELDS"])
 # Fields that cannot carry text, by object.
-NOT_TEXT = {"SCOPE_FIELDS": frozenset(["untracked"])}
+NOT_TEXT = {
+    "SCOPE_FIELDS": frozenset(["untracked"]),
+    "SCOPE_FILE_FIELDS": frozenset(["added", "removed"]),
+}
 
 # Elements a payload would plant to run code, load something, or restyle the
 # page. The page uses some of them itself -- its one script, its one stylesheet,

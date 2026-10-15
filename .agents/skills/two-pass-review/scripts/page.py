@@ -1109,16 +1109,25 @@ def masthead_sentence(merged: dict[str, Any]) -> str:
 
 # --- line map ----------------------------------------------------------------
 
-# The most lanes that keep the width an id reads across at. Past it the lanes
-# narrow and their ids turn on their side, and past the column's width the map
-# scrolls sideways rather than squeezing the file names out.
-LANES_WIDE_MAX = 11
+# The most lanes that keep the width an id reads across at: eight 40px lanes,
+# beside a path of MAP_PATH_MAX characters and its churn, is what the report's
+# main column holds. Past it the lanes narrow and their ids turn on their side,
+# and past the column's width the map scrolls sideways rather than squeezing
+# the file names out.
+LANES_WIDE_MAX = 8
 # What one line in the map's key stands for: one finding, so singular, where a
 # heading counts a list.
 LANE_LABEL = {"blocking": "Blocking", "follow-up": "Follow-up", "note": "Note"}
 # Longer paths lose leading directories, as git's own diffstat shortens them;
 # the full path rides along in the row's title.
 MAP_PATH_MAX = 46
+# Up to this many changed files, every one is a row, cited or not, which is
+# what shows a reader the files no finding touched. Past it those rows are
+# mostly empty track, so only the cited files are rows and one row counts the
+# rest.
+MAP_ALL_FILES_MAX = 30
+# The widest churn bar, in px; the others scale to it.
+CHURN_BAR_MAX = 56
 
 
 def cited_paths(finding: dict[str, Any]) -> list[str]:
@@ -1245,15 +1254,34 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
     for note in (docs_check or {}).get("notes") or []:
         notes[note["path"]] = notes.get(note["path"], 0) + 1
 
+    scope = merged["run"]["scope"]
+    # Every file the change touched, with its churn, when the run recorded them
+    # -- scope.py has since this map existed. An older artifact maps only the
+    # files something cites, and says nothing about what the diff did not touch,
+    # because it cannot know.
+    changed: dict[str, dict[str, Any]] | None = None
+    if "files" in scope:
+        changed = {entry["path"]: entry for entry in scope["files"]}
+
     cited = {f["id"]: cited_paths(f) for f in ordered}
-    rows = sorted({path for paths in cited.values() for path in paths} | set(notes))
+    named = {path for paths in cited.values() for path in paths} | set(notes)
+    rest: list[dict[str, Any]] = []
+    if changed is not None and len(changed) <= MAP_ALL_FILES_MAX:
+        rows = sorted(named | set(changed))
+    else:
+        rows = sorted(named)
+        if changed is not None:
+            rest = [entry for path, entry in changed.items() if path not in named]
     row_of = {path: index for index, path in enumerate(rows)}
+    outside = {path for path in rows if changed is not None and path not in changed}
 
     left = [f for f in ordered if f["producer"] == "security"][::-1]
     right = [f for f in ordered if f["producer"] != "security"]
     path_col = len(left) + 2
+    churn_col = path_col + 1 if changed is not None else None
+    right_col = path_col + (3 if changed is not None else 2)
     column = {f["id"]: index + 1 for index, f in enumerate(left)}
-    column.update({f["id"]: path_col + 2 + index for index, f in enumerate(right)})
+    column.update({f["id"]: right_col + index for index, f in enumerate(right)})
     # The files as wide as their names and no wider, so both sides' lines arrive
     # beside them; what width is left over goes to the last track, after the
     # quality pass's lines, where it separates nothing.
@@ -1261,6 +1289,7 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
         *(["var(--lane)"] * len(left)),
         "14px",
         "minmax(12rem, max-content)",
+        *(["max-content"] if changed is not None else []),
         "14px",
         *(["var(--lane)"] * len(right)),
         "1fr",
@@ -1268,15 +1297,31 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
 
     band = falsifier_band(merged, ordered)
     first = 4 if band else 3
+    shown = len(rows) + (1 if rest else 0)
     template_rows = [
         "auto",
         "auto",
         *(["2.25rem"] if band else []),
-        f"repeat({len(rows)}, var(--row))",
+        f"repeat({shown}, var(--row))",
     ]
 
+    def counts(added: int, removed: int) -> str:
+        """`+12 &minus;3`, each side only when it is not zero, as git's summary line."""
+        said = [text for text, n in ((f"+{added}", added), (f"&minus;{removed}", removed)) if n]
+        return " ".join(said) or "0"
+
+    def churn(added: int, removed: int, widest: int) -> str:
+        """A row's bar and counts. Added dark, removed light: red and green are the
+        map's disposition colours, and a bar in either would read as one."""
+        bar = "".join(
+            f'<b class="{cls}" style="width:{max(1, round(n * CHURN_BAR_MAX / widest))}px"></b>'
+            for cls, n in (("lm-add", added), ("lm-del", removed))
+            if n
+        )
+        return f'<span class="lm-bar">{bar}</span>{counts(added, removed)}'
+
     bits: list[str] = []
-    for index in range(1, len(rows), 2):
+    for index in range(1, shown, 2):
         bits.append(
             f'<span class="lm-zebra" style="grid-row:{first + index}" aria-hidden="true"></span>'
         )
@@ -1287,11 +1332,27 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
         )
     if right:
         bits.append(
-            f'<span class="lm-pass lm-pass-right" style="grid-column:{path_col + 2} / {path_col + 2 + len(right)};'
+            f'<span class="lm-pass lm-pass-right" style="grid-column:{right_col} / {right_col + len(right)};'
             'grid-row:1">Quality</span>'
         )
+    if changed is None:
+        heading = "Files cited"
+    else:
+        count = scope["files_changed"]
+        heading = "{} changed file{}".format(count, "" if count == 1 else "s")
+        if outside:
+            heading += f", and {len(outside)} outside the diff"
+        bits.append(
+            '<span class="lm-colhead" style="grid-column:{};grid-row:2">{}</span>'.format(
+                churn_col,
+                counts(
+                    sum(e["added"] for e in changed.values()),
+                    sum(e["removed"] for e in changed.values()),
+                ),
+            )
+        )
     bits.append(
-        f'<span class="lm-colhead" style="grid-column:{path_col};grid-row:2">Files cited</span>'
+        f'<span class="lm-colhead" style="grid-column:{path_col};grid-row:2">{heading}</span>'
     )
     for finding in ordered:
         finding_id = esc(finding["id"])
@@ -1320,17 +1381,54 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
                     f'style="grid-column:{column[finding["id"]]};grid-row:3">{marks[finding["id"]]}</span>'
                 )
 
+    widest = max(
+        [1, *(e["added"] + e["removed"] for p, e in (changed or {}).items() if p in row_of)]
+    )
     for index, path in enumerate(rows):
         directory, name = map_path(path)
-        tag = ""
+        tags = ""
         if path in notes:
             count = notes[path]
-            tag = '<a class="lm-tag" href="#docscheck">docs check: {} note{}</a>'.format(
+            tags += '<a class="lm-tag" href="#docscheck">docs check: {} note{}</a>'.format(
                 count, "" if count == 1 else "s"
             )
         bits.append(
-            f'<span class="lm-file" style="grid-column:{path_col};grid-row:{first + index}" '
-            f'title="{esc(path)}"><span class="lm-dir">{esc(directory)}</span>{esc(name)}{tag}</span>'
+            '<span class="lm-file{}" style="grid-column:{};grid-row:{}" title="{}">'
+            '<span class="lm-dir">{}</span>{}{}</span>'.format(
+                " lm-outside" if path in outside else "",
+                path_col,
+                first + index,
+                esc(path),
+                esc(directory),
+                esc(name),
+                tags,
+            )
+        )
+        if changed is not None and path in changed:
+            entry = changed[path]
+            bits.append(
+                f'<span class="lm-churn" style="grid-column:{churn_col};grid-row:{first + index}">'
+                f"{churn(entry['added'], entry['removed'], widest)}</span>"
+            )
+        elif path in outside:
+            # A finding may cite a file the diff never touched, and the docs check
+            # reads documents beside the change. The run panel says so in words;
+            # the row says which, where its churn would be.
+            bits.append(
+                f'<span class="lm-churn" style="grid-column:{churn_col};grid-row:{first + index}">'
+                "not in this diff</span>"
+            )
+    if rest:
+        here = first + len(rows)
+        bits.append(
+            f'<span class="lm-file lm-outside" style="grid-column:{path_col};grid-row:{here}">'
+            "and {} more changed file{} no finding cites</span>".format(
+                len(rest), "" if len(rest) == 1 else "s"
+            )
+        )
+        bits.append(
+            f'<span class="lm-churn" style="grid-column:{churn_col};grid-row:{here}">'
+            f"{counts(sum(e['added'] for e in rest), sum(e['removed'] for e in rest))}</span>"
         )
 
     for finding in ordered:
@@ -1338,7 +1436,12 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
         if not stops:
             continue
         top, bottom = stops[0], stops[-1]
-        stations = "".join(f'<i class="lm-st" style="--r:{stop - top}"></i>' for stop in stops)
+        stations = "".join(
+            '<i class="lm-st{}" style="--r:{}"></i>'.format(
+                " lm-out" if rows[stop] in outside else "", stop - top
+            )
+            for stop in stops
+        )
         bits.append(
             f'<span class="lm-lane {lane_classes(finding)}" data-lane="{esc(finding["id"])}" '
             f'style="grid-column:{column[finding["id"]]};grid-row:{first + top} / {first + bottom + 1}" '
@@ -1352,6 +1455,11 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
         for d in DISPOSITION_ORDER
         if d in present
     ]
+    if any(path in outside for paths in cited.values() for path in paths):
+        legend.append(
+            '<li><span class="lm-key lm-key-out lm-lane" aria-hidden="true"><i class="lm-st lm-out"></i></span>'
+            "a file the diff did not touch</li>"
+        )
     if band and not band[1]:
         legend.append(
             '<li><span class="lm-key-mark" aria-hidden="true"><i class="lm-dot"></i></span>'
@@ -2243,7 +2351,7 @@ a { color: var(--accent); }
    column's width instead, a long run's lanes alone overflow it, the grid has no
    width left to give the file names, and they are cut to their 12rem floor;
    sized to its content, the map scrolls sideways and every name stays whole. */
-.lm { --row: 30px; --lane: 44px; display: grid; font-family: var(--disp); width: max-content; min-width: 100%; }
+.lm { --row: 30px; --lane: 40px; display: grid; font-family: var(--disp); width: max-content; min-width: 100%; }
 .lm.lm-narrow { --lane: 28px; }
 .lm > * { min-width: 0; z-index: 1; }
 .lm-zebra, .lm-band { grid-column: 1 / -1; z-index: 0; }
@@ -2295,6 +2403,17 @@ a { color: var(--accent); }
 .lm-key { --row: 22px; width: 22px; height: 22px; }
 .lm-key::before { top: 0; bottom: 0; }
 .lm-key-mark { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; }
+.lm-key-out::before { display: none; }
+/* A station on a file the diff did not touch: the ring is drawn, not filled,
+   as a cited file is real but the change is not in it. */
+.lm-st.lm-out { border-style: dotted; background: transparent; }
+.lm-file.lm-outside { color: var(--muted); }
+.lm-churn { align-self: center; display: flex; align-items: center; gap: 8px; padding-left: 12px;
+  font: 11.5px/1 var(--mono); color: var(--muted); white-space: nowrap; }
+.lm-bar { display: flex; height: 8px; }
+.lm-bar b { display: block; height: 8px; }
+.lm-add { background: var(--ink-2); }
+.lm-del { background: var(--muted); opacity: .4; }
 /* The filters hide cards; on the map they dim, so the lines left lit stay where
    they were drawn and the dimmed ones still say what else is there. `High` takes
    `critical` with it, as it does for the cards. */

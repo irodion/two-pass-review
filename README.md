@@ -140,6 +140,16 @@ loudly they shout, derived from severity for security findings and from category
   it. The validator enforces that.
 - **Findings that corroborate each other** sit together with a banner, rather than being merged. Two
   passes reaching one defect from two directions is evidence, and collapsing it would throw that away.
+- **A map of where the findings land opens the report.** Each finding is a line through the files it
+  cites — the security pass's left of the files, the quality pass's right — drawn in its disposition's
+  colour and weight, as its card's edge is, so a finding that cuts across several files and a file that
+  several findings reach both show at a glance. Every changed file is a row with its churn, up to thirty;
+  past that, only the cited files, and one row counts the rest. A cited file the diff never touched says
+  so on its row. Above the rows the falsification check marks each line: a grey dot for a finding it read
+  and did not contest — its silence, not a pass — an amber diamond for a contest, which links to it, and a
+  hatched band when the check was skipped or its reply was lost. The filters dim lines rather than hide
+  them, and a finding marked dealt with fades there too. Reports from runs before the map recorded every
+  changed file map only the files the findings cite.
 - **A contested finding is still a finding.** Before the merge, a falsification check that sees only the
   diff — none of the passes' context — tries to disprove each finding, and one whose key claim the diff
   appears to contradict is marked *contested*: it keeps its place, its disposition and its force — a

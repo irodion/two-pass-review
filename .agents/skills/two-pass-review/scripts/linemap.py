@@ -478,6 +478,10 @@ CSS = """
 #f-sev-high:checked ~ .layout .lm .lm-rated:not(.lm-sev-high):not(.lm-sev-critical),
 #f-sev-medium:checked ~ .layout .lm .lm-rated:not(.lm-sev-medium),
 #f-sev-low:checked ~ .layout .lm .lm-rated:not(.lm-sev-low) { opacity: .15; }
-.lm .dismissed { opacity: .3; }
-.lm-label.dismissed { text-decoration: line-through; }
+/* A dismissed finding fades, under `Hide dismissed` as without it. The page's
+   `.dismissed` would be taken out of the flow by that control, and a map that
+   lost lines would no longer say what the run found; so the script marks the
+   map's parts `.lm-dismissed`, which nothing hides. */
+.lm .lm-dismissed { opacity: .3; }
+.lm-label.lm-dismissed { text-decoration: line-through; }
 """

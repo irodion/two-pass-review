@@ -228,13 +228,21 @@ loudly they shout, derived from severity for security findings and from category
 
 ## Asking for rule suggestions
 
-After a review — any review, any time later, the same way re-rendering works from an old artifact —
+After a review — any time later, for as long as git still holds the code that was reviewed —
 you can ask for lint rule suggestions derived from its findings: semgrep rules and linter-config
 changes that would catch recurrences of the defect classes the passes found. They land as `rules.md`
 beside that run's `findings.json`, each suggestion naming the finding ids it derives from, and none
 of it touches the review — the findings, the verdict and the report stay exactly what they were.
-Suggestions, not enforcement: nothing is installed or run, and the file says which findings yielded
-no rule and why.
+Suggestions, not enforcement: nothing is installed or enforced, and the file says which findings
+yielded no rule and why. Each rule is tested before it is written down — run on the reviewed code,
+checked out again with the same protections the review used, and on your checkout as it is now —
+and says what it flagged in each, or why it could not be tested. Testing uses only semgrep or ruff,
+and only if you already have them on your `PATH` — never through your project's own runner, such as
+`uv run` — because any other tool's configuration, and any runner, can make it run code from the
+repository being reviewed. The reviewed code has to still be in git for this: the head that was
+reviewed, or, for uncommitted work, the commit the review made of your working tree, which `git gc`
+removes after about two weeks and which reviews from before that commit existed do not have. When it
+is gone the request is refused with that reason, and reviewing the code again brings it back.
 
 ## On Codex
 

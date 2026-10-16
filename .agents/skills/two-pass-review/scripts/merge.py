@@ -60,6 +60,7 @@ import sys
 from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import runs  # sibling module, same directory
 import validate  # sibling script, same directory
 
 FALSIFIER_ANSWER = "falsification.json"
@@ -281,7 +282,7 @@ def read_collection(run_dir: str) -> tuple[list[str], list[Any]] | None:
     return [entry["path"] for entry in collected["docs"]], collected["skipped"]
 
 
-def read_pinned(run_dir: str, doing: str) -> tuple[dict[str, Any], str | None] | int:
+def read_pinned(run_dir: str, doing: str) -> tuple[runs.Record, str | None] | int:
     """(scope.json, the review tree to check ranges against), or the exit status.
 
     `doing` names the step in a refusal, and only a merge warns: the candidates
@@ -291,11 +292,10 @@ def read_pinned(run_dir: str, doing: str) -> tuple[dict[str, Any], str | None] |
     before the merge; the ranges were already proven against it when each pass
     validated, so merging without it loses a re-check, not a check.
     """
-    pinned = read_json(os.path.join(run_dir, "scope.json"))
-    if not isinstance(pinned, dict) or not isinstance(pinned.get("scope"), dict):
+    pinned = runs.read_record(run_dir)
+    if pinned is None or pinned.get("scope") is None:
         return refuse(
-            f"{run_dir} holds no scope.json written by scope.py -- pass the run directory "
-            "scope.py printed",
+            f"{run_dir} {runs.NO_RECORD} -- pass the run directory scope.py printed",
             2,
             doing,
         )

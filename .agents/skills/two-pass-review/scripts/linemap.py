@@ -147,6 +147,11 @@ class RowPlan(NamedTuple):
     totals: tuple[int, int] | None
     rest: tuple[int, int, int] | None
 
+    @property
+    def shown(self) -> int:
+        """The grid rows the files take: one each, and the summary row if any."""
+        return len(self.rows) + (1 if self.rest else 0)
+
 
 def map_rows(scope: dict[str, Any], named: set[str], notes: dict[str, int]) -> RowPlan:
     """The map's rows: the files `named` -- cited, or carrying a docs-check note --
@@ -181,7 +186,8 @@ def map_rows(scope: dict[str, Any], named: set[str], notes: dict[str, int]) -> R
     outside = sum(1 for row in rows if row.outside)
     if outside:
         heading += f", and {outside} outside the diff"
-    left = [entry for path, entry in changed.items() if path not in paths]
+    listed = set(paths)
+    left = [entry for path, entry in changed.items() if path not in listed]
     totals = (
         sum(e["added"] for e in changed.values()),
         sum(e["removed"] for e in changed.values()),
@@ -297,14 +303,16 @@ def churn(added: int, removed: int, widest: int) -> str:
 
 class Grid(NamedTuple):
     """Where the map's parts go: the files' column, the churn's, the first
-    quality lane's, the first file row, and each finding's lane by id.
-    `columns` and `rows` are the grid's own templates."""
+    quality lane's, the first file row, and each finding's lane by id; how many
+    lanes stand on each side; and the grid's own two templates."""
 
     path_col: int
     churn_col: int
     right_col: int
     first: int
     column: dict[str, int]
+    left: int
+    right: int
     columns: str
     rows: str
 
@@ -335,14 +343,15 @@ def layout(ordered: list[dict[str, Any]], plan: RowPlan, band: Band | None) -> G
         *(["var(--lane)"] * len(right)),
         "1fr",
     ]
-    shown = len(plan.rows) + (1 if plan.rest else 0)
-    rows = ["auto", "auto", *(["2.25rem"] if band else []), f"repeat({shown}, var(--row))"]
+    rows = ["auto", "auto", *(["2.25rem"] if band else []), f"repeat({plan.shown}, var(--row))"]
     return Grid(
         path_col,
         path_col + 1,
         right_col,
         4 if band else 3,
         column,
+        len(left),
+        len(right),
         " ".join(tracks),
         " ".join(rows),
     )
@@ -350,17 +359,16 @@ def layout(ordered: list[dict[str, Any]], plan: RowPlan, band: Band | None) -> G
 
 def zebra_cells(grid: Grid, plan: RowPlan) -> list[str]:
     """Every other file row tinted, the summary row counted among them."""
-    shown = len(plan.rows) + (1 if plan.rest else 0)
     return [
-        cell("lm-zebra", None, grid.first + index, after=HIDDEN) for index in range(1, shown, 2)
+        cell("lm-zebra", None, grid.first + index, after=HIDDEN)
+        for index in range(1, plan.shown, 2)
     ]
 
 
 def header_cells(grid: Grid, plan: RowPlan, ordered: list[dict[str, Any]]) -> list[str]:
     """Each pass's name over its lanes, the files' and the churn's headings, and
     each finding's id at the top of its line, linking to its card."""
-    left = grid.path_col - 2
-    right = len(ordered) - left
+    left, right = grid.left, grid.right
     cells: list[str] = []
     if left:
         cells.append(cell("lm-pass lm-pass-left", (1, grid.path_col), 1, "Security"))

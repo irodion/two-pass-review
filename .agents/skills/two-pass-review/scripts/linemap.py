@@ -9,6 +9,7 @@ It reads the merged artifact and the findings in page order, and returns markup
 and the stylesheet that draws it, which page.py places.
 """
 
+import posixpath
 from typing import Any, NamedTuple
 
 from escaping import esc
@@ -34,12 +35,26 @@ MAP_ALL_FILES_MAX = 30
 CHURN_BAR_MAX = 56
 
 
+def row_key(path: str) -> str:
+    """`path` as the map matches it: `./README.md` and `docs//x` are one file each
+    with `README.md` and `docs/x`.
+
+    The validator accepts any spelling that resolves inside the checkout, and a
+    pass may write either; compared as strings, a cited `./README.md` was a row
+    of its own, marked as outside the diff that changed README.md. posixpath,
+    not os.path: these are git's paths, slash-separated on every system, and
+    os.path on Windows would print them back with backslashes.
+    """
+    return posixpath.normpath(path)
+
+
 def cited_paths(finding: dict[str, Any]) -> list[str]:
     """The files a finding cites, each once, in the order it first names them."""
     paths: list[str] = []
     for location in finding.get("locations") or []:
-        if location["path"] not in paths:
-            paths.append(location["path"])
+        path = row_key(location["path"])
+        if path not in paths:
+            paths.append(path)
     return paths
 
 
@@ -132,7 +147,7 @@ def map_rows(scope: dict[str, Any], named: set[str], notes: dict[str, int]) -> R
         rows = [MapRow(path, None, False, notes.get(path, 0)) for path in sorted(named)]
         return RowPlan(rows, "Files cited", None, None)
 
-    changed = {entry["path"]: entry for entry in scope["files"]}
+    changed = {row_key(entry["path"]): entry for entry in scope["files"]}
     paths = sorted(named | set(changed)) if len(changed) <= MAP_ALL_FILES_MAX else sorted(named)
     rows = [
         MapRow(
@@ -242,7 +257,8 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
         return ""
     notes: dict[str, int] = {}
     for note in (merged.get("docs_check") or {}).get("notes") or []:
-        notes[note["path"]] = notes.get(note["path"], 0) + 1
+        path = row_key(note["path"])
+        notes[path] = notes.get(path, 0) + 1
     cited = {f["id"]: cited_paths(f) for f in ordered}
     plan = map_rows(
         merged["run"]["scope"],

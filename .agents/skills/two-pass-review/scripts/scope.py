@@ -1219,10 +1219,9 @@ def main(argv: list[str]) -> int:
             scope["since"] = since.isoformat()
         scope["base"] = base
         scope["head"] = head
-        scope["files_changed"] = patch["files"]
         # Each changed file and the lines its blocks add and remove, for the
         # report's map, which draws every changed file as a row. Read from the
-        # pinned patch, as the count above is and for its reason: a second `git
+        # pinned patch, as the block count is and for its reason: a second `git
         # diff --numstat` could disagree with context.diff. Header.path says
         # which path names a block, a deletion's included; a header that named
         # nothing readable is already counted in the warning above.
@@ -1236,6 +1235,15 @@ def main(argv: list[str]) -> int:
             if header.path is not None:
                 added, removed = churn.get(header.path, (0, 0))
                 churn[header.path] = (added + header.added, removed + header.removed)
+        # Files, for the same reason: the masthead and the run panel say "files
+        # changed", and the patch's `diff --git` count says one more for every
+        # file whose type changed. Each block whose path an earlier block already
+        # named is taken off; a header that named nothing readable still counts
+        # as the file it was, as it always has. The block count itself stays
+        # what the gate above and the warning measure, because those are about
+        # the patch.
+        repeats = sum(1 for header in headers if header.path is not None) - len(churn)
+        scope["files_changed"] = patch["files"] - repeats
         scope["files"] = [
             {"path": path, "added": added, "removed": removed}
             for path, (added, removed) in churn.items()

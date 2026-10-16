@@ -245,44 +245,89 @@ def falsifier_band(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> Ban
     return Band(caption, False, frozenset(f["id"] for f in contested))
 
 
-def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> str:
-    """Where the findings land: one line per finding, through the files it cites.
+# A grid line, or a span between two. Integers only: every position the map
+# writes is a number computed here, never text that came from an artifact.
+Place = int | tuple[int, int]
 
-    Files are the rows, in path order; each finding is a column, and its line
-    runs from the first file it cites to the last, with a station at each. The
-    security pass's lines stand left of the files and the quality pass's right,
-    each side's first finding in page order nearest them -- so the two passes
-    read as two readers of one change, and a file both cite is one row with
-    lines arriving from both sides. A line wears its disposition as the card's
-    edge does.
 
-    One grid, placed by number. Each line is a single element spanning its rows,
-    which is what lets a filter dim a finding and a dismissal fade it by
-    touching one element per lane rather than a cell per file. Every position
-    here is an integer computed below, and every word a pass or the repository
-    wrote is escaped, like everything else on the page.
+def at(place: Place) -> str:
+    return f"{place[0]} / {place[1]}" if isinstance(place, tuple) else str(place)
+
+
+def cell(
+    classes: str,
+    column: Place | None,
+    row: Place,
+    inner: str = "",
+    *,
+    tag: str = "span",
+    before: str = "",
+    after: str = "",
+) -> str:
+    """One item of the map's grid, placed by `at`.
+
+    Its place is the only style it carries, so the promise that every position
+    is an integer is kept in one function rather than in each of the map's
+    cells. `classes`, `inner` and the attributes either side of the style
+    arrive escaped; None for `column` leaves it to the stylesheet, as a row
+    spanning the whole grid does.
     """
-    if not ordered:
-        return ""
-    notes: dict[str, int] = {}
-    for note in (merged.get("docs_check") or {}).get("notes") or []:
-        path = row_key(note["path"])
-        notes[path] = notes.get(path, 0) + 1
-    cited = {f["id"]: cited_paths(f) for f in ordered}
-    plan = map_rows(
-        merged["run"]["scope"],
-        {path for paths in cited.values() for path in paths} | set(notes),
-        notes,
+    style = (
+        f"grid-row:{at(row)}" if column is None else f"grid-column:{at(column)};grid-row:{at(row)}"
     )
-    rows = plan.rows
-    row_of = {row.path: index for index, row in enumerate(rows)}
-    # From here on the two kinds of run differ in one thing: a churn column.
-    churned = plan.totals is not None
+    return f'<{tag} class="{classes}"{before} style="{style}"{after}>{inner}</{tag}>'
 
+
+def lane_attr(finding: dict[str, Any]) -> str:
+    """The data- attribute the dismissal script finds a finding's lane by: on its
+    id, its line and its band mark alike."""
+    return f' data-lane="{esc(finding["id"])}"'
+
+
+HIDDEN = ' aria-hidden="true"'
+
+
+def counts(added: int, removed: int) -> str:
+    """`+12 &minus;3`, each side only when it is not zero, as git's summary line."""
+    said = [text for text, n in ((f"+{added}", added), (f"&minus;{removed}", removed)) if n]
+    return " ".join(said) or "0"
+
+
+def churn(added: int, removed: int, widest: int) -> str:
+    """A row's bar and counts. Added dark, removed light: red and green are the
+    map's disposition colours, and a bar in either would read as one."""
+    bar = "".join(
+        f'<b class="{cls}" style="width:{max(1, round(n * CHURN_BAR_MAX / widest))}px"></b>'
+        for cls, n in (("lm-add", added), ("lm-del", removed))
+        if n
+    )
+    return f'<span class="lm-bar">{bar}</span>{counts(added, removed)}'
+
+
+class Grid(NamedTuple):
+    """Where the map's parts go: the files' column, the churn's, the first
+    quality lane's, the first file row, and each finding's lane by id.
+    `columns` and `rows` are the grid's own templates."""
+
+    path_col: int
+    churn_col: int
+    right_col: int
+    first: int
+    column: dict[str, int]
+    columns: str
+    rows: str
+
+
+def layout(ordered: list[dict[str, Any]], plan: RowPlan, band: Band | None) -> Grid:
+    """The grid's columns and rows, decided once for every builder below.
+
+    The security pass's lanes stand left of the files and the quality pass's
+    right, each side's first finding in page order nearest them.
+    """
     left = [f for f in ordered if f["producer"] == "security"][::-1]
     right = [f for f in ordered if f["producer"] != "security"]
+    churned = plan.totals is not None
     path_col = len(left) + 2
-    churn_col = path_col + 1
     right_col = path_col + (3 if churned else 2)
     column = {f["id"]: index + 1 for index, f in enumerate(left)}
     column.update({f["id"]: right_col + index for index, f in enumerate(right)})
@@ -298,128 +343,138 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
         *(["var(--lane)"] * len(right)),
         "1fr",
     ]
+    shown = len(plan.rows) + (1 if plan.rest else 0)
+    rows = ["auto", "auto", *(["2.25rem"] if band else []), f"repeat({shown}, var(--row))"]
+    return Grid(
+        path_col,
+        path_col + 1,
+        right_col,
+        4 if band else 3,
+        column,
+        " ".join(tracks),
+        " ".join(rows),
+    )
 
-    band = falsifier_band(merged, ordered)
-    first = 4 if band else 3
-    shown = len(rows) + (1 if plan.rest else 0)
-    template_rows = [
-        "auto",
-        "auto",
-        *(["2.25rem"] if band else []),
-        f"repeat({shown}, var(--row))",
+
+def zebra_cells(grid: Grid, plan: RowPlan) -> list[str]:
+    """Every other file row tinted, the summary row counted among them."""
+    shown = len(plan.rows) + (1 if plan.rest else 0)
+    return [
+        cell("lm-zebra", None, grid.first + index, after=HIDDEN) for index in range(1, shown, 2)
     ]
 
-    def counts(added: int, removed: int) -> str:
-        """`+12 &minus;3`, each side only when it is not zero, as git's summary line."""
-        said = [text for text, n in ((f"+{added}", added), (f"&minus;{removed}", removed)) if n]
-        return " ".join(said) or "0"
 
-    def churn(added: int, removed: int, widest: int) -> str:
-        """A row's bar and counts. Added dark, removed light: red and green are the
-        map's disposition colours, and a bar in either would read as one."""
-        bar = "".join(
-            f'<b class="{cls}" style="width:{max(1, round(n * CHURN_BAR_MAX / widest))}px"></b>'
-            for cls, n in (("lm-add", added), ("lm-del", removed))
-            if n
-        )
-        return f'<span class="lm-bar">{bar}</span>{counts(added, removed)}'
-
-    bits: list[str] = []
-    for index in range(1, shown, 2):
-        bits.append(
-            f'<span class="lm-zebra" style="grid-row:{first + index}" aria-hidden="true"></span>'
-        )
+def header_cells(grid: Grid, plan: RowPlan, ordered: list[dict[str, Any]]) -> list[str]:
+    """Each pass's name over its lanes, the files' and the churn's headings, and
+    each finding's id at the top of its line, linking to its card."""
+    left = grid.path_col - 2
+    right = len(ordered) - left
+    cells: list[str] = []
     if left:
-        bits.append(
-            f'<span class="lm-pass lm-pass-left" style="grid-column:1 / {path_col};grid-row:1">'
-            "Security</span>"
-        )
+        cells.append(cell("lm-pass lm-pass-left", (1, grid.path_col), 1, "Security"))
     if right:
-        bits.append(
-            f'<span class="lm-pass lm-pass-right" style="grid-column:{right_col} / {right_col + len(right)};'
-            'grid-row:1">Quality</span>'
+        cells.append(
+            cell("lm-pass lm-pass-right", (grid.right_col, grid.right_col + right), 1, "Quality")
         )
     if plan.totals is not None:
-        bits.append(
-            f'<span class="lm-colhead" style="grid-column:{churn_col};grid-row:2">'
-            f"{counts(*plan.totals)}</span>"
-        )
-    bits.append(
-        f'<span class="lm-colhead" style="grid-column:{path_col};grid-row:2">{plan.heading}</span>'
-    )
+        cells.append(cell("lm-colhead", grid.churn_col, 2, counts(*plan.totals)))
+    cells.append(cell("lm-colhead", grid.path_col, 2, plan.heading))
     for finding in ordered:
         finding_id = esc(finding["id"])
-        bits.append(
-            f'<a class="lm-label {lane_classes(finding)}" data-lane="{finding_id}" '
-            f'href="#finding-{finding_id}" style="grid-column:{column[finding["id"]]};grid-row:2">'
-            f"{finding_id}</a>"
+        cells.append(
+            cell(
+                f"lm-label {lane_classes(finding)}",
+                grid.column[finding["id"]],
+                2,
+                finding_id,
+                tag="a",
+                before=f'{lane_attr(finding)} href="#finding-{finding_id}"',
+            )
         )
+    return cells
 
-    if band:
-        bits.append(
-            '<span class="lm-band{}" style="grid-row:3" aria-hidden="true"></span>'.format(
-                " lm-hatch" if band.hatched else ""
-            )
-        )
-        bits.append(
-            '<span class="lm-band-caption{}" style="grid-column:{};grid-row:3">{}</span>'.format(
-                " lm-warn" if band.hatched else "", path_col, esc(band.caption)
-            )
-        )
-        for finding in [] if band.hatched else ordered:
-            mark = band_mark(finding["id"] in band.contested, finding["id"])
-            bits.append(
-                f'<span class="lm-mark {lane_classes(finding)}" data-lane="{esc(finding["id"])}" '
-                f'style="grid-column:{column[finding["id"]]};grid-row:3">{mark}</span>'
-            )
 
-    widest = max([1, *(sum(row.churn) for row in rows if row.churn is not None)])
-    for index, row in enumerate(rows):
+def band_cells(grid: Grid, band: Band | None, ordered: list[dict[str, Any]]) -> list[str]:
+    """The falsification band: its ground, its caption, and a mark per line unless
+    the check examined nothing."""
+    if band is None:
+        return []
+    cells = [
+        cell("lm-band" + (" lm-hatch" if band.hatched else ""), None, 3, after=HIDDEN),
+        cell(
+            "lm-band-caption" + (" lm-warn" if band.hatched else ""),
+            grid.path_col,
+            3,
+            esc(band.caption),
+        ),
+    ]
+    for finding in [] if band.hatched else ordered:
+        cells.append(
+            cell(
+                f"lm-mark {lane_classes(finding)}",
+                grid.column[finding["id"]],
+                3,
+                band_mark(finding["id"] in band.contested, finding["id"]),
+                before=lane_attr(finding),
+            )
+        )
+    return cells
+
+
+def file_cells(grid: Grid, plan: RowPlan) -> list[str]:
+    """A row per file -- its path, its docs-check notes, its churn -- and the
+    summary row past MAP_ALL_FILES_MAX."""
+    cells: list[str] = []
+    widest = max([1, *(sum(row.churn) for row in plan.rows if row.churn is not None)])
+    for index, row in enumerate(plan.rows):
+        here = grid.first + index
         directory, name = map_path(row.path)
         tags = ""
         if row.notes:
             tags += '<a class="lm-tag" href="#docscheck">docs check: {} note{}</a>'.format(
                 row.notes, "" if row.notes == 1 else "s"
             )
-        bits.append(
-            '<span class="lm-file{}" style="grid-column:{};grid-row:{}" title="{}">'
-            '<span class="lm-dir">{}</span>{}{}</span>'.format(
-                " lm-outside" if row.outside else "",
-                path_col,
-                first + index,
-                esc(row.path),
-                esc(directory),
-                esc(name),
-                tags,
+        cells.append(
+            cell(
+                "lm-file" + (" lm-outside" if row.outside else ""),
+                grid.path_col,
+                here,
+                f'<span class="lm-dir">{esc(directory)}</span>{esc(name)}{tags}',
+                after=f' title="{esc(row.path)}"',
             )
         )
         if row.churn is not None:
-            bits.append(
-                f'<span class="lm-churn" style="grid-column:{churn_col};grid-row:{first + index}">'
-                f"{churn(*row.churn, widest)}</span>"
-            )
+            cells.append(cell("lm-churn", grid.churn_col, here, churn(*row.churn, widest)))
         elif row.outside:
             # A finding may cite a file the diff never touched, and the docs check
             # reads documents beside the change. The run panel says so in words;
             # the row says which, where its churn would be.
-            bits.append(
-                f'<span class="lm-churn" style="grid-column:{churn_col};grid-row:{first + index}">'
-                "not in this diff</span>"
-            )
+            cells.append(cell("lm-churn", grid.churn_col, here, "not in this diff"))
     if plan.rest:
-        here = first + len(rows)
+        here = grid.first + len(plan.rows)
         files, added, removed = plan.rest
-        bits.append(
-            f'<span class="lm-file lm-outside" style="grid-column:{path_col};grid-row:{here}">'
-            "and {} more changed file{} no finding cites</span>".format(
-                files, "" if files == 1 else "s"
+        cells.append(
+            cell(
+                "lm-file lm-outside",
+                grid.path_col,
+                here,
+                "and {} more changed file{} no finding cites".format(
+                    files, "" if files == 1 else "s"
+                ),
             )
         )
-        bits.append(
-            f'<span class="lm-churn" style="grid-column:{churn_col};grid-row:{here}">'
-            f"{counts(added, removed)}</span>"
-        )
+        cells.append(cell("lm-churn", grid.churn_col, here, counts(added, removed)))
+    return cells
 
+
+def lane_cells(
+    grid: Grid, plan: RowPlan, ordered: list[dict[str, Any]], cited: dict[str, list[str]]
+) -> list[str]:
+    """Each finding's line: one element from the first file it cites to the last,
+    with a station on each. A station's place is rows from the line's top, which
+    is why every row is the same height."""
+    row_of = {row.path: index for index, row in enumerate(plan.rows)}
+    cells: list[str] = []
     for finding in ordered:
         stops = sorted(row_of[path] for path in cited[finding["id"]])
         if not stops:
@@ -427,51 +482,103 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
         top, bottom = stops[0], stops[-1]
         stations = "".join(
             '<i class="lm-st{}" style="--r:{}"></i>'.format(
-                " lm-out" if rows[stop].outside else "", stop - top
+                " lm-out" if plan.rows[stop].outside else "", stop - top
             )
             for stop in stops
         )
-        bits.append(
-            f'<span class="lm-lane {lane_classes(finding)}" data-lane="{esc(finding["id"])}" '
-            f'style="grid-column:{column[finding["id"]]};grid-row:{first + top} / {first + bottom + 1}" '
-            f'aria-hidden="true">{stations}</span>'
+        cells.append(
+            cell(
+                f"lm-lane {lane_classes(finding)}",
+                grid.column[finding["id"]],
+                (grid.first + top, grid.first + bottom + 1),
+                stations,
+                before=lane_attr(finding),
+                after=HIDDEN,
+            )
         )
+    return cells
 
+
+def legend_items(
+    plan: RowPlan, band: Band | None, ordered: list[dict[str, Any]], cited: dict[str, list[str]]
+) -> list[str]:
+    """The key, naming only the marks this map uses."""
     present = {f["disposition"] for f in ordered}
-    legend = [
+    items = [
         f'<li><span class="lm-key lm-lane lm-{d}" aria-hidden="true"><i class="lm-st"></i></span>'
         f"{label}</li>"
         for d, label in LANE_LABEL.items()
         if d in present
     ]
-    if any(rows[row_of[path]].outside for paths in cited.values() for path in paths):
-        legend.append(
+    outside = {row.path for row in plan.rows if row.outside}
+    if any(path in outside for paths in cited.values() for path in paths):
+        items.append(
             '<li><span class="lm-key lm-key-out lm-lane" aria-hidden="true"><i class="lm-st lm-out"></i></span>'
             "a file the diff did not touch</li>"
         )
     if band and not band.hatched:
-        legend.append(
+        items.append(
             f'<li><span class="lm-key-mark" aria-hidden="true">{band_mark(False)}</span>'
             "read by the falsification check</li>"
         )
         if band.contested:
-            legend.append(
+            items.append(
                 f'<li><span class="lm-key-mark" aria-hidden="true">{band_mark(True)}</span>'
                 "contested by it</li>"
             )
+    return items
 
+
+def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> str:
+    """Where the findings land: one line per finding, through the files it cites.
+
+    Files are the rows, in path order; each finding is a column, and its line
+    runs from the first file it cites to the last, with a station at each. The
+    security pass's lines stand left of the files and the quality pass's right,
+    so the two passes read as two readers of one change, and a file both cite
+    is one row with lines arriving from both sides. A line wears its
+    disposition as the card's edge does.
+
+    One grid, placed by number. Each line is a single element spanning its rows,
+    which is what lets a filter dim a finding and a dismissal fade it by
+    touching one element per lane rather than a cell per file. The plan is made
+    here -- rows, band, layout -- and each builder draws one part of it; they
+    are called in document order, which is the order the cells paint in, since
+    the cells share one stacking level.
+    """
+    if not ordered:
+        return ""
+    notes: dict[str, int] = {}
+    for note in (merged.get("docs_check") or {}).get("notes") or []:
+        path = row_key(note["path"])
+        notes[path] = notes.get(path, 0) + 1
+    cited = {f["id"]: cited_paths(f) for f in ordered}
+    plan = map_rows(
+        merged["run"]["scope"],
+        {path for paths in cited.values() for path in paths} | set(notes),
+        notes,
+    )
+    band = falsifier_band(merged, ordered)
+    grid = layout(ordered, plan, band)
+    cells = [
+        *zebra_cells(grid, plan),
+        *header_cells(grid, plan, ordered),
+        *band_cells(grid, band, ordered),
+        *file_cells(grid, plan),
+        *lane_cells(grid, plan, ordered, cited),
+    ]
     return (
         '<section class="linemap"><h2 id="map">Where the findings land</h2>'
         '<p class="lm-intro">Each finding is a line through the files it cites: the security '
         "pass&rsquo;s left of them, the quality pass&rsquo;s right.</p>"
         '<div class="lm-scroll"><div class="lm{narrow}" style="grid-template-columns:{cols};'
-        'grid-template-rows:{rows}">{bits}</div></div>'
+        'grid-template-rows:{rows}">{cells}</div></div>'
         '<ul class="lm-legend">{legend}</ul></section>'.format(
             narrow=" lm-narrow" if len(ordered) > LANES_WIDE_MAX else "",
-            cols=" ".join(tracks),
-            rows=" ".join(template_rows),
-            bits="".join(bits),
-            legend="".join(legend),
+            cols=grid.columns,
+            rows=grid.rows,
+            cells="".join(cells),
+            legend="".join(legend_items(plan, band, ordered, cited)),
         )
     )
 

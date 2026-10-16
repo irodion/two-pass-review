@@ -498,13 +498,13 @@ CSS = """
 .lm-dir { color: var(--muted); }
 .lm-tag { margin-left: 8px; padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px;
   font: 11.5px/1.4 var(--disp); color: var(--accent); text-decoration: none; }
-/* A line wears its disposition as a card's edge does. */
-.lm-lane { position: relative; --c: var(--note); --w: 2px; --d: 14px; }
-.lm-lane.lm-blocking { --c: var(--block); --w: 6px; --d: 17px; }
-.lm-lane.lm-follow-up { --c: var(--follow-line); --w: 3px; }
+/* A line wears its disposition as a card's edge does, from the same tokens on
+   the page's :root. The station size is the map's own, not a disposition's. */
+.lm-lane { position: relative; --c: var(--note-c); --w: var(--note-w); --s: var(--note-s); --d: 14px; }
+.lm-lane.lm-blocking { --c: var(--blocking-c); --w: var(--blocking-w); --s: var(--blocking-s); --d: 17px; }
+.lm-lane.lm-follow-up { --c: var(--follow-up-c); --w: var(--follow-up-w); --s: var(--follow-up-s); }
 .lm-lane::before { content: ""; position: absolute; left: 50%; top: calc(var(--row) / 2);
-  bottom: calc(var(--row) / 2); transform: translateX(-50%); border-left: var(--w) solid var(--c); }
-.lm-lane.lm-note::before { border-left-style: dashed; }
+  bottom: calc(var(--row) / 2); transform: translateX(-50%); border-left: var(--w) var(--s) var(--c); }
 .lm-st { position: absolute; left: 50%; top: calc(var(--r, 0) * var(--row) + var(--row) / 2);
   width: var(--d); height: var(--d); transform: translate(-50%, -50%); border-radius: 50%;
   background: var(--panel); border: 3px solid var(--c); }

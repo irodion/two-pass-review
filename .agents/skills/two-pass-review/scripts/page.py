@@ -1580,6 +1580,12 @@ CSS = """
   --follow: #8e5d00; --follow-line: #d08700; --note: #5d6e84;
   --code-bg: #f4f5f7; --chip-bg: #f1f2f4; --zebra: #f6f7f8; --shadow: none;
   --block-fill: #c5221f;
+  /* Each disposition's line, stated once: a card's edge and the finding's line on
+     the map are one mark, so both draw it from here. Colours name the tokens
+     above, which is what lets the dark theme reach them. */
+  --blocking-c: var(--block); --blocking-w: 6px; --blocking-s: solid;
+  --follow-up-c: var(--follow-line); --follow-up-w: 3px; --follow-up-s: solid;
+  --note-c: var(--note); --note-w: 2px; --note-s: dashed;
   --text: Charter, "Bitstream Charter", Cambria, Georgia, serif;
   --disp: Futura, "Century Gothic", "Avenir Next", "Liberation Sans", sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
@@ -1783,9 +1789,11 @@ h2 .counts { color: var(--muted); font-weight: 400; }
    finding -- keeps a neutral hairline, because any line style would claim one. */
 .finding { background: var(--panel); border: 1px solid var(--line); border-left: 2px solid var(--line);
   border-radius: 6px; padding: 18px 22px 15px; margin: 0 0 14px; box-shadow: var(--shadow); }
-.finding[data-disposition="blocking"] { border-left: 6px solid var(--block); }
-.finding[data-disposition="follow-up"] { border-left: 3px solid var(--follow-line); }
-.finding[data-disposition="note"] { border-left: 2px dashed var(--note); }
+.finding[data-disposition="blocking"] {
+  border-left: var(--blocking-w) var(--blocking-s) var(--blocking-c); }
+.finding[data-disposition="follow-up"] {
+  border-left: var(--follow-up-w) var(--follow-up-s) var(--follow-up-c); }
+.finding[data-disposition="note"] { border-left: var(--note-w) var(--note-s) var(--note-c); }
 .meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; margin-bottom: 7px; }
 .fid { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--note); }
 [data-disposition="blocking"] .fid { color: var(--block); }

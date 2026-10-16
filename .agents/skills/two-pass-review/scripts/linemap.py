@@ -9,7 +9,7 @@ It reads the merged artifact and the findings in page order, and returns markup
 and the stylesheet that draws it, which page.py places.
 """
 
-from typing import Any
+from typing import Any, NamedTuple
 
 from escaping import esc
 
@@ -75,10 +75,94 @@ def lane_classes(finding: dict[str, Any]) -> str:
     return esc(" ".join(classes))
 
 
-def falsifier_band(
-    merged: dict[str, Any], ordered: list[dict[str, Any]]
-) -> tuple[str, bool, dict[str, str]] | None:
-    """(caption, hatched, mark per finding id), or None before the check existed.
+class Band(NamedTuple):
+    """The falsification check's band: its caption, and one mark per finding id.
+
+    `hatched` says the check examined nothing -- skipped, or its reply lost --
+    and is stated rather than read off empty `marks`, which would mean the same
+    only while the map is never drawn without findings.
+    """
+
+    caption: str
+    hatched: bool
+    marks: dict[str, str]
+
+
+class MapRow(NamedTuple):
+    """One file row, as everything that draws a row needs it.
+
+    `churn` is (added, removed) for a file the diff touched, and None where
+    there is none to show: a file outside the diff, which `outside` marks, or
+    any file of a run that did not record churn. `notes` counts the docs
+    check's notes on the file.
+    """
+
+    path: str
+    churn: tuple[int, int] | None
+    outside: bool
+    notes: int
+
+
+class RowPlan(NamedTuple):
+    """Which rows the map draws, decided once.
+
+    `totals` is the whole change's (added, removed), and None when the run
+    recorded no churn -- the one fact the placement needs about the two kinds of
+    run, since without churn there is no churn column. `rest` is (files, added,
+    removed) for the summary row past MAP_ALL_FILES_MAX, or None.
+    """
+
+    rows: list[MapRow]
+    heading: str
+    totals: tuple[int, int] | None
+    rest: tuple[int, int, int] | None
+
+
+def map_rows(scope: dict[str, Any], named: set[str], notes: dict[str, int]) -> RowPlan:
+    """The map's rows: the files `named` -- cited, or carrying a docs-check note --
+    and, when the run recorded them and there are few enough, every file the
+    change touched.
+
+    An older artifact names no changed file, so its map shows only the named
+    ones and says nothing about what the diff did not touch, because it cannot
+    know. Past MAP_ALL_FILES_MAX changed files the rows no finding reaches are
+    mostly empty track, so they become one counted row.
+    """
+    if "files" not in scope:
+        rows = [MapRow(path, None, False, notes.get(path, 0)) for path in sorted(named)]
+        return RowPlan(rows, "Files cited", None, None)
+
+    changed = {entry["path"]: entry for entry in scope["files"]}
+    paths = sorted(named | set(changed)) if len(changed) <= MAP_ALL_FILES_MAX else sorted(named)
+    rows = [
+        MapRow(
+            path,
+            (changed[path]["added"], changed[path]["removed"]) if path in changed else None,
+            path not in changed,
+            notes.get(path, 0),
+        )
+        for path in paths
+    ]
+    count = scope["files_changed"]
+    heading = "{} changed file{}".format(count, "" if count == 1 else "s")
+    outside = sum(1 for row in rows if row.outside)
+    if outside:
+        heading += f", and {outside} outside the diff"
+    left = [entry for path, entry in changed.items() if path not in paths]
+    totals = (
+        sum(e["added"] for e in changed.values()),
+        sum(e["removed"] for e in changed.values()),
+    )
+    rest = (
+        (len(left), sum(e["added"] for e in left), sum(e["removed"] for e in left))
+        if left
+        else None
+    )
+    return RowPlan(rows, heading, totals, rest)
+
+
+def falsifier_band(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> Band | None:
+    """The band above the rows, or None before the check existed.
 
     The check's result has no place on the map's rows: a contest disputes a
     finding's claim, never a file or a line. So it sits in a band above them,
@@ -101,7 +185,7 @@ def falsifier_band(
             "skipped": "Falsification check skipped: no finding was examined",
             "failed": "Falsification check failed: its reply could not be read",
         }.get(state, f"Falsification check {state}")
-        return caption, True, {}
+        return Band(caption, True, {})
 
     total = len(merged["findings"])
     contested = [f for f in ordered if f.get("contested_md")]
@@ -131,7 +215,7 @@ def falsifier_band(
             marks[finding["id"]] = (
                 '<i class="lm-dot" title="Read by the falsification check, not contested"></i>'
             )
-    return caption, False, marks
+    return Band(caption, False, marks)
 
 
 def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> str:
@@ -153,37 +237,25 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
     """
     if not ordered:
         return ""
-    docs_check = merged.get("docs_check")
     notes: dict[str, int] = {}
-    for note in (docs_check or {}).get("notes") or []:
+    for note in (merged.get("docs_check") or {}).get("notes") or []:
         notes[note["path"]] = notes.get(note["path"], 0) + 1
-
-    scope = merged["run"]["scope"]
-    # Every file the change touched, with its churn, when the run recorded them
-    # -- scope.py has since this map existed. An older artifact maps only the
-    # files something cites, and says nothing about what the diff did not touch,
-    # because it cannot know.
-    changed: dict[str, dict[str, Any]] | None = None
-    if "files" in scope:
-        changed = {entry["path"]: entry for entry in scope["files"]}
-
     cited = {f["id"]: cited_paths(f) for f in ordered}
-    named = {path for paths in cited.values() for path in paths} | set(notes)
-    rest: list[dict[str, Any]] = []
-    if changed is not None and len(changed) <= MAP_ALL_FILES_MAX:
-        rows = sorted(named | set(changed))
-    else:
-        rows = sorted(named)
-        if changed is not None:
-            rest = [entry for path, entry in changed.items() if path not in named]
-    row_of = {path: index for index, path in enumerate(rows)}
-    outside = {path for path in rows if changed is not None and path not in changed}
+    plan = map_rows(
+        merged["run"]["scope"],
+        {path for paths in cited.values() for path in paths} | set(notes),
+        notes,
+    )
+    rows = plan.rows
+    row_of = {row.path: index for index, row in enumerate(rows)}
+    # From here on the two kinds of run differ in one thing: a churn column.
+    churned = plan.totals is not None
 
     left = [f for f in ordered if f["producer"] == "security"][::-1]
     right = [f for f in ordered if f["producer"] != "security"]
     path_col = len(left) + 2
-    churn_col = path_col + 1 if changed is not None else None
-    right_col = path_col + (3 if changed is not None else 2)
+    churn_col = path_col + 1
+    right_col = path_col + (3 if churned else 2)
     column = {f["id"]: index + 1 for index, f in enumerate(left)}
     column.update({f["id"]: right_col + index for index, f in enumerate(right)})
     # The files as wide as their names and no wider, so both sides' lines arrive
@@ -193,7 +265,7 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
         *(["var(--lane)"] * len(left)),
         "14px",
         "minmax(12rem, max-content)",
-        *(["max-content"] if changed is not None else []),
+        *(["max-content"] if churned else []),
         "14px",
         *(["var(--lane)"] * len(right)),
         "1fr",
@@ -201,7 +273,7 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
 
     band = falsifier_band(merged, ordered)
     first = 4 if band else 3
-    shown = len(rows) + (1 if rest else 0)
+    shown = len(rows) + (1 if plan.rest else 0)
     template_rows = [
         "auto",
         "auto",
@@ -239,24 +311,13 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
             f'<span class="lm-pass lm-pass-right" style="grid-column:{right_col} / {right_col + len(right)};'
             'grid-row:1">Quality</span>'
         )
-    if changed is None:
-        heading = "Files cited"
-    else:
-        count = scope["files_changed"]
-        heading = "{} changed file{}".format(count, "" if count == 1 else "s")
-        if outside:
-            heading += f", and {len(outside)} outside the diff"
+    if plan.totals is not None:
         bits.append(
-            '<span class="lm-colhead" style="grid-column:{};grid-row:2">{}</span>'.format(
-                churn_col,
-                counts(
-                    sum(e["added"] for e in changed.values()),
-                    sum(e["removed"] for e in changed.values()),
-                ),
-            )
+            f'<span class="lm-colhead" style="grid-column:{churn_col};grid-row:2">'
+            f"{counts(*plan.totals)}</span>"
         )
     bits.append(
-        f'<span class="lm-colhead" style="grid-column:{path_col};grid-row:2">{heading}</span>'
+        f'<span class="lm-colhead" style="grid-column:{path_col};grid-row:2">{plan.heading}</span>'
     )
     for finding in ordered:
         finding_id = esc(finding["id"])
@@ -267,54 +328,49 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
         )
 
     if band:
-        caption, hatched, marks = band
         bits.append(
             '<span class="lm-band{}" style="grid-row:3" aria-hidden="true"></span>'.format(
-                " lm-hatch" if hatched else ""
+                " lm-hatch" if band.hatched else ""
             )
         )
         bits.append(
             '<span class="lm-band-caption{}" style="grid-column:{};grid-row:3">{}</span>'.format(
-                " lm-warn" if hatched else "", path_col, esc(caption)
+                " lm-warn" if band.hatched else "", path_col, esc(band.caption)
             )
         )
         for finding in ordered:
-            if finding["id"] in marks:
+            if finding["id"] in band.marks:
                 bits.append(
                     f'<span class="lm-mark {lane_classes(finding)}" data-lane="{esc(finding["id"])}" '
-                    f'style="grid-column:{column[finding["id"]]};grid-row:3">{marks[finding["id"]]}</span>'
+                    f'style="grid-column:{column[finding["id"]]};grid-row:3">{band.marks[finding["id"]]}</span>'
                 )
 
-    widest = max(
-        [1, *(e["added"] + e["removed"] for p, e in (changed or {}).items() if p in row_of)]
-    )
-    for index, path in enumerate(rows):
-        directory, name = map_path(path)
+    widest = max([1, *(sum(row.churn) for row in rows if row.churn is not None)])
+    for index, row in enumerate(rows):
+        directory, name = map_path(row.path)
         tags = ""
-        if path in notes:
-            count = notes[path]
+        if row.notes:
             tags += '<a class="lm-tag" href="#docscheck">docs check: {} note{}</a>'.format(
-                count, "" if count == 1 else "s"
+                row.notes, "" if row.notes == 1 else "s"
             )
         bits.append(
             '<span class="lm-file{}" style="grid-column:{};grid-row:{}" title="{}">'
             '<span class="lm-dir">{}</span>{}{}</span>'.format(
-                " lm-outside" if path in outside else "",
+                " lm-outside" if row.outside else "",
                 path_col,
                 first + index,
-                esc(path),
+                esc(row.path),
                 esc(directory),
                 esc(name),
                 tags,
             )
         )
-        if changed is not None and path in changed:
-            entry = changed[path]
+        if row.churn is not None:
             bits.append(
                 f'<span class="lm-churn" style="grid-column:{churn_col};grid-row:{first + index}">'
-                f"{churn(entry['added'], entry['removed'], widest)}</span>"
+                f"{churn(*row.churn, widest)}</span>"
             )
-        elif path in outside:
+        elif row.outside:
             # A finding may cite a file the diff never touched, and the docs check
             # reads documents beside the change. The run panel says so in words;
             # the row says which, where its churn would be.
@@ -322,17 +378,18 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
                 f'<span class="lm-churn" style="grid-column:{churn_col};grid-row:{first + index}">'
                 "not in this diff</span>"
             )
-    if rest:
+    if plan.rest:
         here = first + len(rows)
+        files, added, removed = plan.rest
         bits.append(
             f'<span class="lm-file lm-outside" style="grid-column:{path_col};grid-row:{here}">'
             "and {} more changed file{} no finding cites</span>".format(
-                len(rest), "" if len(rest) == 1 else "s"
+                files, "" if files == 1 else "s"
             )
         )
         bits.append(
             f'<span class="lm-churn" style="grid-column:{churn_col};grid-row:{here}">'
-            f"{counts(sum(e['added'] for e in rest), sum(e['removed'] for e in rest))}</span>"
+            f"{counts(added, removed)}</span>"
         )
 
     for finding in ordered:
@@ -342,7 +399,7 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
         top, bottom = stops[0], stops[-1]
         stations = "".join(
             '<i class="lm-st{}" style="--r:{}"></i>'.format(
-                " lm-out" if rows[stop] in outside else "", stop - top
+                " lm-out" if rows[stop].outside else "", stop - top
             )
             for stop in stops
         )
@@ -359,12 +416,12 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
         for d, label in LANE_LABEL.items()
         if d in present
     ]
-    if any(path in outside for paths in cited.values() for path in paths):
+    if any(rows[row_of[path]].outside for paths in cited.values() for path in paths):
         legend.append(
             '<li><span class="lm-key lm-key-out lm-lane" aria-hidden="true"><i class="lm-st lm-out"></i></span>'
             "a file the diff did not touch</li>"
         )
-    if band and not band[1]:
+    if band and not band.hatched:
         legend.append(
             '<li><span class="lm-key-mark" aria-hidden="true"><i class="lm-dot"></i></span>'
             "read by the falsification check</li>"

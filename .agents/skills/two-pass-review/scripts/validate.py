@@ -42,6 +42,7 @@ and, for line-oriented input, the line that carries the defect. Exit status is
 import argparse
 import json
 import os
+import posixpath
 import re
 import sys
 from collections import Counter
@@ -1246,6 +1247,21 @@ def validate_merged(report: Report, path: str, repo: str | None = None) -> None:
         check_docs_check(report, where, merged["docs_check"], repo, run_sibling(path, "docs.json"))
 
 
+def path_key(path: str) -> str:
+    """`path` as two spellings of one file compare: `./README.md` and `docs//x`
+    are one file each with `README.md` and `docs/x`.
+
+    One statement for the two places that ask: check_scope_files, which allows
+    each file once, and the page's map, which matches a finding's citation to a
+    changed file's row. Asked by two rules, a pair the map takes for one file
+    could pass here as two and overwrite each other there. The validator
+    accepts any spelling that resolves inside the checkout, and a pass may write
+    either. posixpath, not os.path: these are git's paths, slash-separated on
+    every system, and os.path on Windows would print them back with backslashes.
+    """
+    return posixpath.normpath(path)
+
+
 def check_scope_files(report: Report, where: str, files: object, files_changed: int | None) -> None:
     """`run.scope.files`: each changed file and its churn, as scope.py read them
     from the patch, for the page's map.
@@ -1269,9 +1285,12 @@ def check_scope_files(report: Report, where: str, files: object, files_changed: 
         _check_unknown(report, here, entry, SCOPE_FILE_FIELDS, "file")
         path = _nonempty_str(report, here, entry, "path")
         if path is not None:
-            if path in seen:
-                report.add(here, f"'path' {path!r} is listed twice -- one entry per file")
-            seen.add(path)
+            key = path_key(path)
+            if key in seen:
+                report.add(
+                    here, f"'path' {path!r} names a file listed already -- one entry per file"
+                )
+            seen.add(key)
         _int(report, here, entry, "added")
         _int(report, here, entry, "removed")
     if files_changed is not None and len(files) > files_changed:

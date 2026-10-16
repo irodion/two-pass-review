@@ -442,7 +442,8 @@ def page_escapes_everything(problems: list[str]) -> None:
     escaping and says nothing about what either chose to include. So what a
     finding's payload must carry -- its body, its contest, its paths -- is
     looked for verbatim as well, independently, and the agent block has to hold
-    that payload unaltered between tags it cannot close."""
+    that payload unaltered between tags it cannot close. What a click makes of
+    the attributes is copy_script_copies' question."""
     # The one check that imports from the tree it is checking, and an import
     # writes __pycache__/ next to the scripts. A check has no business leaving
     # anything behind in the working copy -- a .pyc from one got committed once.
@@ -588,6 +589,149 @@ def page_escapes_everything(problems: list[str]) -> None:
         if report not in copied:
             problems.append(
                 f"{where}: the report-as-markdown button does not decode to its payload"
+            )
+
+
+class _Buttons(HTMLParser):
+    """Every copy button on the page, in order, with the card it sits in."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.card: str | None = None
+        self.buttons: list[tuple[str | None, dict[str, str | None]]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = dict(attrs)
+        if tag == "article" and (values.get("id") or "").startswith("finding-"):
+            self.card = values["id"]
+        elif tag == "button" and "copy-btn" in (values.get("class") or "").split():
+            self.buttons.append((self.card, values))
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "article":
+            self.card = None
+
+
+# Stand-ins for exactly the calls textOf makes, and no more: a button answers
+# getAttribute and classList.contains from its rendered attributes, and a card
+# answers querySelector for a class one of its own buttons really carries -- so
+# a selector the page's markup no longer matches finds nothing, here as there.
+TEXT_OF_HARNESS = """
+const input = JSON.parse(require('fs').readFileSync(0, 'utf8'));
+function stub(attrs) {
+  const classes = (attrs['class'] || '').split(/\\s+/);
+  return {
+    getAttribute: (name) => (Object.prototype.hasOwnProperty.call(attrs, name) ? attrs[name] : null),
+    classList: { contains: (name) => classes.includes(name) },
+  };
+}
+function openBlocking() {
+  return input.blocking.map((buttons) => ({
+    querySelector: (selector) => {
+      const found = buttons.map(stub).find((b) => selector[0] === '.' && b.classList.contains(selector.slice(1)));
+      return found || null;
+    },
+  }));
+}
+%s
+process.stdout.write(JSON.stringify(input.buttons.map((attrs) => textOf(stub(attrs)))));
+"""
+
+
+def copy_script_copies(problems: list[str]) -> None:
+    """What each copy button puts on the clipboard, by running the page's own
+    handler rather than restating it.
+
+    An agent copy is joined at the click -- head, block and tail from three
+    attributes -- and the bulk copy from every open blocking card's block, so
+    a wrong join ships a button that copies something else while every
+    attribute decodes perfectly. page_script_parses cannot see that; this runs
+    textOf, cut out of SCRIPT, under node against the hostile page's buttons,
+    and holds a card's two to copy_texts, the report's to report_markdown, and
+    the bulk one to its head, the blocking blocks in page order, and its tail.
+    The stand-ins see none of dismissal or filtering, which openBlocking does
+    in the page; that stays the clicking AGENTS.md asks for. Skips where node
+    is absent, as page_script_parses does."""
+    node_bin = shutil.which("node")
+    if node_bin is None:
+        sys.stdout.write("  skipped: no node on PATH, so the copy handler was not run\n")
+        return
+    sys.dont_write_bytecode = True
+    if SCRIPTS not in sys.path:
+        sys.path.insert(0, SCRIPTS)
+    import page
+
+    found = re.search(r"\n  function textOf\(button\) \{\n.*?\n  \}\n", page.SCRIPT, re.DOTALL)
+    if found is None:
+        problems.append("page.py: SCRIPT has no textOf(button), so no copy button was run")
+        return
+
+    artifact = _hostile_artifact(4)
+    live = {f["id"]: f for f in page.standing(artifact["findings"])}
+    collector = _Buttons()
+    collector.feed(page.render_page(artifact))
+    collector.close()
+    cards: dict[str, list[dict[str, str | None]]] = {}
+    for card, attrs in collector.buttons:
+        if card is not None:
+            cards.setdefault(card, []).append(attrs)
+    blocking = [
+        card for card in cards if live[card.removeprefix("finding-")]["disposition"] == "blocking"
+    ]
+    with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as handle:
+        handle.write(TEXT_OF_HARNESS % found.group(0))
+    try:
+        result = subprocess.run(
+            [node_bin, handle.name],
+            input=json.dumps(
+                {
+                    "buttons": [attrs for _, attrs in collector.buttons],
+                    "blocking": [cards[card] for card in blocking],
+                }
+            ),
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        os.unlink(handle.name)
+    if result.returncode != 0:
+        problems.append(f"page.py: textOf failed under node -- {result.stderr.strip()}")
+        return
+    texts = json.loads(result.stdout)
+    if not isinstance(texts, list) or len(texts) != len(collector.buttons):
+        problems.append("copy handler: node did not return one text per button")
+        return
+    clicked = dict(zip((id(attrs) for _, attrs in collector.buttons), texts, strict=True))
+
+    for card, buttons in cards.items():
+        finding = live[card.removeprefix("finding-")]
+        expected = list(page.copy_texts(finding, page.partners_of(finding, live)))
+        if [clicked[id(attrs)] for attrs in buttons] != expected:
+            problems.append(f"copy handler: {finding['id']}'s buttons do not copy copy_texts")
+    loose = [attrs for card, attrs in collector.buttons if card is None]
+    report = page.report_markdown(artifact)
+    if not any(clicked[id(attrs)] == report for attrs in loose):
+        problems.append("copy handler: no button copies report_markdown")
+    blocks = []
+    for card in blocking:
+        finding = live[card.removeprefix("finding-")]
+        blocks.append(page.copy_pieces(finding, page.partners_of(finding, live))[1])
+    bulk = [clicked[id(a)] for a in loose if "bulk-agent" in (a.get("class") or "").split()]
+    if len(blocking) < 2:
+        problems.append("copy handler: the hostile artifact needs two blocking findings")
+    elif len(bulk) != 1:
+        problems.append(f"copy handler: {len(bulk)} bulk buttons, not one")
+    else:
+        text, at = bulk[0], 0
+        for block in blocks:
+            at = text.find(block, at)
+            if at == -1:
+                break
+            at += len(block)
+        if not text.startswith(page.BULK_HEAD) or not text.endswith(page.BULK_TAIL) or at == -1:
+            problems.append(
+                "copy handler: the bulk copy is not its head, every open blocking card's "
+                "block in page order, and its tail"
             )
 
 
@@ -1095,6 +1239,7 @@ def main() -> int:
         stdlib_only,
         page_script_parses,
         page_escapes_everything,
+        copy_script_copies,
         committed_symlink,
         no_build_artifacts,
         links_resolve,
@@ -1109,12 +1254,13 @@ def main() -> int:
     if problems:
         sys.stderr.write(f"\n{len(problems)} problem(s).\n")
         return 1
-    # Says what it checked, not what it hopes. It parsed the page's script; it did
-    # not click the button, and it did not open a report. Saying more than that is
-    # how a green tick starts standing in for the thing it cannot do.
+    # Says what it checked, not what it hopes. It parsed the page's script and ran
+    # its copy handler against stand-ins; it did not click a button in a browser,
+    # and it did not open a report. Saying more than that is how a green tick
+    # starts standing in for the thing it cannot do.
     sys.stdout.write(
         "stdlib-only; page SCRIPT parses; a hostile payload in each text field renders "
-        "as text and no unsafe link; "
+        "as text and no unsafe link; the copy handler joins what page.py states; "
         "symlink relative; no build artifacts tracked; "
         "links resolve; documented flags exist; mirrored contract paragraphs agree; "
         "forked rubric text matches NOTICE.md's pins.\n"

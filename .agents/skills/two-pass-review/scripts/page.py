@@ -1308,13 +1308,15 @@ PAGE = """<!doctype html>
 </html>
 """
 
-# The page's whole script: the clipboard handler, and dismissal.
+# The page's whole script: the clipboard handler, dismissal, and keeping the
+# map's links pointed at something on screen.
 #
-# Neither one parses, renders or evaluates anything a pass wrote. The copy handler
+# None of it parses, renders or evaluates anything a pass wrote. The copy handler
 # moves a string from a data- attribute to the clipboard -- or, for the bulk
 # button, several, joined between two more; dismissal only ever toggles a class
-# and writes digits it counted itself. A hostile `body_md`
-# reaching either is inert -- escaping still does the security work, exactly as it
+# and writes digits it counted itself; the map's links get attributes built from
+# validated ids. A hostile `body_md`
+# reaching any of it is inert -- escaping still does the security work, exactly as it
 # does everywhere else here.
 #
 # Delegated listeners rather than a handler per control: the page can carry a
@@ -1510,6 +1512,41 @@ SCRIPT = """
     if (badge) { badge.textContent = String(count); }
   }
 
+  function onScreen(id) {
+    var element = document.getElementById(id);
+    return element !== null && element.getClientRects().length > 0;
+  }
+
+  // The map's links -- each id at the top of a line, each contest's diamond --
+  // point at cards and at a card's dispute, and the filters and `Hide dismissed`
+  // take cards off the page while the map only dims their lines. A link to
+  // nothing on screen goes inert: out of the pointer's reach and the tab order,
+  // and announced as unavailable. A dismissed card folds its dispute away
+  // while the card stays, so its diamond points at the card instead. Read off
+  // what is displayed, like openBlocking, so no filter needs stating twice.
+  // Writes attributes it composed from validated ids, never markup.
+  function refreshMapLinks() {
+    var links = document.querySelectorAll('.lm .lm-label, .lm a.lm-contest');
+    for (var i = 0; i < links.length; i++) {
+      var link = links[i];
+      var lane = link.closest('[data-lane]').getAttribute('data-lane');
+      var target = 'finding-' + lane;
+      if (link.classList.contains('lm-contest') && onScreen('contest-' + lane)) {
+        target = 'contest-' + lane;
+      }
+      var live = onScreen(target);
+      link.setAttribute('href', '#' + target);
+      link.classList.toggle('lm-inert', !live);
+      if (live) {
+        link.removeAttribute('tabindex');
+        link.removeAttribute('aria-disabled');
+      } else {
+        link.setAttribute('tabindex', '-1');
+        link.setAttribute('aria-disabled', 'true');
+      }
+    }
+  }
+
   document.addEventListener('click', function (event) {
     var button = event.target.closest ? event.target.closest('.dismiss') : null;
     if (!button) { return; }
@@ -1534,6 +1571,7 @@ SCRIPT = """
     retally(card.getAttribute('data-disposition'));
     refreshDismissedLink();
     refreshBulk();
+    refreshMapLinks();
   });
 
   // The severity pills hide cards in CSS, like the two filters beside them, but a
@@ -1541,13 +1579,15 @@ SCRIPT = """
   // the one thing the script does here is count again: every disposition, because
   // the filter is global, and only on change, because nothing else moves it.
   // Every filter can take blocking cards off screen, so every one recounts the
-  // bulk button. Once at load too: a browser that restores radio state on
-  // reload can open the page already filtered.
+  // bulk button and the map's links. Once at load too: a browser that restores
+  // radio state on reload can open the page already filtered.
   var filters = document.querySelectorAll('input.filter');
   for (var f = 0; f < filters.length; f++) {
     filters[f].addEventListener('change', refreshBulk);
+    filters[f].addEventListener('change', refreshMapLinks);
   }
   refreshBulk();
+  refreshMapLinks();
 
   var severityRadios = document.querySelectorAll('input[name="sev"]');
   for (var s = 0; s < severityRadios.length; s++) {

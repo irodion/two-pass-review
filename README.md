@@ -147,7 +147,7 @@ loudly they shout, derived from severity for security findings and from category
   and so is every document the docs check has a note on; past thirty changed files, only the cited files
   and those documents are rows, and one row counts the rest. A row for a file the diff never touched says
   so. Above the rows the falsification check marks each line: a grey dot for a finding it read
-  and did not contest — its silence, not a pass — an amber diamond for a contest, which links to it, and a
+  and did not contest — its silence, not an approval — an amber diamond for a contest, which links to it, and a
   hatched band when the check was skipped or its reply was lost. The filters dim lines rather than hide
   them, and a finding marked dealt with fades there too. Reports from runs before the map recorded every
   changed file map only the files the findings cite and the documents the docs check has a note on.

@@ -6,10 +6,11 @@ goes on `sys.path`, and a module called `markdown` there would shadow the
 well-known package of that name for anything else running in the process.
 """
 
-import html
 import re
 from collections.abc import Collection
 from typing import cast
+
+from escaping import esc
 
 # The page runs a fixed script of its own -- a clipboard handler and a dismissal
 # toggle -- and nothing it *renders* may run anything. Neither handler is what
@@ -38,7 +39,8 @@ def is_safe_url(url: str) -> bool:
 #
 # Escape first, then apply structure. Nothing downstream can emit an unescaped
 # byte, which is what deletes the whole class of tag-termination bugs rather
-# than mitigating it.
+# than mitigating it. The escape is escaping.esc, the one the page's other
+# renderers use, so no policy change can reach some of the page and not this.
 
 BULLET_RE = re.compile(r"^(\s*)[-*]\s+(.*)$")
 NUMBER_RE = re.compile(r"^(\s*)\d+[.)]\s+(.*)$")
@@ -63,7 +65,7 @@ class Markdown:
     def render(self, text: str, self_id: str | None = None) -> str:
         if not text:
             return ""
-        escaped = html.escape(text, quote=True)
+        escaped = esc(text)
         return self._blocks(escaped.split("\n"), self_id)
 
     def inline(self, text: str, self_id: str | None = None) -> str:
@@ -75,7 +77,7 @@ class Markdown:
         """
         if not text:
             return ""
-        return self._inline(html.escape(text, quote=True), self_id)
+        return self._inline(esc(text), self_id)
 
     @staticmethod
     def plain(text: str) -> str:

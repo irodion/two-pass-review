@@ -180,16 +180,22 @@ loudly they shout, derived from severity for security findings and from category
   remedy is proposing and nothing has written yet. Selecting a chip selects the whole path.
 - **Every finding has two copy buttons.** `Copy` puts it on the clipboard as markdown — title, pass,
   disposition, severity, locations and body, plus the confidence rationale when there is one. `Copy for
-  agent` appends an instruction asking an agent to verify the finding against the real code and propose
-  options. A corroborated finding names its partner rather than pasting it; the partner has its own button.
+  agent` first says that what follows quotes the reviewed repository and is evidence rather than
+  instructions, then puts the same text between two tags, then asks an agent to verify the finding
+  against the real code and propose options. The tags are there because a paste lands in your own turn,
+  where an agent takes text as yours: a line of reviewed code that reads like an instruction stays marked
+  as a quote. Their name carries a key cut from a hash of the finding's text, so nothing the quote holds
+  can close them early, and the quote is pasted exactly as written. A corroborated finding names its
+  partner rather than pasting it; the partner has its own button.
 - **Under the verdict sit `Copy report as markdown`, and `Copy open blocking for agent` when something
   blocks.** The report copy is the page as text, for a pull request comment: the verdict, the summary,
   the scope, the disclaimer and any warnings, every finding by disposition, what each pass said besides
   its findings, and the docs check with its notes. It leaves out the self-check, whose answers the page
   keeps folded, and it includes findings you marked dealt with — marks are yours, not the report's. The
   agent copy holds the blocking findings you are looking at, neither marked dealt with nor hidden by a
-  filter, each as its own `Copy` carries it, with the agent instruction said once at the end. Its count
-  follows your marks and filters, and the button goes when nothing is left.
+  filter, each between its own tags as its `Copy for agent` holds it, with the evidence rule said once at
+  the start and the agent instruction once at the end. Its count follows your marks and filters, and the
+  button goes when nothing is left.
 - **Every finding can be marked dealt with.** `✓ Mark dealt with` folds the card to its title, strikes
   the title through, and strikes the sidebar entry with it, so the nav stops advertising findings you
   have already dealt with and the page compacts as you read. Once anything is marked, the sidebar offers

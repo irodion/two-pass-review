@@ -175,12 +175,14 @@ anything about reviewing code:
   what `_hostile_artifact` carries, so a new field or a new kind of object fails the check until it
   gets a payload.
 
-  The copy buttons are the one comparison with `page.py`: their attribute has to decode back to exactly
-  what `copy_texts` returns — or `report_markdown`, for the report's own — the one statement of what each
+  The copy buttons are the one comparison with `page.py`: their `data-copy` has to decode back to exactly
+  what `copy_pieces` returns — or `report_markdown`, for the report's own — the one statement of what each
   button holds. That tests the escaping and nothing about the content, so a finding's body, paths,
-  rationale and contest are also looked for in what is copied, independently. The check was tested by
-  breaking escaping on purpose, field by field, and any change to it should be tested the same way: a
-  check that has only ever passed has not shown it can fail.
+  rationale and contest are also looked for in what is copied, independently. An agent copy holds its
+  finding between two tags named for a key from the finding's own hash, and every payload carries
+  closers of its own, so the block must hold its payload verbatim, and a closer the payload cannot
+  contain. The check was tested by breaking escaping on purpose, field by field, and any change to it
+  should be tested the same way: a check that has only ever passed has not shown it can fail.
 
   The flag check and the contract check exist because the orchestrators this skill targets copy text
   exactly. A flag renamed in a script and not in SKILL.md is a run that dies on its first command, so

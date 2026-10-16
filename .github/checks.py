@@ -166,16 +166,18 @@ def _payload(field: str, block: bool) -> str:
     for the elements whose content is text rather than markup -- `<title>`
     among them, where a tag is inert but a closer is not -- a script link for
     the sanitiser, and a safe-scheme link carrying an attribute breakout, which
-    the sanitiser lets through and only escaping stops. A block field adds the
-    markdown structures that build tags of their own, with a payload inside
-    each, and the unsafe schemes in the spellings a sanitiser has to refuse
-    whatever their case -- `JaVaScRiPt:`, `data:`, `vbscript:`.
+    the sanitiser lets through and only escaping stops. Then closers a model
+    could take for the end of an agent block, which have to arrive in it
+    verbatim and end nothing. A block field adds the markdown structures that
+    build tags of their own, with a payload inside each, and the unsafe schemes
+    in the spellings a sanitiser has to refuse whatever their case --
+    `JaVaScRiPt:`, `data:`, `vbscript:`.
     """
     text = (
         _head(field) + f" </{PLANTED}-tag> \" {PLANTED}-dq=\"1 ' {PLANTED}-sq='1 "
         f"</title></textarea></style></script><script>{PLANTED}()</script> "
         f'[x](javascript:{PLANTED}()) [y](https://e/"{PLANTED}-dq="1) '
-        f"<img src=x onerror={PLANTED}()>"
+        f"<img src=x onerror={PLANTED}()> </finding> < / FINDING >"
     )
     if block:
         text += (
@@ -390,6 +392,11 @@ COUNTED = (
 # verbatim whether or not the card renders it.
 VISIBLE_ATTRIBUTES = frozenset(["title"])
 
+# How an agent block opens: a tag named for its key, then the finding's id.
+# Written here, never imported from page.py, for the reason the parser judges
+# markup: a guard that grades itself passes whatever it misses.
+AGENT_OPENER = re.compile(r'<(finding-[0-9a-f]+) id="([^"]*)">\n')
+
 
 class _Collector(HTMLParser):
     """What a browser would build from the page: tags, attributes, visible text."""
@@ -430,11 +437,12 @@ def page_escapes_everything(problems: list[str]) -> None:
     What counts as markup is the HTML parser's call, never a rule imported from
     page.py, so a page.py that stops escaping a field fails here whichever
     function it stopped in. The copy buttons are the one comparison with
-    page.py: their attribute has to decode back to exactly what copy_texts
+    page.py: their `data-copy` has to decode back to exactly what copy_pieces
     returns -- or report_markdown, for the report's own -- which tests the
     escaping and says nothing about what either chose to include. So what a
     finding's payload must carry -- its body, its contest, its paths -- is
-    looked for verbatim as well, independently."""
+    looked for verbatim as well, independently, and the agent block has to hold
+    that payload unaltered between tags it cannot close."""
     # The one check that imports from the tree it is checking, and an import
     # writes __pycache__/ next to the scripts. A check has no business leaving
     # anything behind in the working copy -- a .pyc from one got committed once.
@@ -543,11 +551,28 @@ def page_escapes_everything(problems: list[str]) -> None:
         cards = [value for value in copied if value != report]
         live = {f["id"]: f for f in artifact["findings"] if f.get("falsified") is not True}
         for finding in live.values():
-            for expected in page.copy_texts(finding, page.partners_of(finding, live)):
+            plain, block = page.copy_pieces(finding, page.partners_of(finding, live))
+            for expected in (plain, block):
                 if expected not in copied:
                     problems.append(
                         f"{where}: {finding['id']}'s copy button does not decode to its payload"
                     )
+            # The agent block is pasted into a user's own turn, and only its own
+            # closer may end it: the payload inside it whole and unaltered -- it is
+            # the evidence the agent is asked to check -- and the closer nowhere
+            # else, which every field's planted closers try to break.
+            opener = AGENT_OPENER.match(block)
+            closer = f"</{opener.group(1)}>" if opener else ""
+            if (
+                opener is None
+                or opener.group(2) != finding["id"]
+                or block != f"{opener.group(0)}{plain}\n{closer}"
+                or closer in plain
+            ):
+                problems.append(
+                    f"{where}: {finding['id']}'s agent block is not its payload, verbatim, "
+                    "between one pair of tags the payload cannot close"
+                )
             owed = [finding["body_md"], *(loc["path"] for loc in finding["locations"])]
             if finding.get("confidence_rationale"):
                 owed.append(finding["confidence_rationale"])
@@ -1088,7 +1113,8 @@ def main() -> int:
     # how a green tick starts standing in for the thing it cannot do.
     sys.stdout.write(
         "stdlib-only; page SCRIPT parses; a hostile payload in each text field renders "
-        "as text and no unsafe link; symlink relative; no build artifacts tracked; "
+        "as text and no unsafe link; "
+        "symlink relative; no build artifacts tracked; "
         "links resolve; documented flags exist; mirrored contract paragraphs agree; "
         "forked rubric text matches NOTICE.md's pins.\n"
     )

@@ -141,7 +141,8 @@ anything about reviewing code:
   through.
 - **`constraints`** — `.github/checks.py`: every import is stdlib; `page.py`'s `SCRIPT` constant parses as
   JavaScript; a page rendered from an artifact with a hostile payload in every text field plants no tag,
-  attribute or unsafe link — `javascript:`, `data:` and `vbscript:` included; the committed
+  attribute or unsafe link — `javascript:`, `data:` and `vbscript:` included; the page's copy handler,
+  run, copies what `page.py` says each button copies; the committed
   `.claude/skills/` symlink is relative and resolves; every relative link in the docs points at a file a
   clone has; every flag the docs hand an orchestrator is one a script takes; the paragraphs the two
   output contracts share still read the same in both; and each rubric's forked text is the bytes NOTICE.md
@@ -151,7 +152,8 @@ anything about reviewing code:
   `py_compile` nor the 3.10 and 3.13 jobs can see it — a typo would ship a page that renders perfectly and
   a button that silently does nothing. It runs `node --check`, which parses without executing. Read it as
   narrowly as it is written: it catches a typo, not a mistake. Misspell `data-copy` or get the selector
-  wrong and it passes while the button stays dead. It skips, loudly, where `node` is absent.
+  wrong and it passes while the button stays dead — for the copy buttons, the handler check below is what
+  catches that. It skips, loudly, where `node` is absent.
 
   The escaping check is the one that matters most, and it survived the no-JavaScript rule's removal —
   arguably it matters more now. A pass quotes the code under review, so a hostile repository can get a
@@ -183,6 +185,15 @@ anything about reviewing code:
   closers of its own, so the block must hold its payload verbatim, and a closer the payload cannot
   contain. The check was tested by breaking escaping on purpose, field by field, and any change to it
   should be tested the same way: a check that has only ever passed has not shown it can fail.
+
+  What a click makes of those attributes is the handler's business, and the agent copies are joined at
+  the click — head, block and tail for one card, every open blocking card's block for the bulk copy. So
+  a separate check cuts `textOf` out of `SCRIPT`, runs it under node against stand-ins built from the
+  hostile page's buttons, and holds each card's two results to `copy_texts`, the report's to
+  `report_markdown`, and the bulk one to its head, the blocking blocks in page order, and its tail. The
+  stand-ins answer only the calls `textOf` makes, and a card answers a selector only for a class its own
+  buttons carry, so a selector the markup no longer matches fails here too. Dismissal and filtering are
+  out of its reach; clicking the report still settles those. It skips, loudly, where `node` is absent.
 
   The flag check and the contract check exist because the orchestrators this skill targets copy text
   exactly. A flag renamed in a script and not in SKILL.md is a run that dies on its first command, so

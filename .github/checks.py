@@ -395,7 +395,11 @@ VISIBLE_ATTRIBUTES = frozenset(["title"])
 # How an agent block opens: a tag named for its key, then the finding's id.
 # Written here, never imported from page.py, for the reason the parser judges
 # markup: a guard that grades itself passes whatever it misses.
-AGENT_OPENER = re.compile(r'<(finding-[0-9a-f]+) id="([^"]*)">\n')
+AGENT_OPENER = re.compile(r'<(finding-([0-9a-f]+)) id="([^"]*)">\n')
+# The shortest key the check accepts, in hex digits: 48 bits of the payload's
+# own SHA-256. A floor rather than the length page.py cuts, so a longer key
+# passes and a key cut down to a guessable few digits does not.
+AGENT_KEY_FLOOR = 12
 
 
 class _Collector(HTMLParser):
@@ -561,18 +565,24 @@ def page_escapes_everything(problems: list[str]) -> None:
             # The agent block is pasted into a user's own turn, and only its own
             # closer may end it: the payload inside it whole and unaltered -- it is
             # the evidence the agent is asked to check -- and the closer nowhere
-            # else, which every field's planted closers try to break.
+            # else, which every field's planted closers try to break. The key has
+            # to be the payload's own SHA-256: one its author could predict -- a
+            # constant, the finding's id -- lets a quote close its block, and
+            # nothing the payload carries would show it here.
             opener = AGENT_OPENER.match(block)
             closer = f"</{opener.group(1)}>" if opener else ""
+            digest = hashlib.sha256(plain.encode("utf-8")).hexdigest()
             if (
                 opener is None
-                or opener.group(2) != finding["id"]
+                or opener.group(3) != finding["id"]
+                or len(opener.group(2)) < AGENT_KEY_FLOOR
+                or not digest.startswith(opener.group(2))
                 or block != f"{opener.group(0)}{plain}\n{closer}"
                 or closer in plain
             ):
                 problems.append(
                     f"{where}: {finding['id']}'s agent block is not its payload, verbatim, "
-                    "between one pair of tags the payload cannot close"
+                    "between one pair of tags keyed by the payload's own hash"
                 )
             owed = [finding["body_md"], *(loc["path"] for loc in finding["locations"])]
             if finding.get("confidence_rationale"):
@@ -648,7 +658,7 @@ def copy_script_copies(problems: list[str]) -> None:
     attribute decodes perfectly. page_script_parses cannot see that; this runs
     textOf, cut out of SCRIPT, under node against the hostile page's buttons,
     and holds a card's two to copy_texts, the report's to report_markdown, and
-    the bulk one to its head, the blocking blocks in page order, and its tail.
+    the bulk one to bulk_text over the blocking cards' blocks in page order.
     The stand-ins see none of dismissal or filtering, which openBlocking does
     in the page; that stays the clicking AGENTS.md asks for. Skips where node
     is absent, as page_script_parses does."""
@@ -721,18 +731,11 @@ def copy_script_copies(problems: list[str]) -> None:
         problems.append("copy handler: the hostile artifact needs two blocking findings")
     elif len(bulk) != 1:
         problems.append(f"copy handler: {len(bulk)} bulk buttons, not one")
-    else:
-        text, at = bulk[0], 0
-        for block in blocks:
-            at = text.find(block, at)
-            if at == -1:
-                break
-            at += len(block)
-        if not text.startswith(page.BULK_HEAD) or not text.endswith(page.BULK_TAIL) or at == -1:
-            problems.append(
-                "copy handler: the bulk copy is not its head, every open blocking card's "
-                "block in page order, and its tail"
-            )
+    elif bulk[0] != page.bulk_text(blocks):
+        problems.append(
+            "copy handler: the bulk copy is not bulk_text over every open blocking card's "
+            "block, in page order"
+        )
 
 
 def _git(problems: list[str], *args: str) -> str | None:

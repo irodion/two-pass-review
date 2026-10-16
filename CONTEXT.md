@@ -88,7 +88,7 @@ The on-demand stage, asked for by the user any time after a merge, that turns a 
 _Avoid_: rule pass, third pass, lint pass, follow-up (that word is a disposition)
 
 **Rule suggestion**:
-One proposed rule in the derived file — a semgrep rule, or a config change for a tool the repository already runs — traceable to the finding id(s) whose defect class it would catch. A suggestion, never enforcement: nothing installs, runs, or scores it, and a suggestion from a contested finding carries the dispute.
+One proposed rule in the derived file — a semgrep rule, or a config change for a tool the repository already runs — traceable to the finding id(s) whose defect class it would catch. A suggestion, never enforcement: nothing installs, enforces, or scores it, it is run only to test it — with semgrep or ruff, in the review tree and in the checkout — and says what it flagged or why it was not tested, and a suggestion from a contested finding carries the dispute.
 _Avoid_: rule, lint rule, finding, fix, remediation
 
 ### Artifacts
@@ -98,7 +98,7 @@ The exact range of code a run reviews, resolved once by the parent so both passe
 _Avoid_: diff, target, range
 
 **Review tree**:
-The checkout a run reads files from — the reviewed head, exactly. The user's own checkout when it already holds that commit with no uncommitted change, otherwise a worktree at the head in the temp directory, which `scope.py --release` removes at the end of the run. A diff compares commits, but a pass reads files and the validator checks ranges against files, so they must be the head's.
+The checkout a run reads files from — the reviewed head, exactly. The user's own checkout when it already holds that commit with no uncommitted change, otherwise a worktree at the head in the temp directory, which `scope.py --release` removes at the end of the run. A diff compares commits, but a pass reads files and the validator checks ranges against files, so they must be the head's. Rule derivation makes it again, long after the run, to test rule suggestions on — for a local patch, at the commit `scope.py` made of the working tree when it pinned the run, which `scope.json` records as `snapshot` and `git gc` prunes after about two weeks — and `--release` removes it again.
 _Avoid_: checkout, working copy, repo
 
 **Findings file**:

@@ -131,12 +131,17 @@ anything about reviewing code:
 
 - **`python 3.10` and `python 3.13`** — every script compiles on both, and on the modern one both imports
   *and runs* with `DeprecationWarning` and `SyntaxWarning` fatal: `scope.py` over a real revision range,
-  filling every subagent prompt, and over one that needs a review worktree, `prompts.py --rules` over the
-  first, then `--release` of both, `scope.py --since` and `--against` over a repository built with fixed
+  filling every subagent prompt, and over one that needs a review worktree, then `--release` of both,
+  `prompts.py --rules` over each — the second rebuilding the review tree its run released — and over a
+  local patch that retargets a tracked link, rebuilt once the working tree has moved on, each rebuilt
+  tree released again, `try_rule.py` over a one-file tree with ruff installed for it, passing over a
+  `ruff` committed in that tree, refusing a shell script first on `PATH` as a version manager's shim
+  and starting a python script that hands its arguments to the real ruff,
+  `scope.py --since` and `--against` over a repository built with fixed
   commit dates — a midnight commit, a side branch merged since, a local `main` behind origin's — whose
   right bases are facts of its history, `collect_docs.py` over the first range's diff, `merge.py` and
   `render.py` over a one-pass run assembled from it, `validate.py`'s excerpt warnings, and `validate.py`,
-  `render.py`, `prompts.py` and `collect_docs.py` down their refusal paths. Importing alone was not
+  `render.py`, `prompts.py`, `collect_docs.py` and `try_rule.py` down their refusal paths. Importing alone was not
   enough — a deprecation inside a `main()` is invisible to it, which is how `datetime.utcnow()` would have got
   through.
 - **`constraints`** — `.github/checks.py`: every import is stdlib; `page.py`'s `SCRIPT` constant parses as

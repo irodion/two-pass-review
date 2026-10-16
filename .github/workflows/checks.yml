@@ -40,29 +40,39 @@ jobs:
         run: python -m compileall -q .agents/skills/two-pass-review/scripts
       - name: import cleanly, with warnings fatal
         working-directory: .agents/skills/two-pass-review/scripts
+        env:
+          PYTHONWARNINGS: error::DeprecationWarning,error::SyntaxWarning
         # Every script in the directory, found rather than listed: a script
         # left off a hand-kept list would import with its warnings never made
         # fatal, and nothing would say so. The assertion is the guard on the
         # glob itself -- a wrong directory finds nothing, and importing
         # nothing passes.
         run: |
-          python -W error::DeprecationWarning \
-                 -W error::SyntaxWarning \
-                 -c "import glob, importlib; names = sorted(p[:-3] for p in glob.glob('*.py')); assert 'scope' in names, names; [importlib.import_module(n) for n in names]"
+          python -c "import glob, importlib; names = sorted(p[:-3] for p in glob.glob('*.py')); assert 'scope' in names, names; [importlib.import_module(n) for n in names]"
+      - name: install ruff, which try_rule.py starts
+        run: pip install ruff==0.12.9
       - name: run the entry points, with warnings fatal
         # Importing a module does not execute its main(), so a deprecation inside
         # one stays invisible to the step above -- datetime.utcnow() in scope.py
         # would be the classic. These actually run.
-        # The flags are written out at each call rather than held in a variable:
-        # unquoted expansion only word-splits because the shell happens to be
-        # bash, and a check whose teeth depend on that is a check that silently
-        # loses them.
+        # Warnings are fatal through PYTHONWARNINGS, set once for the step, and
+        # not through -W at each call. They were -W at each call, 23 of them, and
+        # python reads a mistyped -W category as a line in the log and runs on
+        # with warnings at their default, so one typo turned one call's gate off
+        # and failed nothing. No shell expands an env entry, so it holds whatever
+        # shell runs the step; and it reaches every python here, the one-line
+        # checks included, which costs nothing. Per step, not per job, because
+        # pip runs in this job between the two steps that set it, and a
+        # deprecation in pip is not one of ours to fail on.
+        env:
+          PYTHONWARNINGS: error::DeprecationWarning,error::SyntaxWarning
         run: |
           set -eux
           S=.agents/skills/two-pass-review/scripts
+          # One field of a JSON file a script wrote, by file and key.
+          field () { python -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$1" "$2"; }
           # The whole of scope: git plumbing, the timestamped run dir, JSON out.
-          python -W error::DeprecationWarning -W error::SyntaxWarning \
-                 "$S/scope.py" --repo . --base HEAD~1 --mode revisions --head HEAD \
+          python "$S/scope.py" --repo . --base HEAD~1 --mode revisions --head HEAD \
                  --label 'the last commit, for CI' > scope.json
           # files_changed proves the range resolved; label proves --label is
           # carried verbatim into the scope object rather than merely parsed.
@@ -79,22 +89,20 @@ jobs:
           # README.md because this repository certainly has one: an empty list
           # here means the collector stopped finding anything, not that there
           # was nothing to find.
-          python -W error::DeprecationWarning -W error::SyntaxWarning \
-                 "$S/collect_docs.py" --repo . \
-                 --diff "$(python -c "import json;print(json.load(open('scope.json'))['context_diff'])")" > docs.json
+          python "$S/collect_docs.py" --repo . \
+                 --diff "$(field scope.json context_diff)" > docs.json
           python -c "import json,sys; d=json.load(open('docs.json')); sys.exit(0 if any(x['path']=='README.md' for x in d['docs']) else 1)"
           # The same bytes have to reach the run directory: that file is what
           # the docs check reads its documents from and what merge.py copies
           # into the artifact, and a collector that printed without writing
           # would fail nothing here while the docs check stopped existing.
-          cmp "$(python -c "import json;print(json.load(open('scope.json'))['run_dir'])")/docs.json" docs.json
+          cmp "$(field scope.json run_dir)/docs.json" docs.json
           # A range whose head is not what is checked out has to be read from a
           # checkout of that head, or the passes and every line range are about
           # the wrong files. CI has HEAD checked out, so HEAD~1 as the head needs
           # the review worktree -- and the worktree has to hold that commit.
-          python -W error::DeprecationWarning -W error::SyntaxWarning \
-                 "$S/scope.py" --repo . --base HEAD~2 --mode revisions --head HEAD~1 > scope-tree.json
-          tree=$(python -c "import json;print(json.load(open('scope-tree.json'))['worktree'])")
+          python "$S/scope.py" --repo . --base HEAD~2 --mode revisions --head HEAD~1 > scope-tree.json
+          tree=$(field scope-tree.json worktree)
           test -d "$tree"
           test "$(git -C "$tree" rev-parse HEAD)" = "$(git rev-parse HEAD~1)"
           # Outside the checkout: a second copy of the source inside it would be
@@ -124,12 +132,41 @@ jobs:
           # Release removes it -- the directory and the registration in this
           # checkout -- and releasing a run read in place is a no-op, not an
           # error, which is what lets SKILL.md run it on every run.
-          python -W error::DeprecationWarning -W error::SyntaxWarning \
-                 "$S/scope.py" --release "$(python -c "import json;print(json.load(open('scope-tree.json'))['run_dir'])")"
+          python "$S/scope.py" --release "$(field scope-tree.json run_dir)"
           test ! -e "$tree"
           test "$(git worktree list | wc -l)" -eq 1
-          python -W error::DeprecationWarning -W error::SyntaxWarning \
-                 "$S/scope.py" --release "$(python -c "import json;print(json.load(open('scope.json'))['run_dir'])")"
+          python "$S/scope.py" --release "$(field scope.json run_dir)"
+          # Rule derivation makes that tree again, long after its run released
+          # it, through the same review_tree, and records it where --release
+          # finds it. Then a local patch, whose code no branch holds: scope.py
+          # makes a commit of the working tree when it pins the run, and the
+          # derivation checks that out once the working tree has moved on, which
+          # is the only state a derivation ever finds it in. The commit is made
+          # on a copy of the index, so restoring the files from the index has to
+          # leave nothing staged. The patch retargets the tracked CLAUDE.md link,
+          # which the tree holds as a plain file holding its target.
+          tree_run=$(field scope-tree.json run_dir)
+          python "$S/prompts.py" --rules "$tree_run" > /dev/null
+          tree=$(field "$tree_run/scope.json" worktree)
+          test "$(git -C "$tree" rev-parse HEAD)" = "$(git rev-parse HEAD~1)"
+          grep -qF "The code that was reviewed, to test rules on: $tree" "$tree_run/prompt.rules.md"
+          python "$S/scope.py" --release "$tree_run"
+          test ! -e "$tree"
+          test "$(git worktree list | wc -l)" -eq 1
+          printf '\nA local change, for CI.\n' >> README.md
+          ln -sfn README.md CLAUDE.md
+          python "$S/scope.py" --repo . --base HEAD --mode local-patch > scope-patch.json
+          git checkout -- README.md CLAUDE.md
+          git diff --quiet HEAD
+          patch_run=$(field scope-patch.json run_dir)
+          python "$S/prompts.py" --rules "$patch_run" > /dev/null
+          tree=$(field "$patch_run/scope.json" worktree)
+          grep -qF 'A local change, for CI.' "$tree/README.md"
+          test ! -L "$tree/CLAUDE.md"
+          test "$(cat "$tree/CLAUDE.md")" = README.md
+          python "$S/scope.py" --release "$patch_run"
+          test ! -e "$tree"
+          test "$(git worktree list | wc -l)" -eq 1
           # --since and --against do the git a caller used to type by hand, each
           # with a rule the typing got wrong. Checked in a repository built here
           # with fixed dates, so the answers are facts of its history and not of
@@ -154,8 +191,7 @@ jobs:
           GIT_COMMITTER_DATE=2026-10-10T08:00:00+03:00 \
               git -C "$dated" -c user.name=ci -c user.email=ci@example.invalid merge -q --no-ff side -m merge
           commit 2026-10-10T09:00:00+03:00 d
-          python -W error::DeprecationWarning -W error::SyntaxWarning \
-                 "$S/scope.py" --repo "$dated" --since 2026-10-10T00:00+03:00 \
+          python "$S/scope.py" --repo "$dated" --since 2026-10-10T00:00+03:00 \
                  --mode revisions --head HEAD > since.json
           python - "$(git -C "$dated" rev-parse main~3)" <<'SINCE'
           import json, sys
@@ -188,8 +224,7 @@ jobs:
           git -C "$dated" checkout -q -b feature main
           commit 2026-10-10T11:00:00+03:00 e
           against () {
-              python -W error::DeprecationWarning -W error::SyntaxWarning \
-                     "$S/scope.py" --repo "$dated" --against "$1" \
+              python "$S/scope.py" --repo "$dated" --against "$1" \
                      --mode revisions --head HEAD > against.json 2> against.err
               test ! -s against.err
               python -c "import json,sys; d=json.load(open('against.json'))['scope']; sys.exit(0 if (d['base'], d['against']) == (sys.argv[1], sys.argv[2]) else 1)" \
@@ -228,15 +263,14 @@ jobs:
           # directory scope.py pinned above, whose scope.json and docs.json the
           # merge reads by name. The artifact is merge.py's, not this file's,
           # and render.py proves it renders against the review tree.
-          run_dir=$(python -c "import json;print(json.load(open('scope.json'))['run_dir'])")
+          run_dir=$(field scope.json run_dir)
           # Rule derivation's prompt is filled when it is asked for, from the
           # run's scope.json and the prompts.md of the moment, never saved with
           # the run. It names the user's checkout and the run's findings.
-          python -W error::DeprecationWarning -W error::SyntaxWarning \
-                 "$S/prompts.py" --rules "$run_dir" > rules-handover.txt
+          python "$S/prompts.py" --rules "$run_dir" > rules-handover.txt
           grep -qF "$run_dir/prompt.rules.md" rules-handover.txt
           grep -qF "$run_dir/findings.json" "$run_dir/prompt.rules.md"
-          grep -qF "$(python -c "import json;print(json.load(open('scope.json'))['checkout'])")" "$run_dir/prompt.rules.md"
+          grep -qF "$(field scope.json checkout)" "$run_dir/prompt.rules.md"
           # The excerpt warnings run under the fatal warning flags and refuse
           # nothing: a verbatim excerpt draws no output at all, and a misquoted
           # one draws a warning while validation still passes. What a warning
@@ -248,8 +282,7 @@ jobs:
           finding () {
               printf '{"id": "sec-1", "producer": "security", "disposition": "note", "title": "t", "locations": [{"path": "excerpt-check/sample.py", "start_line": 2, "end_line": 2}], "body_md": "```python\\n%s\\n```\\n\\nArgument."}\n' "$1" \
                   > excerpt-check/findings.security.jsonl
-              python -W error::DeprecationWarning -W error::SyntaxWarning \
-                     "$S/validate.py" --repo . excerpt-check/findings.security.jsonl \
+              python "$S/validate.py" --repo . excerpt-check/findings.security.jsonl \
                      excerpt-check/pass.security.json 2> excerpt.err || { cat excerpt.err; exit 1; }
           }
           finding "    return sum(rows)"
@@ -266,17 +299,14 @@ jobs:
            "empty_reason_md": "Constructed by CI; no review ran."}
           PASS
           echo '[]' > "$run_dir/docs-notes.json"
-          python -W error::DeprecationWarning -W error::SyntaxWarning \
-                 "$S/merge.py" --run-dir "$run_dir" --passes sequential \
+          python "$S/merge.py" --run-dir "$run_dir" --passes sequential \
                  --falsification skipped --docs-check ran > merged.json
           python -c "import json,sys; d=json.load(open('merged.json')); sys.exit(0 if d['verdict'] == 'clear' and d['docs_check'] == 'ran' else 1)"
           # One pass has nothing to pair across, so the list is empty -- what
           # this proves is that the mode reads a real run directory and runs.
-          python -W error::DeprecationWarning -W error::SyntaxWarning \
-                 "$S/merge.py" --candidates "$run_dir" > candidates.json
+          python "$S/merge.py" --candidates "$run_dir" > candidates.json
           python -c "import json,sys; sys.exit(0 if json.load(open('candidates.json'))['candidates'] == [] else 1)"
-          python -W error::DeprecationWarning -W error::SyntaxWarning \
-                 "$S/render.py" --repo "$(python -c "import json;print(json.load(open('scope.json'))['repo_root'])")" \
+          python "$S/render.py" --repo "$(field scope.json repo_root)" \
                  "$run_dir/findings.json" --no-open
           # Both refuse-and-explain paths, which is where argparse and the error
           # formatting live.
@@ -285,43 +315,41 @@ jobs:
           # warning promoted to an exception exits non-zero too. A deprecation
           # inside main() would print a traceback and be counted as the refusal
           # working -- which is the whole thing this step exists to notice. So
-          # the status, the text, and the absence of a traceback are all checked.
-          expect_refusal () {
-              phrase=$1; shift
+          # the status, the text, and the absence of a traceback are all checked:
+          # `answers STATUS PHRASE COMMAND...`, over what the command prints on
+          # both streams.
+          answers () {
+              want=$1 phrase=$2; shift 2
               set +e
-              output=$("$@" 2>&1 >/dev/null); status=$?
+              output=$("$@" 2>&1); status=$?
               set -e
               printf '%s\n' "$output"
-              test "$status" -eq 1 || { echo "expected exit 1, got $status" >&2; exit 1; }
+              test "$status" -eq "$want" || { echo "expected exit $want, got $status" >&2; exit 1; }
               # Before the text check, so a raised exception is reported as one
               # rather than as a missing phrase -- the traceback replaces the
               # refusal on stderr, and the vaguer message would send whoever
               # reads it looking in the wrong place.
               case $output in
                   *Traceback*|*Warning:*)
-                      echo "raised instead of refusing" >&2; exit 1 ;;
+                      echo "raised instead of answering" >&2; exit 1 ;;
               esac
               case $output in
                   *"$phrase"*) ;;
-                  *) echo "refusal did not say: $phrase" >&2; exit 1 ;;
+                  *) echo "did not say: $phrase" >&2; exit 1 ;;
               esac
           }
-          expect_refusal "Validation failed" \
-              python -W error::DeprecationWarning -W error::SyntaxWarning \
-                     "$S/validate.py" does-not-exist.json
-          expect_refusal "Refusing to render an invalid artifact" \
-              python -W error::DeprecationWarning -W error::SyntaxWarning \
-                     "$S/render.py" does-not-exist.json --no-open
-          expect_refusal "holds no scope.json" \
-              python -W error::DeprecationWarning -W error::SyntaxWarning \
-                     "$S/prompts.py" --rules does-not-exist
+          answers 1 "Validation failed" \
+              python "$S/validate.py" does-not-exist.json
+          answers 1 "Refusing to render an invalid artifact" \
+              python "$S/render.py" does-not-exist.json --no-open
+          answers 1 "holds no scope.json" \
+              python "$S/prompts.py" --rules does-not-exist
           # And the collector's: it writes docs.json beside the diff, and a
           # directory it cannot write to has to stop the docs check rather than
           # leave a collection only on stdout, where nothing downstream reads.
           mkdir -p no-write && cp "$run_dir/context.diff" no-write/ && chmod a-w no-write
-          expect_refusal "could not write docs.json" \
-              python -W error::DeprecationWarning -W error::SyntaxWarning \
-                     "$S/collect_docs.py" --repo . --diff no-write/context.diff
+          answers 1 "could not write docs.json" \
+              python "$S/collect_docs.py" --repo . --diff no-write/context.diff
           chmod u+w no-write
           # --repo actually reaching the location check, which the refusals
           # above cannot show: a missing file is refused before validation
@@ -380,11 +408,84 @@ jobs:
           # by name. Drop the flag from render.py and the first still passes
           # while the second exits 2 from argparse. Accept the flag and ignore
           # it, and the second stops refusing at all.
-          python -W error::DeprecationWarning -W error::SyntaxWarning \
-                 "$S/render.py" range-check/findings.json --no-open
-          expect_refusal "run past the end of 'README.md'" \
-              python -W error::DeprecationWarning -W error::SyntaxWarning \
-                     "$S/render.py" --repo . range-check/findings.json --no-open
+          python "$S/render.py" range-check/findings.json --no-open
+          answers 1 "run past the end of 'README.md'" \
+              python "$S/render.py" --repo . range-check/findings.json --no-open
+          # try_rule.py, which rule derivation's subagent runs once per rule, over
+          # a one-file tree with the ruff installed above. The line it prints
+          # goes into rules.md as it is, so it is held whole. A ruff committed in
+          # the tree, on a PATH whose first entry is the directory it runs in,
+          # must be passed over -- that lookup is what the script took out of the
+          # subagent's hands -- and a tool missing from PATH is a rule not
+          # tested, which is an answer, not a failure.
+          top=$PWD
+          rule=$(mktemp -d)
+          mkdir "$rule/code" "$rule/empty"
+          printf 'print(1)\n' > "$rule/code/x.py"
+          printf '#!/bin/sh\ntouch "%s/RAN"\n' "$rule" > "$rule/code/ruff"
+          chmod +x "$rule/code/ruff"
+          printf 'lint.select = ["T201"]\n' > "$rule/ruff.toml"
+          tested=$(cd "$rule/code" && PATH=".:$PATH" python "$top/$S/try_rule.py" --tool ruff \
+                   --select T201 --config "$rule/ruff.toml" --tree . --checkout .)
+          test "$tested" = "Tested: in the reviewed code, which is the checkout as it is now (1 file read), x.py:1."
+          test ! -e "$rule/RAN"
+          # A version manager's shim -- asdf's, pyenv's -- is a shell script that
+          # picks the ruff it starts from the directory it runs in, the reviewed
+          # code, so one first on PATH is not started at all. A python script
+          # whose #! line names a compiled python is how pip and uv install
+          # semgrep, and it is started: here one that hands its arguments to the
+          # ruff installed above.
+          mkdir "$rule/shims" "$rule/script"
+          printf '#!/bin/sh\ntouch "%s/SHIM"\n' "$rule" > "$rule/shims/ruff"
+          chmod +x "$rule/shims/ruff"
+          answers 1 "as a version manager's shim does" \
+              env PATH="$rule/shims:$PATH" python "$S/try_rule.py" --tool ruff --select T201 \
+                  --config "$rule/ruff.toml" --tree "$rule/code" --checkout "$rule/code"
+          test ! -e "$rule/SHIM"
+          python - "$rule/script/ruff" "$(command -v ruff)" <<'EOF'
+          import os, sys
+          path, real = sys.argv[1:]
+          with open(path, "w") as handle:
+              handle.write(f"#!{os.path.realpath(sys.executable)}\nimport os, sys\n")
+              handle.write(f"os.execv({real!r}, [{real!r}, *sys.argv[1:]])\n")
+          os.chmod(path, 0o755)
+          EOF
+          tested=$(env PATH="$rule/script:$PATH" python "$S/try_rule.py" --tool ruff --select T201 \
+                   --config "$rule/ruff.toml" --tree "$rule/code" --checkout "$rule/code")
+          test "$tested" = "Tested: in the reviewed code, which is the checkout as it is now (1 file read), x.py:1."
+          answers 1 "Not tested: semgrep is not on PATH." \
+              env PATH="$rule/empty" "$(command -v python)" "$S/try_rule.py" --tool semgrep \
+                  --config "$rule/ruff.toml" --tree "$rule/code" --checkout "$rule/code"
+          # And the spellings TOML allows besides the plain one: a dotted key and
+          # an inline table. A key that spells extend through an escape -- \u in
+          # TOML 1.0, \x in the 1.1 newer ruff reads -- meets the refusal of any
+          # backslash instead.
+          for spelling in 'extend = "x"' '[tool]\nruff.extend = "x"' \
+                  '[tool]\nruff = { extend = "x" }'; do
+              printf "$spelling\n" > "$rule/extend.toml"
+              answers 2 "has an extend key" \
+                  python "$S/try_rule.py" --tool ruff --select T201 --config "$rule/extend.toml" \
+                      --tree "$rule/code" --checkout "$rule/code"
+          done
+          for spelling in '"\\u0065xtend" = "x"' '"\\x65xtend" = "x"'; do
+              printf "$spelling\n" > "$rule/extend.toml"
+              answers 2 "has a backslash" \
+                  python "$S/try_rule.py" --tool ruff --select T201 --config "$rule/extend.toml" \
+                      --tree "$rule/code" --checkout "$rule/code"
+          done
+          answers 2 "inside the reviewed code or the checkout" \
+              python "$S/try_rule.py" --tool ruff --select T201 --config "$rule/code/x.py" \
+                  --tree "$rule/code" --checkout "$rule/code"
+          # A tool quotes a line of a file it cannot parse, so a rule file is
+          # taken from the temporary directory alone, which this checkout is not in.
+          answers 2 "outside the temporary directory" \
+              python "$S/try_rule.py" --tool ruff --select T201 --config "$top/pyproject.toml" \
+                  --tree "$rule/code" --checkout "$rule/code"
+          # A name the reviewed code chose, which a tool would read as its own
+          # flag were it not refused here and placed after -- besides.
+          answers 2 "begins with -" \
+              python "$S/try_rule.py" --tool ruff --select T201 --config "$rule/ruff.toml" \
+                  --tree "$rule/code" --checkout "$rule/code" --expect=--fix
 
   lint:
     # Style and types are floor checks like the rest: ruff's rule set, the

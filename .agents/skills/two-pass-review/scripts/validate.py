@@ -563,6 +563,17 @@ def check_locations(report: Report, where: str, locations: object, repo: str | N
             _check_location_in_repo(report, at, path, start, end, repo)
 
 
+def within(directory: str, target: str) -> bool:
+    """Whether `target` is `directory` or anywhere under it. Both are already resolved.
+
+    The one statement of the containment test, for confine below and for
+    try_rule.py, which asks it of paths that are absolute by nature -- PATH
+    entries, the tool it found, the rule file. The trailing separator comes off
+    first, so a directory of `/` contains every path rather than none.
+    """
+    return target == directory or target.startswith(directory.rstrip(os.sep) + os.sep)
+
+
 def confine(repo: str, path: str) -> str | None:
     """What `path` resolves to inside `repo`, or None where it does not stay in.
 
@@ -587,9 +598,7 @@ def confine(repo: str, path: str) -> str | None:
         return None
     root = os.path.realpath(repo)
     target = os.path.realpath(os.path.join(root, path))
-    if target != root and not target.startswith(root + os.sep):
-        return None
-    return target
+    return target if within(root, target) else None
 
 
 def _check_location_in_repo(

@@ -19,15 +19,26 @@ as SKILL.md duplicated in code that would drift from it. This holds no prompt
 text at all: prompts.md stays the one place a prompt is written, and what is
 filled here is only what scope.py resolved.
 
+Filling the rule-derivation prompt also makes the review tree again, through
+runs.rules_tree, because its subagent tests each rule on the reviewed code
+and the run's own tree is long gone. The tree is recorded in the run's
+scope.json, so `scope.py --release RUN_DIR` removes it as it removes any.
+It is one command, not a step that prints the tree for this one to take as
+an argument, because that would have the orchestrator carry a temporary path
+from one command into the next -- the retyping this script exists to remove.
+
 Exit status of the command line: 0 filled, 1 refused, 2 bad invocation.
 """
 
 import argparse
-import json
 import os
 import re
 import shlex
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gitrun  # sibling module, same directory
+import runs  # sibling module, same directory
 
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE = os.path.join(SKILL_DIR, "references", "prompts.md")
@@ -63,10 +74,11 @@ def run_values(
     }
 
 
-def rules_values(*, checkout: str, run_dir: str) -> dict[str, str]:
-    """What the rule-derivation prompt may name, all of it read off the finished run."""
+def rules_values(*, checkout: str, run_dir: str, tree: str) -> dict[str, str]:
+    """What the rule-derivation prompt may name: the finished run, and its review tree made again."""
     return {
         "checkout": checkout,
+        "tree": tree,
         "run_dir": run_dir,
         "context_diff": os.path.join(run_dir, "context.diff"),
         "findings_json": os.path.join(run_dir, "findings.json"),
@@ -80,7 +92,7 @@ def rules_values(*, checkout: str, run_dir: str) -> dict[str, str]:
 RUN_KEYS = frozenset(
     run_values(repo_root="", checkout="", run_dir="", context_diff="", file_lines="")
 )
-RULES_KEYS = frozenset(rules_values(checkout="", run_dir=""))
+RULES_KEYS = frozenset(rules_values(checkout="", run_dir="", tree=""))
 
 
 def _blocks(source: str) -> tuple[dict[str, list[str]] | None, str | None]:
@@ -217,9 +229,9 @@ def write_run(blocks: dict[str, str], run_dir: str, values: dict[str, str]) -> d
     }
 
 
-def write_rules(blocks: dict[str, str], run_dir: str, checkout: str) -> str:
+def write_rules(blocks: dict[str, str], run_dir: str, checkout: str, tree: str) -> str:
     """Write the rule-derivation prompt into the run directory. Returns its handover line."""
-    values = rules_values(checkout=checkout, run_dir=run_dir)
+    values = rules_values(checkout=checkout, run_dir=run_dir, tree=tree)
     return write_prompt(os.path.join(run_dir, "prompt.rules.md"), fill(blocks["rules"], values))
 
 
@@ -237,26 +249,46 @@ def main(argv: list[str]) -> int:
         return 1
 
     run_dir = os.path.abspath(os.path.expanduser(args.rules))
-    try:
-        with open(os.path.join(run_dir, "scope.json"), encoding="utf-8") as handle:
-            pinned = json.load(handle)
-    except (OSError, ValueError):
-        return refuse(f"{run_dir} holds no scope.json written by scope.py")
+    pinned = runs.read_record(run_dir)
+    if pinned is None:
+        return refuse(f"{run_dir} {runs.NO_RECORD}")
     # The user's own repository, never the review tree, which --release removed
     # when the run ended. A run from before `checkout` was recorded has none,
     # and only the person asking knows where their repository is.
-    checkout = args.checkout or (pinned.get("checkout") if isinstance(pinned, dict) else None)
-    if not isinstance(checkout, str) or not checkout:
+    checkout = pinned.get("checkout")
+    if args.checkout:
+        # Resolved as scope.py resolves --repo, to the top of the checkout,
+        # because a tree made here records it for release, which runs from
+        # wherever the orchestrator stands by then.
+        named = os.path.abspath(os.path.expanduser(args.checkout))
+        checkout = gitrun.toplevel(named)
+        if checkout is None:
+            return refuse(f"--checkout {named} is not inside a git repository")
+    if not checkout:
         return refuse(
             f"{run_dir}/scope.json records no checkout -- pass --checkout with the user's repository"
         )
+    # Read before the tree is made, as scope.py reads it before the run is: a
+    # prompts.md that cannot be filled would otherwise leave a tree behind.
     blocks, problem = read()
     if blocks is None:
         return refuse(f"references/prompts.md cannot be filled: {problem}")
+    tree, problem = runs.rules_tree(run_dir, pinned, checkout)
+    if tree is None:
+        return refuse(f"cannot rebuild the reviewed code to test rules on: {problem}")
+    # From here a tree may stand and the record name it, and a refusal ends the
+    # derivation before any subagent: rule-derivation.md stops on a refusal,
+    # and releases only once a subagent is done. So a prompt that cannot be
+    # written releases the tree here, as does an interrupt. On a run read in
+    # place there is nothing to release, and release says so by doing nothing.
     try:
-        line = write_rules(blocks, run_dir, checkout)
+        line = write_rules(blocks, run_dir, checkout, tree)
     except OSError as error:
+        runs.release(run_dir)
         return refuse(f"cannot write the prompt: {error}")
+    except BaseException:
+        runs.release(run_dir)
+        raise
     sys.stdout.write(line + "\n")
     return 0
 

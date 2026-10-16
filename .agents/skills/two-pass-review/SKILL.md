@@ -478,7 +478,9 @@ of the newest twenty.
 ## Deriving rule suggestions
 
 On demand only: the user asks, in their own words, any time after a merge — nothing runs this on its
-own, and no run is incomplete without it. It works from any past artifact, like re-rendering.
+own, and no run is incomplete without it. It works from any past run whose reviewed code git still
+holds — the reviewed head, or for a local patch the commit `scope.py` made of the working tree,
+which `git gc` prunes after about two weeks; `prompts.py --rules` says so when it is gone.
 **When the user asks, read [`references/rule-derivation.md`](references/rule-derivation.md) from start to
 end and follow it.** Until then you need nothing from it.
 

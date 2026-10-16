@@ -12,8 +12,8 @@ line-length = 100
 [tool.ruff.lint]
 # An allowlist, so everything unlisted is off. What is on: the defaults, plus
 # modernisation (UP), bugbear (B), simplification (SIM), comprehensions (C4),
-# ruff's own rules (RUF), annotations (ANN), and five families that were
-# already clean when they were adopted and are here to keep it that way --
+# ruff's own rules (RUF), annotations (ANN), and five families and one rule
+# that were already clean when they were adopted and are here to keep it that way --
 #   DTZ -- naive datetimes. AGENTS.md names datetime.utcnow() as the
 #          deprecation that motivated running entry points in CI at all; this
 #          refuses it at the point someone writes it, not on the next run.
@@ -24,6 +24,12 @@ line-length = 100
 #   ERA -- commented-out code, which in a repository whose comments carry the
 #          reasoning is worse than usual: it reads as prose.
 #   BLE -- blind `except`.
+#   TID251 -- banned APIs, holding one: html.escape. Escaping is what keeps a
+#          hostile repository's text from becoming markup on the page, and
+#          escaping.esc is the one place its policy lives. Before 4aeb6f4,
+#          markdown_subset.py spelled html.escape itself, so a change to esc
+#          would have looked as though it covered the page while the markdown
+#          kept the old policy.
 #
 # Deliberately absent, each for its own reason:
 #   D   -- a docstring mandate contradicts "comments explain why, not what",
@@ -39,7 +45,14 @@ line-length = 100
 #          call sites throughout the validator.
 #   COM, ISC, Q -- ruff documents these as conflicting with its own formatter,
 #          which runs as a gate here. Not taste: they would contradict it.
-select = ["E", "W", "F", "UP", "B", "SIM", "C4", "RUF", "ANN", "DTZ", "PGH", "T20", "ERA", "BLE"]
+select = ["E", "W", "F", "UP", "B", "SIM", "C4", "RUF", "ANN", "DTZ", "PGH", "T20", "ERA", "BLE", "TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"html.escape".msg = "escape with escaping.esc, the page's one escape"
+
+[tool.ruff.lint.per-file-ignores]
+# The one module that spells it: esc is html.escape, called once.
+".agents/skills/two-pass-review/scripts/escaping.py" = ["TID251"]
 
 [tool.ruff.lint.pycodestyle]
 # The formatter holds code to 100, but the page's HTML and CSS live inside

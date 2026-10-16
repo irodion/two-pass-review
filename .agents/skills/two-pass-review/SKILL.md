@@ -77,88 +77,61 @@ A pull request does not need to be checked out, but its head commit has to exist
 first if it does not (`git fetch origin pull/<number>/head` on GitHub).
 
 **`--against` takes the remote's branch, fetched.** Run `git fetch origin <other>` first and pass
-`origin/<other>`, not a local branch of the same name: a local `main` nobody has pulled lags the one the
-branch will merge into, and a base taken from it reaches back past work that is already merged, so the
-passes review it again. `scope.py` takes the merge-base itself, and refuses a local branch that is behind
-its remote's copy — exit 2, below. Use the local branch only when the user asks for it, or when there is
-no remote.
+`origin/<other>`, not a local branch of the same name: a local `main` nobody has pulled lags the branch
+being merged into, so its merge-base reaches back past merged work and the passes review it again.
+`scope.py` refuses a local branch behind its remote's copy (exit 2, below), but only as of the last
+fetch. Use the local branch only when the user asks for it, or when there is no remote.
 
-A date — "changes made today", "since Monday" — is two questions, and **both are the user's**: the same
-never-guess rule the base lives under. **Which timezone the date means**: the machine's zone is not an
-answer, and a review of "today" run at 09:00 in one zone is a different range than in another; ask, never
-infer. And **which scope mode**: `--mode local-patch` reviews the working tree as it stands since that
-point, `--mode revisions --head HEAD` reviews only what was committed.
-
-Then hand `scope.py` the instant, with its offset: `--since 2026-10-10T00:00+03:00` for "today" asked in
-UTC+3. **Do not turn the date into a commit yourself.** The script finds the last commit before that
-instant on the branch's own first-parent line, so work merged in counts by its merge commit's date and a
-commit made at exactly midnight stays in the range — two rules easily dropped from a hand-typed `git
-rev-list`. It refuses a time with no offset rather than read it in the machine's zone, and records the
-instant in the report. Git records when a commit was made, not when it reached the branch, so work
-*fast-forwarded* in keeps its own commits' dates and counts by those; if the user expects such work in the
-range, say so.
-
-```
-python3 <skill-dir>/scripts/scope.py --repo <repo> --base <rev> --mode revisions --head <rev>
-```
+**A date** — "changes made today", "since Monday" — **is two questions, and both are the user's**.
+**Which timezone the date means**: never the machine's zone, never inferred — ask. And **which scope
+mode**: `--mode local-patch` reviews the working tree as it stands since that point, `--mode revisions
+--head HEAD` only what was committed. Then pass the instant with its offset — `--since
+2026-10-10T00:00+03:00` for "today" asked in UTC+3 — and **do not turn the date into a commit
+yourself**: `scope.py` finds the base and records the instant. Work merged in counts by its merge
+commit's date, work *fast-forwarded* in by its own commits' dates, not by when it arrived; if the user
+expects such work in the range, say so.
 
 **`--label` is optional, and worth passing when the request named the range in words that nothing else
-records** — a pull request by number, a ticket. It is one line of at most 120 characters, stored verbatim
-as `scope.label` and shown in the report's run panel as *Requested scope*: `--label 'pull request #54'`.
-Nothing checks it against the range beside it and nothing could, since the resolving happened in your
-conversation; the page presents it as declared provenance, and `base` and `head` stay the checkable
-record. So write what you resolved, not what the user said: a label reading "today" is the ambiguity it
-exists to remove. `--against` and `--since` need no label to say what they resolved: `scope.py` records
-the branch or the instant itself, beside the base it found.
+records** — a pull request by number, a ticket: `--label 'pull request #54'`. One line of at most 120
+characters, shown in the report as *Requested scope* and never checked. Write what you resolved, not
+what the user said: a label reading "today" is the ambiguity it exists to remove. `--against` and
+`--since` record themselves; do not repeat them in a label.
 
 It prints JSON holding `repo_root`, `worktree`, `checkout`, `run_dir`, `context_diff`, `file_lines`,
-`now`, `latest`, `prompts` and the resolved `scope`, and writes the same JSON to `<run_dir>/scope.json`, where
-`merge.py` reads it. Keep the printed copy: every later step needs its paths.
+`now`, `latest`, `prompts` and the resolved `scope`, and writes the same JSON to `<run_dir>/scope.json`.
+Keep it: every later step needs its paths. If you lose it, read that file rather than re-run `scope.py`.
 
-**Runs live in `.two-pass-review/` at the top of the user's checkout**, one directory per run, and the
-newest twenty are kept. That directory holds its own `.gitignore`, so git never sees it. **Never add it
-to the repository's `.gitignore`**, and never commit it: it already ignores itself, and an edit to the
-repository's `.gitignore` would show up in the diff of the next review. Tools that read only their own
-ignore file — `docker build`, prettier — still see the directory; the README tells the user to list it in
-`.dockerignore` and the like. **Do not make those edits yourself** unless the user asks: they change the
-repository under review. If `scope.py` refuses over that
-directory — the repository *tracks* files there, or git does not ignore it — tell the user what it said:
-the fix is theirs to make.
+**Runs live in `.two-pass-review/` at the top of the user's checkout**, which ignores itself. **Never
+add it to the repository's `.gitignore`**, and never commit it. Tools that read only their own ignore
+file, like `docker build`, still see it; the README tells the user to list it in `.dockerignore` and the
+like, but **do not make those edits yourself** unless the user asks: each changes the repository under
+review. If `scope.py` refuses over that directory — the repository *tracks* files there, or git does not
+ignore it — tell the user what it said: the fix is theirs to make.
 
-**The review tree.** The diff compares two commits, but the passes read files, and `validate.py` checks
-every line range against files — so the files have to be the reviewed head's. When your checkout is
-already exactly the head, with no uncommitted change to a tracked file, it is read in place:
-`repo_root` is the checkout and `worktree` is null. Otherwise — a pull request you have not checked
-out, a commit that is not `HEAD`, uncommitted edits — `scope.py` checks the head out into a worktree
-in the temp directory and prints that path as both `repo_root` and `worktree`. Either way,
-`repo_root` is the one tree whose files match the diff, so the passes, the docs check and every script
-get it and nothing else. A local patch is always read in place: it *is* the working tree.
+**The review tree.** Give `repo_root` to the passes, the docs check and every script, and nothing else.
+Give `checkout`, always the user's own checkout, to anything asked for after the run, such as rule
+derivation, because `scope.py --release <run_dir>` removes the worktree at the end of every run. Why
+the two differ: `repo_root` is the one tree whose files match the diff. When the checkout is not exactly
+the reviewed head — a pull request not checked out, a commit that is not `HEAD` — it is a temporary
+worktree of the head, also printed as `worktree`; otherwise, and always for a local patch, `worktree` is
+null and the checkout is read in place. Release is safe on any run.
 
-`checkout` is always the user's own checkout. It is what anything asked for after the run is handed —
-rule derivation reads the repository there — because `repo_root` names a worktree that `scope.py
---release <run_dir>` removes at the end of every run. Release is safe on any run: it removes this run's
-worktree when there is one, and does nothing when the checkout was read in place.
-
-- **Exit 3** means the diff is large. Tell the user how large and ask. If they want it, add
-  `--confirm-large`. It is never split into batches: both passes must see one identical input, or
-  corroboration has nothing to compare across. **A re-run of a scope the user already confirmed carries
-  that confirmation forward** — when they ask for the same range again, re-pass the flag without
-  asking twice about a size they have already accepted. A *different* range is a new question, however
-  small the difference.
-- **A warning on stderr about file headers it could not read** is not a failure and does not end
-  anything: the run resolved, and `file_lines.json` is short by that many entries, which costs the
-  passes a convenience and costs the review nothing. Pass it on when you report, and treat it as a bug
-  in the skill rather than a problem with the user's repository.
+- **Exit 3** means the diff is large. Tell the user how large and ask; if they want it, add
+  `--confirm-large`. Never split it into batches: both passes must see one identical input, or
+  corroboration has nothing to compare across. **A re-run of a range the user already confirmed carries
+  the confirmation forward** — re-pass the flag without asking again. A *different* range is a new
+  question, however small the difference.
+- **A warning on stderr about file headers it could not read** is not a failure: the run resolved. Pass
+  it on when you report, as a bug in the skill rather than a problem with the user's repository.
 - **Exit 2** means the command itself was malformed — a missing `--mode` or `--head`, a bad `--label`.
   That is yours to fix: read the message, correct the command, and run it again. So is `--against` with
-  a local branch behind its remote's copy: fetch, and pass the name the message gives — or, if the user
+  a local branch behind its remote's copy: fetch and pass the name the message gives — or, if the user
   asked for the local branch itself, the `--base` it gives. **The one exception is a `--since` refused
-  over its offset** — missing, or `-00:00`: the offset is the user's answer, not a correction. Ask them
-  which timezone they mean, and never supply one yourself.
+  over its offset** (missing, or `-00:00`): ask the user which timezone they mean; never supply one.
 - **Exit 4** ends the run here, with no report — the range does not resolve, is empty, or its head
   could not be checked out. Under `--since` it also means nothing on the branch predates the instant, or
-  nothing has landed since it; pass the message on, since either is the user's to judge. A local patch that resolves to nothing usually means the work is in files
-  git has never been told about — say so.
+  nothing has landed since it; pass the message on, since either is the user's to judge. A local patch
+  that resolves to nothing usually means the work is in files git has never been told about — say so.
 - **Exit 5** ends the run before anything is made: the skill's own `references/prompts.md` could not be
   read or filled. Nothing is wrong with the user's repository or their range — say that, pass on the
   message, and suggest updating or reinstalling the skill.
@@ -196,14 +169,13 @@ prompt hands the pass its rubric — by path, so the pass reads all of it rather
 summary of it — and five inputs: `repo_root`, the path to `context.diff`, the path to `file_lines.json`,
 the `run_dir` to write into, and the command that validates its files against the reviewed tree. It
 also asks for a one-line reply, because the findings are in the pass's files and a reply restating them
-only fills your window before the merge. Let the pass read the repository for itself.
+only fills your window before the merge. Let the pass read the repository for itself: real findings
+land on files outside the diff and on files that do not exist yet.
 
 `file_lines.json` exists so no pass has to shell out to learn how long a file is. It maps every path the
 diff's post-image names to that file's line count in the review tree, counted by the same code the
 validator checks ranges with, and `null` where the tree holds no readable file there. It is a bound, not
 a substitute for reading: it says where a file ends, never which lines the finding is about.
-
-Each pass owns its output contract; it is written into the rubric and needs no repeating here.
 
 **Record which way they ran.** That becomes `--passes` at the merge, and `run.mode` in the artifact:
 `parallel` when each pass ran in a fresh subagent of its own — whether or not the two overlapped in
@@ -211,10 +183,6 @@ time — and `sequential` when both ran in your window. The report says which, b
 get a fresh context window, while a sequential run puts both rubrics through one, and on a large diff
 the second pass reviews with a badly degraded window. **A sequential run is the weaker run, and the
 reader is owed that.**
-
-**Pin the range, not the file contents.** The passes read repository files themselves. That is deliberate:
-the review that shaped this design produced findings on files outside the diff and on files that do not
-exist yet, which a pass restricted to a pasted blob cannot do.
 
 ### The docs check
 

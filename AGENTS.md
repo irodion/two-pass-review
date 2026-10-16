@@ -182,15 +182,16 @@ anything about reviewing code:
   button holds. That tests the escaping and nothing about the content, so a finding's body, paths,
   rationale and contest are also looked for in what is copied, independently. An agent copy holds its
   finding between two tags named for a key from the finding's own hash, and every payload carries
-  closers of its own, so the block must hold its payload verbatim, and a closer the payload cannot
-  contain. The check was tested by breaking escaping on purpose, field by field, and any change to it
-  should be tested the same way: a check that has only ever passed has not shown it can fail.
+  closers of its own, so the block must hold its payload verbatim, and a key that is a prefix of the
+  payload's SHA-256 — a key its author could predict would let a quote close its block. The check was
+  tested by breaking escaping on purpose, field by field, and any change to it should be tested the same
+  way: a check that has only ever passed has not shown it can fail.
 
   What a click makes of those attributes is the handler's business, and the agent copies are joined at
   the click — head, block and tail for one card, every open blocking card's block for the bulk copy. So
   a separate check cuts `textOf` out of `SCRIPT`, runs it under node against stand-ins built from the
   hostile page's buttons, and holds each card's two results to `copy_texts`, the report's to
-  `report_markdown`, and the bulk one to its head, the blocking blocks in page order, and its tail. The
+  `report_markdown`, and the bulk one to `bulk_text` over the blocking cards' blocks in page order. The
   stand-ins answer only the calls `textOf` makes, and a card answers a selector only for a class its own
   buttons carry, so a selector the markup no longer matches fails here too. Dismissal and filtering are
   out of its reach; clicking the report still settles those. It skips, loudly, where `node` is absent.

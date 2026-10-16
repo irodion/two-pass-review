@@ -325,6 +325,17 @@ def copy_texts(finding: dict[str, Any], partners: list[dict[str, Any]]) -> tuple
     return payload, "\n\n".join((AGENT_HEAD, block, PROMPT_WRAPPER))
 
 
+def bulk_text(blocks: list[str]) -> str:
+    """What `Copy open blocking for agent` puts on the clipboard, given the open
+    blocking cards' agent blocks in page order.
+
+    The page never calls this either: which cards are open is the reader's, so
+    the script reads their blocks at the click. Like copy_texts, it is what
+    that join has to come to, and .github/checks.py holds the script to it.
+    """
+    return "\n\n".join((BULK_HEAD, *blocks, BULK_TAIL))
+
+
 def partners_of(finding: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     """The findings a card names as corroborating it: its links, among `by_id`.
 

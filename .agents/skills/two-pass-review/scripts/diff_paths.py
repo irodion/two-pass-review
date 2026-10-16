@@ -49,13 +49,20 @@ class Header(NamedTuple):
     @property
     def path(self) -> str | None:
         """The one path that names this block: its new side, or for a deletion,
-        the old side it had. None only for a header that would not decode.
+        the old side it had. None for a header whose path would not decode.
 
         For a caller that lists blocks, one entry each. Not what `file_lines`
         wants -- it reads post-images, so a deleted file has none to count --
         nor `collect_docs`, which reads both sides on purpose.
+
+        The old side stands in for a deletion only. A rename whose target would
+        not decode also has no `new`, but its old path names a file the change
+        removed, not the one it made: listed under it, a renamed file shows as
+        a change to a path the head no longer has.
         """
-        return self.new if self.new is not None else self.old
+        if self.new is not None:
+            return self.new
+        return self.old if self.deleted else None
 
 
 def unquote_path(field: str) -> tuple[str, int] | None:

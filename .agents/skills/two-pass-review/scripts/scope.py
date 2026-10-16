@@ -1223,8 +1223,12 @@ def main(argv: list[str]) -> int:
         # report's map, which draws every changed file as a row. Read from the
         # pinned patch, as the block count is and for its reason: a second `git
         # diff --numstat` could disagree with context.diff. Header.path says
-        # which path names a block, a deletion's included; a header that named
-        # nothing readable is already counted in the warning above.
+        # which path names a block, a deletion's included. A header whose path
+        # would not decode has none and is not listed: the warning above counts
+        # it, except for a deletion whose old name would not decode, which that
+        # warning rightly omits -- file_lines never wanted a deleted file -- so
+        # the map has no row for it and says nothing. files_changed still counts
+        # it, which is why the map heads its rows with its own count.
         #
         # One entry per path, not per block. A file whose type changes -- one
         # replaced by a symlink -- is two blocks under one path, a deletion and

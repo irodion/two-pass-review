@@ -143,7 +143,10 @@ def map_rows(scope: dict[str, Any], named: set[str], notes: dict[str, int]) -> R
         )
         for path in paths
     ]
-    count = scope["files_changed"]
+    # Files, not blocks: files_changed counts the patch's `diff --git` lines, and
+    # a file whose type changed is two of them -- the heading counts the files
+    # its rows stand for.
+    count = len(changed)
     heading = "{} changed file{}".format(count, "" if count == 1 else "s")
     outside = sum(1 for row in rows if row.outside)
     if outside:

@@ -1252,18 +1252,26 @@ def check_scope_files(report: Report, where: str, files: object, files_changed: 
 
     A list of objects, checked one by one as check_locations checks a finding's.
     It may run short of files_changed -- a header scope.py could not read names
-    no path, and scope.py warns of it -- but never past it.
+    no path, and scope.py warns of it -- but never past it. Each path once: a
+    file can be two blocks of a diff, when its type changes, and scope.py sums
+    them, because the map keys rows by path and a second entry would silently
+    replace the first's churn.
     """
     if not isinstance(files, list):
         report.add(where, "'files' must be a list")
         return
+    seen: set[str] = set()
     for index, entry in enumerate(files):
         here = f"{where} files[{index}]"
         if not isinstance(entry, dict):
             report.add(here, "must be a JSON object")
             continue
         _check_unknown(report, here, entry, SCOPE_FILE_FIELDS, "file")
-        _nonempty_str(report, here, entry, "path")
+        path = _nonempty_str(report, here, entry, "path")
+        if path is not None:
+            if path in seen:
+                report.add(here, f"'path' {path!r} is listed twice -- one entry per file")
+            seen.add(path)
         _int(report, here, entry, "added")
         _int(report, here, entry, "removed")
     if files_changed is not None and len(files) > files_changed:

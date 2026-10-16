@@ -881,18 +881,22 @@ def review_tree(root: str, head: str, run_dir: str) -> tuple[str | None, str | N
 
 
 def file_lines(root: str, paths: list[str]) -> dict[str, int | None]:
-    """path -> its line count on disk, or null where the checkout holds no file.
+    """path -> its line count on disk, or null where there is no count to give.
 
     Confinement is validate.confine, called rather than copied: this manifest is
     a prediction of what that validator will say, so a path the two resolve
     differently is the one path it must not carry a number for, and two
     implementations of "inside the checkout" is how that happens.
 
-    Null is not padding: it says the checkout holds no readable file at a path
-    the patch's post-image named, so a range over it would be rejected however
-    it was arrived at. A file the diff deletes is not this case and gets no
-    entry at all -- git writes its post-image as /dev/null, and the patch the
-    pass is reading says so on the same line.
+    Null is not padding, and it is not "no file": it says there is no count. A
+    path that leaves the checkout or names no regular file is one a range over
+    would be rejected however it was arrived at, and an unreadable file is one
+    the pass will find unreadable too. A file over COUNT_CEILING is different:
+    it is readable, the validator counts it with no ceiling and judges a range
+    over it against its true length, and the pass reads it itself, as it did
+    before the manifest existed. A file the diff deletes is none of these and
+    gets no entry at all -- git writes its post-image as /dev/null, and the
+    patch the pass is reading says so on the same line.
     """
     counts: dict[str, int | None] = {}
     for path in paths:

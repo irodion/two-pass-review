@@ -98,8 +98,8 @@ what the user said: a label reading "today" is the ambiguity it exists to remove
 `--since` record themselves; do not repeat them in a label.
 
 It prints JSON holding `repo_root`, `worktree`, `checkout`, `run_dir`, `context_diff`, `file_lines`,
-`now`, `latest`, `prompts` and the resolved `scope`, and writes the same JSON to `<run_dir>/scope.json`.
-Keep it: every later step needs its paths. If you lose it, read that file rather than re-run `scope.py`.
+`now`, `latest`, `prompts` and the resolved `scope`, and writes it to `<run_dir>/scope.json`. Keep it:
+later steps need its paths. Lost it? Read the newest run's `scope.json` rather than re-run `scope.py`.
 
 **Runs live in `.two-pass-review/` at the top of the user's checkout**, which ignores itself. **Never
 add it to the repository's `.gitignore`**, and never commit it. Tools that read only their own ignore

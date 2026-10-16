@@ -15,7 +15,7 @@ One execution of one rubric over one review scope. A run has two passes.
 _Avoid_: review, reviewer, agent, subagent
 
 **Producer**:
-Which pass a finding came from. An attribute on a finding, never a layout axis.
+Which pass a finding came from. An attribute on a finding, never the axis findings are listed by: the report orders one list by disposition and rank, both passes' findings in it. The line map is the one place it lays anything out — each finding's line stands on its pass's side of the changed files, because two passes reading one change is what the map exists to show.
 _Avoid_: source, author, origin
 
 **Run**:

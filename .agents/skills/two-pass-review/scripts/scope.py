@@ -1220,16 +1220,25 @@ def main(argv: list[str]) -> int:
         scope["base"] = base
         scope["head"] = head
         scope["files_changed"] = patch["files"]
-        # Each changed file and the lines its block adds and removes, for the
+        # Each changed file and the lines its blocks add and remove, for the
         # report's map, which draws every changed file as a row. Read from the
         # pinned patch, as the count above is and for its reason: a second `git
         # diff --numstat` could disagree with context.diff. Header.path says
         # which path names a block, a deletion's included; a header that named
         # nothing readable is already counted in the warning above.
+        #
+        # One entry per path, not per block. A file whose type changes -- one
+        # replaced by a symlink -- is two blocks under one path, a deletion and
+        # an addition, and one file; listed twice, the map kept one block's
+        # churn and dropped the other's. Summed, the entry says what numstat says.
+        churn: dict[str, tuple[int, int]] = {}
+        for header in headers:
+            if header.path is not None:
+                added, removed = churn.get(header.path, (0, 0))
+                churn[header.path] = (added + header.added, removed + header.removed)
         scope["files"] = [
-            {"path": path, "added": header.added, "removed": header.removed}
-            for header in headers
-            if (path := header.path) is not None
+            {"path": path, "added": added, "removed": removed}
+            for path, (added, removed) in churn.items()
         ]
         scope["diff_bytes"] = patch["bytes"]
         if patch["untracked"] is not None:

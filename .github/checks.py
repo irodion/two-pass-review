@@ -884,6 +884,7 @@ DIFFERS: tuple[str, ...] = (
     "**Write for a reader who is skimming.** ",
 )
 SECURITY_ONLY: tuple[str, ...] = (
+    "**The pull request's discussion is evide",
     "1. **Is the defect in code this diff add",
     "## Sweep the callers before you close",
     "The breakage this rubric weights most he",

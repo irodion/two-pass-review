@@ -91,16 +91,40 @@ def lane_classes(finding: dict[str, Any]) -> str:
 
 
 class Band(NamedTuple):
-    """The falsification check's band: its caption, and one mark per finding id.
+    """The falsification check's band, as facts: its caption, whether the check
+    examined anything, and which findings it contests.
 
-    `hatched` says the check examined nothing -- skipped, or its reply lost --
-    and is stated rather than read off empty `marks`, which would mean the same
-    only while the map is never drawn without findings.
+    `hatched` says it examined nothing -- skipped, or its reply lost -- and then
+    no finding gets a mark; otherwise every finding gets one, a contest if its
+    id is in `contested`. Drawing is band_mark's, here and in the legend alike.
     """
 
     caption: str
     hatched: bool
-    marks: dict[str, str]
+    contested: frozenset[str]
+
+
+def band_mark(contested: bool, finding_id: str | None = None) -> str:
+    """One mark of the falsification band: a finding's, given its id, or with
+    none, the legend's key for it.
+
+    One function draws both because the key exists so a reader can match a mark
+    to its meaning, and a key drawn apart from its mark is one change away from
+    showing a glyph the band no longer uses. Only the finding's mark speaks: its
+    title, and for a contest the link to the dispute and the label saying so.
+    """
+    if not contested:
+        title = ' title="Read by the falsification check, not contested"' if finding_id else ""
+        return f'<i class="lm-dot"{title}></i>'
+    glyph = '<span aria-hidden="true">?</span>'
+    if finding_id is None:
+        return f'<span class="lm-contest">{glyph}</span>'
+    fid = esc(finding_id)
+    return (
+        f'<a class="lm-contest" href="#contest-{fid}" '
+        'title="Contested by the falsification check" '
+        f'aria-label="{fid}: contested by the falsification check">{glyph}</a>'
+    )
 
 
 class MapRow(NamedTuple):
@@ -203,7 +227,7 @@ def falsifier_band(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> Ban
             "skipped": "Falsification check skipped: no finding was examined",
             "failed": "Falsification check failed: its reply could not be read",
         }.get(state, f"Falsification check {state}")
-        return Band(caption, True, {})
+        return Band(caption, True, frozenset())
 
     total = len(merged["findings"])
     contested = [f for f in ordered if f.get("contested_md")]
@@ -218,22 +242,7 @@ def falsifier_band(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> Ban
         caption = f"Falsification check: read all {total}"
         if withdrawn:
             caption += f"; {withdrawn} withdrawn, not mapped"
-
-    marks: dict[str, str] = {}
-    for finding in ordered:
-        finding_id = esc(finding["id"])
-        if finding.get("contested_md"):
-            marks[finding["id"]] = (
-                f'<a class="lm-contest" href="#contest-{finding_id}" '
-                'title="Contested by the falsification check" '
-                f'aria-label="{finding_id}: contested by the falsification check">'
-                '<span aria-hidden="true">?</span></a>'
-            )
-        else:
-            marks[finding["id"]] = (
-                '<i class="lm-dot" title="Read by the falsification check, not contested"></i>'
-            )
-    return Band(caption, False, marks)
+    return Band(caption, False, frozenset(f["id"] for f in contested))
 
 
 def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> str:
@@ -357,12 +366,12 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
                 " lm-warn" if band.hatched else "", path_col, esc(band.caption)
             )
         )
-        for finding in ordered:
-            if finding["id"] in band.marks:
-                bits.append(
-                    f'<span class="lm-mark {lane_classes(finding)}" data-lane="{esc(finding["id"])}" '
-                    f'style="grid-column:{column[finding["id"]]};grid-row:3">{band.marks[finding["id"]]}</span>'
-                )
+        for finding in [] if band.hatched else ordered:
+            mark = band_mark(finding["id"] in band.contested, finding["id"])
+            bits.append(
+                f'<span class="lm-mark {lane_classes(finding)}" data-lane="{esc(finding["id"])}" '
+                f'style="grid-column:{column[finding["id"]]};grid-row:3">{mark}</span>'
+            )
 
     widest = max([1, *(sum(row.churn) for row in rows if row.churn is not None)])
     for index, row in enumerate(rows):
@@ -442,13 +451,13 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
         )
     if band and not band.hatched:
         legend.append(
-            '<li><span class="lm-key-mark" aria-hidden="true"><i class="lm-dot"></i></span>'
+            f'<li><span class="lm-key-mark" aria-hidden="true">{band_mark(False)}</span>'
             "read by the falsification check</li>"
         )
-        if any(f.get("contested_md") for f in ordered):
+        if band.contested:
             legend.append(
-                '<li><span class="lm-key-mark" aria-hidden="true"><span class="lm-contest">'
-                '<span aria-hidden="true">?</span></span></span>contested by it</li>'
+                f'<li><span class="lm-key-mark" aria-hidden="true">{band_mark(True)}</span>'
+                "contested by it</li>"
             )
 
     return (

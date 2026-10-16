@@ -165,7 +165,10 @@ def map_rows(scope: dict[str, Any], named: set[str], notes: dict[str, int]) -> R
     """
     if "files" not in scope:
         rows = [MapRow(path, None, False, notes.get(path, 0)) for path in sorted(named)]
-        return RowPlan(rows, "Files cited", None, None)
+        # A docs note puts its document on the map whether a finding cites it
+        # or not, and the heading says so rather than calling every row cited.
+        heading = "Files cited, or noted by the docs check" if notes else "Files cited"
+        return RowPlan(rows, heading, None, None)
 
     changed = {path_key(entry["path"]): entry for entry in scope["files"]}
     paths = sorted(named | set(changed)) if len(changed) <= MAP_ALL_FILES_MAX else sorted(named)
@@ -207,7 +210,7 @@ def falsifier_band(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> Ban
     finding's claim, never a file or a line. So it sits in a band above them,
     one mark per line. A grey dot is a finding the check read and did not
     contest -- deliberately not a tick, because the check reads the diff alone
-    and its silence passes nothing. A contest is the amber diamond the card
+    and its silence approves nothing. A contest is the amber diamond the card
     repeats. A check that was skipped or whose reply was lost marks nothing,
     and the band is hatched: a row of dots there would read as findings that
     were examined.

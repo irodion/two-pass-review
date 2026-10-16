@@ -1246,6 +1246,32 @@ def validate_merged(report: Report, path: str, repo: str | None = None) -> None:
         check_docs_check(report, where, merged["docs_check"], repo, run_sibling(path, "docs.json"))
 
 
+def check_scope_files(report: Report, where: str, files: object, files_changed: int | None) -> None:
+    """`run.scope.files`: each changed file and its churn, as scope.py read them
+    from the patch, for the page's map.
+
+    A list of objects, checked one by one as check_locations checks a finding's.
+    It may run short of files_changed -- a header scope.py could not read names
+    no path, and scope.py warns of it -- but never past it.
+    """
+    if not isinstance(files, list):
+        report.add(where, "'files' must be a list")
+        return
+    for index, entry in enumerate(files):
+        here = f"{where} files[{index}]"
+        if not isinstance(entry, dict):
+            report.add(here, "must be a JSON object")
+            continue
+        _check_unknown(report, here, entry, SCOPE_FILE_FIELDS, "file")
+        _nonempty_str(report, here, entry, "path")
+        _int(report, here, entry, "added")
+        _int(report, here, entry, "removed")
+    if files_changed is not None and len(files) > files_changed:
+        report.add(
+            where, f"'files' lists {len(files)} files but 'files_changed' is {files_changed}"
+        )
+
+
 def check_run(report: Report, where: str, run: object, version: int) -> None:
     if not isinstance(run, dict):
         report.add(where, "'run' must be a JSON object")
@@ -1309,29 +1335,9 @@ def check_run(report: Report, where: str, run: object, version: int) -> None:
     files_changed = _int(report, at, scope, "files_changed")
     _int(report, at, scope, "diff_bytes")
 
-    # Each changed file and its churn, as scope.py read them from the patch, for
-    # the page's map. Optional: absent from every run before the map drew all of
-    # a change's files, and the page then maps only the files findings cite. It
-    # may run short of files_changed -- a header scope.py could not read names no
-    # path, and scope.py warns of it -- but never past it.
+    # Optional: absent from every run before the map drew all of a change's files.
     if "files" in scope:
-        files = scope.get("files")
-        if not isinstance(files, list):
-            report.add(at, "'files' must be a list")
-        else:
-            for index, entry in enumerate(files):
-                here = f"{at} files[{index}]"
-                if not isinstance(entry, dict):
-                    report.add(here, "must be a JSON object")
-                    continue
-                _check_unknown(report, here, entry, SCOPE_FILE_FIELDS, "file")
-                _nonempty_str(report, here, entry, "path")
-                _int(report, here, entry, "added")
-                _int(report, here, entry, "removed")
-            if files_changed is not None and len(files) > files_changed:
-                report.add(
-                    at, f"'files' lists {len(files)} files but 'files_changed' is {files_changed}"
-                )
+        check_scope_files(report, at, scope.get("files"), files_changed)
 
     head = scope.get("head")
     if scope_mode == "local-patch":

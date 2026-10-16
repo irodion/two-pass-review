@@ -16,9 +16,11 @@ Both rubrics under [`references/`](references/) come from the **`thermos` plugin
 | `references/code-quality.md` | `thermos/skills/thermo-nuclear-code-quality-review/SKILL.md` | `7faca08b51b643b2ddd0836f92af15574444024685dcc1e677dbbb39ae8c9e8f` |
 | `LICENSE` | `thermos/LICENSE` | `702f5f331b56aff0e33d8c7826df5202559f894145eb70355c6477b55b5bb8a0` |
 
-**The upstream commit was not recorded when the copies were taken, so it is not stated here.** The content
-hashes above pin the exact bytes instead, which is what a commit id would have been standing in for.
-Naming a plausible-looking commit would be worse than naming none.
+**The upstream commit was not recorded when the copies were taken; it was recovered afterwards, by
+hash.** All three files' bytes first appear in `cursor/plugins` at commit
+`5102244dabd626b101cff40accbe7f7d1eeefa15` (2026-05-27), and upstream had not changed them as of
+`f713f14` (2026-10-15), checked on 2026-10-16. The hashes stay the pin: the commit says only where those
+bytes can be found, which is all a commit id would have been standing in for.
 
 Note that `cursor/plugins` carries no root licence; licensing there is per-plugin.
 

@@ -619,6 +619,9 @@ CSS = """
 .lm-label.lm-blocking { color: var(--block); }
 .lm-label.lm-follow-up { color: var(--follow); }
 .lm-label:hover { text-decoration: underline; }
+/* Set by the page's script on a link whose card or dispute is off the page: a
+   dimmed line that still took a click would go nowhere. */
+.lm .lm-inert { pointer-events: none; cursor: default; }
 /* Turned to read bottom to top, so the narrow lanes of a long run keep whole ids. */
 .lm-narrow .lm-label { writing-mode: vertical-rl; transform: rotate(180deg); padding: 6px 0 0; }
 .lm-band-caption { align-self: center; padding-left: 10px; font-size: 12.5px; color: var(--ink-2);

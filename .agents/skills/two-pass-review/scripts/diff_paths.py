@@ -46,6 +46,17 @@ class Header(NamedTuple):
     added: int = 0
     removed: int = 0
 
+    @property
+    def path(self) -> str | None:
+        """The one path that names this block: its new side, or for a deletion,
+        the old side it had. None only for a header that would not decode.
+
+        For a caller that lists blocks, one entry each. Not what `file_lines`
+        wants -- it reads post-images, so a deleted file has none to count --
+        nor `collect_docs`, which reads both sides on purpose.
+        """
+        return self.new if self.new is not None else self.old
+
 
 def unquote_path(field: str) -> tuple[str, int] | None:
     """Decode a git-quoted path: (path, index just past its closing quote).

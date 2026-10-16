@@ -1223,14 +1223,13 @@ def main(argv: list[str]) -> int:
         # Each changed file and the lines its block adds and removes, for the
         # report's map, which draws every changed file as a row. Read from the
         # pinned patch, as the count above is and for its reason: a second `git
-        # diff --numstat` could disagree with context.diff. A deletion goes by
-        # the path it had; a header named nothing readable is already counted
-        # in the warning above, and has no path to list.
+        # diff --numstat` could disagree with context.diff. Header.path says
+        # which path names a block, a deletion's included; a header that named
+        # nothing readable is already counted in the warning above.
         scope["files"] = [
             {"path": path, "added": header.added, "removed": header.removed}
             for header in headers
-            for path in [header.new if header.new is not None else header.old]
-            if path is not None
+            if (path := header.path) is not None
         ]
         scope["diff_bytes"] = patch["bytes"]
         if patch["untracked"] is not None:

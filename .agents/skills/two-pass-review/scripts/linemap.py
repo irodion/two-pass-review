@@ -146,9 +146,9 @@ class RowPlan(NamedTuple):
     """Which rows the map draws, decided once.
 
     `totals` is the whole change's (added, removed), and None when the run
-    recorded no churn -- the one fact the placement needs about the two kinds of
-    run, since without churn there is no churn column. `rest` is (files, added,
-    removed) for the summary row past MAP_ALL_FILES_MAX, or None.
+    recorded no churn, which leaves the churn column without a heading. `rest`
+    is (files, added, removed) for the summary row past MAP_ALL_FILES_MAX, or
+    None.
     """
 
     rows: list[MapRow]
@@ -326,19 +326,20 @@ def layout(ordered: list[dict[str, Any]], plan: RowPlan, band: Band | None) -> G
     """
     left = [f for f in ordered if f["producer"] == "security"][::-1]
     right = [f for f in ordered if f["producer"] != "security"]
-    churned = plan.totals is not None
     path_col = len(left) + 2
-    right_col = path_col + (3 if churned else 2)
+    right_col = path_col + 3
     column = {f["id"]: index + 1 for index, f in enumerate(left)}
     column.update({f["id"]: right_col + index for index, f in enumerate(right)})
     # The files as wide as their names and no wider, so both sides' lines arrive
     # beside them; what width is left over goes to the last track, after the
-    # quality pass's lines, where it separates nothing.
+    # quality pass's lines, where it separates nothing. The churn track is there
+    # whether the run recorded churn or not: with nothing in it, a max-content
+    # track is no width at all, so every run lays out with one grid.
     tracks = [
         *(["var(--lane)"] * len(left)),
         "14px",
         "minmax(12rem, max-content)",
-        *(["max-content"] if churned else []),
+        "max-content",
         "14px",
         *(["var(--lane)"] * len(right)),
         "1fr",

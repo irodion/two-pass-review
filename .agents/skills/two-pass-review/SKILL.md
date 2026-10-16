@@ -172,10 +172,10 @@ also asks for a one-line reply, because the findings are in the pass's files and
 only fills your window before the merge. Let the pass read the repository for itself: real findings
 land on files outside the diff and on files that do not exist yet.
 
-`file_lines.json` exists so no pass has to shell out to learn how long a file is. It maps every path the
-diff's post-image names to that file's line count in the review tree, counted by the same code the
-validator checks ranges with, and `null` where the tree holds no readable file there. It is a bound, not
-a substitute for reading: it says where a file ends, never which lines the finding is about.
+`file_lines.json` saves a shell call: it maps every path the diff's post-image names to its line count
+in the review tree, counted as the validator counts. `null` means no count, not no file: the path leaves
+the checkout, is not a file or is unreadable, or is over 8 MiB, so the pass reads it itself. It is a
+bound, not a substitute for reading: it says where a file ends, never which lines the finding is about.
 
 **Record which way they ran.** That becomes `--passes` at the merge, and `run.mode` in the artifact:
 `parallel` when each pass ran in a fresh subagent of its own — whether or not the two overlapped in

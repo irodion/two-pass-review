@@ -143,7 +143,8 @@ anything about reviewing code:
   `render.py` over a one-pass run assembled from it, `validate.py`'s excerpt warnings, and `validate.py`,
   `render.py`, `prompts.py`, `collect_docs.py` and `try_rule.py` down their refusal paths. Importing alone was not
   enough — a deprecation inside a `main()` is invisible to it, which is how `datetime.utcnow()` would have got
-  through.
+  through. Those runs are `.github/entry-points.sh`, a script rather than the step's own text, so that
+  shellcheck can read it and a failure names its line. It edits tracked files, so run it in a clone.
 - **`constraints`** — `.github/checks.py`: every import is stdlib; `page.py`'s `SCRIPT` constant parses as
   JavaScript; a page rendered from an artifact with a hostile payload in every text field plants no tag,
   attribute or unsafe link — `javascript:`, `data:` and `vbscript:` included; the page's copy handler,

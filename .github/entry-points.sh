@@ -1,0 +1,432 @@
+#!/bin/bash
+# The python jobs' entry-point checks: every script's main() run for real,
+# which importing it never does. checks.yml runs this with PYTHONWARNINGS set,
+# so a deprecation inside a main() fails the job; see the step's comment.
+#
+# A file of its own, not the step's text, so that shellcheck can read it, a
+# failure names a line here rather than an offset in a step's log, and it runs
+# off GitHub. Run it in a clone, never in a checkout you work in: it pins runs
+# over this repository's own history, edits tracked files for a local patch,
+# and leaves its runs under .two-pass-review/. It needs a python of 3.10 or
+# newer and a ruff on PATH, and a clone with at least three commits.
+
+cd "$(dirname "$0")/.."
+set -eux
+S=.agents/skills/two-pass-review/scripts
+# One field of a JSON file a script wrote, by file and key.
+field () { python -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$1" "$2"; }
+# The whole of scope: git plumbing, the timestamped run dir, JSON out.
+python "$S/scope.py" --repo . --base HEAD~1 --mode revisions --head HEAD \
+       --label 'the last commit, for CI' > scope.json
+# files_changed proves the range resolved; label proves --label is
+# carried verbatim into the scope object rather than merely parsed.
+# An echo of the string is the whole contract -- nothing derives it,
+# so a check that only looked for the key would pass on a run that
+# stored the wrong one.
+python -c "import json,sys; d=json.load(open('scope.json')); sys.exit(0 if d['scope']['files_changed'] and d['scope']['label'] == 'the last commit, for CI' else 1)"
+# Runs land in the checkout's .two-pass-review/, and git must never see
+# them: a run that showed up as untracked would show up in the next
+# local-patch review, and nothing else here would notice.
+python -c "import json,os,sys; d=json.load(open('scope.json')); sys.exit(0 if os.path.realpath(os.path.dirname(d['run_dir'])) == os.path.realpath('.two-pass-review') else 1)"
+test -z "$(git status --porcelain --untracked-files=all -- .two-pass-review)"
+# Doc collection over the same real range. The assertion is on
+# README.md because this repository certainly has one: an empty list
+# here means the collector stopped finding anything, not that there
+# was nothing to find.
+python "$S/collect_docs.py" --repo . \
+       --diff "$(field scope.json context_diff)" > docs.json
+python -c "import json,sys; d=json.load(open('docs.json')); sys.exit(0 if any(x['path']=='README.md' for x in d['docs']) else 1)"
+# The same bytes have to reach the run directory: that file is what
+# the docs check reads its documents from and what merge.py copies
+# into the artifact, and a collector that printed without writing
+# would fail nothing here while the docs check stopped existing.
+cmp "$(field scope.json run_dir)/docs.json" docs.json
+# A range whose head is not what is checked out has to be read from a
+# checkout of that head, or the passes and every line range are about
+# the wrong files. CI has HEAD checked out, so HEAD~1 as the head needs
+# the review worktree -- and the worktree has to hold that commit.
+python "$S/scope.py" --repo . --base HEAD~2 --mode revisions --head HEAD~1 > scope-tree.json
+tree=$(field scope-tree.json worktree)
+test -d "$tree"
+test "$(git -C "$tree" rev-parse HEAD)" = "$(git rev-parse HEAD~1)"
+# Outside the checkout: a second copy of the source inside it would be
+# read by every tool that ignores .gitignore for as long as it stood.
+python -c "import os,sys; sys.exit(1 if os.path.realpath(sys.argv[1]).startswith(os.path.realpath('.') + os.sep) else 0)" "$tree"
+# Every prompt a run sends is filled from prompts.md and handed over as
+# one printed line naming its file. Checked on both runs, because only
+# the second has a review tree: there the passes must be pointed at the
+# tree and not at the checkout, which a run read in place cannot tell
+# apart.
+python - <<'PROMPTS'
+import json, os, sys
+for printed in ("scope.json", "scope-tree.json"):
+    run = json.load(open(printed))
+    names = ["docs", "falsification", "quality", "security"]
+    if sorted(run["prompts"]) != names:
+        sys.exit(f"{printed}: prompts printed {sorted(run['prompts'])}")
+    for name in names:
+        path = os.path.join(run["run_dir"], f"prompt.{name}.md")
+        text = open(path).read()
+        if path not in run["prompts"][name] or run["run_dir"] not in text or "<run_dir>" in text:
+            sys.exit(f"{printed}: {name}'s handover line or filled prompt is wrong")
+    security = open(os.path.join(run["run_dir"], "prompt.security.md")).read()
+    if f"The repository to review: {run['repo_root']}" not in security or f"--repo {run['repo_root']}" not in security:
+        sys.exit(f"{printed}: the security pass is not pointed at the reviewed tree")
+PROMPTS
+# Release removes it -- the directory and the registration in this
+# checkout -- and releasing a run read in place is a no-op, not an
+# error, which is what lets SKILL.md run it on every run.
+python "$S/scope.py" --release "$(field scope-tree.json run_dir)"
+test ! -e "$tree"
+test "$(git worktree list | wc -l)" -eq 1
+python "$S/scope.py" --release "$(field scope.json run_dir)"
+# Rule derivation makes that tree again, long after its run released
+# it, through the same review_tree, and records it where --release
+# finds it. Then a local patch, whose code no branch holds: scope.py
+# makes a commit of the working tree when it pins the run, and the
+# derivation checks that out once the working tree has moved on, which
+# is the only state a derivation ever finds it in. The commit is made
+# on a copy of the index, so restoring the files from the index has to
+# leave nothing staged. The patch retargets the tracked CLAUDE.md link,
+# which the tree holds as a plain file holding its target.
+tree_run=$(field scope-tree.json run_dir)
+python "$S/prompts.py" --rules "$tree_run" > /dev/null
+tree=$(field "$tree_run/scope.json" worktree)
+test "$(git -C "$tree" rev-parse HEAD)" = "$(git rev-parse HEAD~1)"
+grep -qF "The code that was reviewed, to test rules on: $tree" "$tree_run/prompt.rules.md"
+python "$S/scope.py" --release "$tree_run"
+test ! -e "$tree"
+test "$(git worktree list | wc -l)" -eq 1
+printf '\nA local change, for CI.\n' >> README.md
+ln -sfn README.md CLAUDE.md
+python "$S/scope.py" --repo . --base HEAD --mode local-patch > scope-patch.json
+git checkout -- README.md CLAUDE.md
+git diff --quiet HEAD
+patch_run=$(field scope-patch.json run_dir)
+python "$S/prompts.py" --rules "$patch_run" > /dev/null
+tree=$(field "$patch_run/scope.json" worktree)
+grep -qF 'A local change, for CI.' "$tree/README.md"
+test ! -L "$tree/CLAUDE.md"
+test "$(cat "$tree/CLAUDE.md")" = README.md
+python "$S/scope.py" --release "$patch_run"
+test ! -e "$tree"
+test "$(git worktree list | wc -l)" -eq 1
+# --since and --against do the git a caller used to type by hand, each
+# with a rule the typing got wrong. Checked in a repository built here
+# with fixed dates, so the answers are facts of its history and not of
+# when CI runs: b is the last commit before midnight on main's own
+# line; the side branch's s is newer and merged since, so a search
+# off the first-parent line takes s instead; and the commit made at
+# exactly midnight has to stay inside the range.
+dated=$(mktemp -d)
+git -C "$dated" init -q -b main
+commit () {
+    echo "$2" > "$dated/$2"
+    git -C "$dated" add -A
+    GIT_COMMITTER_DATE=$1 GIT_AUTHOR_DATE=$1 \
+        git -C "$dated" -c user.name=ci -c user.email=ci@example.invalid commit -q -m "$2"
+}
+commit 2026-10-09T10:00:00+03:00 a
+commit 2026-10-09T22:00:00+03:00 b
+git -C "$dated" checkout -q -b side HEAD~1
+commit 2026-10-09T23:30:00+03:00 s
+git -C "$dated" checkout -q main
+commit 2026-10-10T00:00:00+03:00 midnight
+GIT_COMMITTER_DATE=2026-10-10T08:00:00+03:00 \
+    git -C "$dated" -c user.name=ci -c user.email=ci@example.invalid merge -q --no-ff side -m merge
+commit 2026-10-10T09:00:00+03:00 d
+python "$S/scope.py" --repo "$dated" --since 2026-10-10T00:00+03:00 \
+       --mode revisions --head HEAD > since.json
+python - "$(git -C "$dated" rev-parse main~3)" <<'SINCE'
+import json, sys
+scope = json.load(open("since.json"))["scope"]
+diff = open(json.load(open("since.json"))["context_diff"]).read()
+if scope["base"] != sys.argv[1] or scope["since"] != "2026-10-10T00:00:00+03:00":
+    sys.exit(f"--since resolved {scope['base']} as {scope['since']}, not b")
+if "\n+++ b/midnight\n" not in diff or "\n+++ b/s\n" not in diff:
+    sys.exit("--since dropped the midnight commit or the merged side branch")
+SINCE
+# A time with no offset is refused, never read in the runner's zone --
+# a bare date too, and -00:00, which says the offset is unknown -- and
+# every one of those refusals says the answer is the user's. Two
+# commands, not `test && grep`: set -e ignores a failure anywhere but
+# at the end of an && list, so the test would have no teeth.
+for unanswered in 2026-10-10T00:00 2026-10-10 2026-10-10T00:00-00:00; do
+    set +e
+    python "$S/scope.py" --repo "$dated" --since "$unanswered" \
+           --mode revisions --head HEAD 2> since.err
+    status=$?
+    set -e
+    test "$status" -eq 2
+    grep -q "the user's answer" since.err
+done
+# --against is the merge-base, not the branch's tip: origin/main has
+# moved on to f since feature left it at d.
+git -C "$dated" checkout -q -b upstream
+commit 2026-10-10T10:00:00+03:00 f
+git -C "$dated" update-ref refs/remotes/origin/main upstream
+git -C "$dated" checkout -q -b feature main
+commit 2026-10-10T11:00:00+03:00 e
+against () {
+    python "$S/scope.py" --repo "$dated" --against "$1" \
+           --mode revisions --head HEAD > against.json 2> against.err
+    test ! -s against.err
+    python -c "import json,sys; d=json.load(open('against.json'))['scope']; sys.exit(0 if (d['base'], d['against']) == (sys.argv[1], sys.argv[2]) else 1)" \
+           "$(git -C "$dated" rev-parse "$2")" "$1"
+}
+against origin/main feature~1
+# A local main behind the remote's copy is refused before anything is
+# made, naming the copy to use: origin's branch of the same name where
+# no upstream is set, and the upstream where one is -- here on another
+# remote, with origin's copy level, so only the upstream can refuse.
+behind () {
+    runs=$(ls "$dated/.two-pass-review" | wc -l)
+    set +e
+    python "$S/scope.py" --repo "$dated" --against main \
+           --mode revisions --head HEAD > /dev/null 2> against.err
+    status=$?
+    set -e
+    cat against.err
+    test "$status" -eq 2
+    grep -q -- "--against $1" against.err
+    test "$(ls "$dated/.two-pass-review" | wc -l)" -eq "$runs"
+}
+git -C "$dated" branch -f main main~1
+behind origin/main
+git -C "$dated" remote add canon "$dated"
+git -C "$dated" update-ref refs/remotes/canon/main upstream
+git -C "$dated" config branch.main.remote canon
+git -C "$dated" config branch.main.merge refs/heads/main
+git -C "$dated" update-ref refs/remotes/origin/main main
+behind canon/main
+# Only ahead of the remote's copy is no risk, and taken as given.
+git -C "$dated" update-ref refs/remotes/canon/main main~1
+against main main
+# The merge over a one-pass run: the files a pass with nothing to
+# report writes, an empty answer from the docs check, and the run
+# directory scope.py pinned above, whose scope.json and docs.json the
+# merge reads by name. The artifact is merge.py's, not this file's,
+# and render.py proves it renders against the review tree.
+run_dir=$(field scope.json run_dir)
+# Rule derivation's prompt is filled when it is asked for, from the
+# run's scope.json and the prompts.md of the moment, never saved with
+# the run. It names the user's checkout and the run's findings.
+python "$S/prompts.py" --rules "$run_dir" > rules-handover.txt
+grep -qF "$run_dir/prompt.rules.md" rules-handover.txt
+grep -qF "$run_dir/findings.json" "$run_dir/prompt.rules.md"
+grep -qF "$(field scope.json checkout)" "$run_dir/prompt.rules.md"
+# The excerpt warnings run under the fatal warning flags and refuse
+# nothing: a verbatim excerpt draws no output at all, and a misquoted
+# one draws a warning while validation still passes. What a warning
+# says is not pinned here -- like every other negative check of
+# validate.py, that is settled ad hoc and thrown away (AGENTS.md).
+mkdir -p excerpt-check
+printf 'def total(rows):\n    return sum(rows)\n' > excerpt-check/sample.py
+echo '{"schema_version": 1, "kind": "pass", "producer": "security"}' > excerpt-check/pass.security.json
+finding () {
+    printf '{"id": "sec-1", "producer": "security", "disposition": "note", "title": "t", "locations": [{"path": "excerpt-check/sample.py", "start_line": 2, "end_line": 2}], "body_md": "```python\\n%s\\n```\\n\\nArgument."}\n' "$1" \
+        > excerpt-check/findings.security.jsonl
+    python "$S/validate.py" --repo . excerpt-check/findings.security.jsonl \
+           excerpt-check/pass.security.json 2> excerpt.err || { cat excerpt.err; exit 1; }
+}
+finding "    return sum(rows)"
+test ! -s excerpt.err || { cat excerpt.err; echo "a verbatim excerpt drew output" >&2; exit 1; }
+finding "return total(rows)"
+case $(cat excerpt.err) in
+    *Traceback*) cat excerpt.err; exit 1 ;;
+    *Warnings*) ;;
+    *) cat excerpt.err; echo "a misquoted excerpt drew no warning" >&2; exit 1 ;;
+esac
+: > "$run_dir/findings.security.jsonl"
+cat > "$run_dir/pass.security.json" <<'PASS'
+{"schema_version": 1, "kind": "pass", "producer": "security",
+ "empty_reason_md": "Constructed by CI; no review ran."}
+PASS
+echo '[]' > "$run_dir/docs-notes.json"
+python "$S/merge.py" --run-dir "$run_dir" --passes sequential \
+       --falsification skipped --docs-check ran > merged.json
+python -c "import json,sys; d=json.load(open('merged.json')); sys.exit(0 if d['verdict'] == 'clear' and d['docs_check'] == 'ran' else 1)"
+# One pass has nothing to pair across, so the list is empty -- what
+# this proves is that the mode reads a real run directory and runs.
+python "$S/merge.py" --candidates "$run_dir" > candidates.json
+python -c "import json,sys; sys.exit(0 if json.load(open('candidates.json'))['candidates'] == [] else 1)"
+python "$S/render.py" --repo "$(field scope.json repo_root)" \
+       "$run_dir/findings.json" --no-open
+# Both refuse-and-explain paths, which is where argparse and the error
+# formatting live.
+#
+# Not `! python ...`: negation accepts *any* non-zero status, and a
+# warning promoted to an exception exits non-zero too. A deprecation
+# inside main() would print a traceback and be counted as the refusal
+# working -- which is the whole thing this step exists to notice. So
+# the status, the text, and the absence of a traceback are all checked:
+# `answers STATUS PHRASE COMMAND...`, over what the command prints on
+# both streams.
+answers () {
+    want=$1 phrase=$2; shift 2
+    set +e
+    output=$("$@" 2>&1); status=$?
+    set -e
+    printf '%s\n' "$output"
+    test "$status" -eq "$want" || { echo "expected exit $want, got $status" >&2; exit 1; }
+    # Before the text check, so a raised exception is reported as one
+    # rather than as a missing phrase -- the traceback replaces the
+    # refusal on stderr, and the vaguer message would send whoever
+    # reads it looking in the wrong place.
+    case $output in
+        *Traceback*|*Warning:*)
+            echo "raised instead of answering" >&2; exit 1 ;;
+    esac
+    case $output in
+        *"$phrase"*) ;;
+        *) echo "did not say: $phrase" >&2; exit 1 ;;
+    esac
+}
+answers 1 "Validation failed" \
+    python "$S/validate.py" does-not-exist.json
+answers 1 "Refusing to render an invalid artifact" \
+    python "$S/render.py" does-not-exist.json --no-open
+answers 1 "holds no scope.json" \
+    python "$S/prompts.py" --rules does-not-exist
+# And the collector's: it writes docs.json beside the diff, and a
+# directory it cannot write to has to stop the docs check rather than
+# leave a collection only on stdout, where nothing downstream reads.
+mkdir -p no-write && cp "$run_dir/context.diff" no-write/ && chmod a-w no-write
+answers 1 "could not write docs.json" \
+    python "$S/collect_docs.py" --repo . --diff no-write/context.diff
+chmod u+w no-write
+# --repo actually reaching the location check, which the refusals
+# above cannot show: a missing file is refused before validation
+# looks at a single location, so those two would pass unchanged if
+# render.py accepted --repo and then dropped it on the floor.
+#
+# So: an artifact that is valid in every respect except one line
+# range, cited far past the end of a file this repository certainly
+# has. Constructed here rather than committed -- the same reason
+# scope.json and docs.json above are generated, and this file keeps
+# no fixtures. schema_version 1 is deliberate: it is the oldest
+# merged shape and is kept working on purpose, so a later schema
+# cannot quietly turn this check into a refusal about the wrong
+# thing. It goes in its own directory under its exact name, because
+# validation dispatches on the basename and report.html lands beside
+# whatever it is given.
+mkdir -p range-check
+cat > range-check/findings.json <<'ARTIFACT'
+{
+  "schema_version": 1,
+  "kind": "merged",
+  "run": {
+    "mode": "sequential",
+    "generated_at": "2026-01-01T00:00:00Z",
+    "scope": {
+      "repo": ".", "mode": "revisions", "base": "HEAD~1",
+      "head": "HEAD", "files_changed": 1, "diff_bytes": 1
+    }
+  },
+  "verdict": "clear",
+  "passes": [
+    {
+      "producer": "security",
+      "what_holds_up_md": "Nothing to report.",
+      "closing_md": "Nothing to report."
+    }
+  ],
+  "findings": [
+    {
+      "id": "sec-1",
+      "producer": "security",
+      "disposition": "note",
+      "title": "A location past the end of the file",
+      "body_md": "Cited beyond README.md's length on purpose.",
+      "confidence": "high",
+      "locations": [
+        {"path": "README.md", "start_line": 999000, "end_line": 999001}
+      ]
+    }
+  ]
+}
+ARTIFACT
+# The pair is what carries the meaning, and neither half does alone.
+# Without --repo it renders, so the artifact is sound and the range
+# is the only thing wrong with it; with --repo the range is refused
+# by name. Drop the flag from render.py and the first still passes
+# while the second exits 2 from argparse. Accept the flag and ignore
+# it, and the second stops refusing at all.
+python "$S/render.py" range-check/findings.json --no-open
+answers 1 "run past the end of 'README.md'" \
+    python "$S/render.py" --repo . range-check/findings.json --no-open
+# try_rule.py, which rule derivation's subagent runs once per rule, over
+# a one-file tree with the ruff installed above. The line it prints
+# goes into rules.md as it is, so it is held whole. A ruff committed in
+# the tree, on a PATH whose first entry is the directory it runs in,
+# must be passed over -- that lookup is what the script took out of the
+# subagent's hands -- and a tool missing from PATH is a rule not
+# tested, which is an answer, not a failure.
+top=$PWD
+rule=$(mktemp -d)
+mkdir "$rule/code" "$rule/empty"
+printf 'print(1)\n' > "$rule/code/x.py"
+printf '#!/bin/sh\ntouch "%s/RAN"\n' "$rule" > "$rule/code/ruff"
+chmod +x "$rule/code/ruff"
+printf 'lint.select = ["T201"]\n' > "$rule/ruff.toml"
+tested=$(cd "$rule/code" && PATH=".:$PATH" python "$top/$S/try_rule.py" --tool ruff \
+         --select T201 --config "$rule/ruff.toml" --tree . --checkout .)
+test "$tested" = "Tested: in the reviewed code, which is the checkout as it is now (1 file read), x.py:1."
+test ! -e "$rule/RAN"
+# A version manager's shim -- asdf's, pyenv's -- is a shell script that
+# picks the ruff it starts from the directory it runs in, the reviewed
+# code, so one first on PATH is not started at all. A python script
+# whose #! line names a compiled python is how pip and uv install
+# semgrep, and it is started: here one that hands its arguments to the
+# ruff installed above.
+mkdir "$rule/shims" "$rule/script"
+printf '#!/bin/sh\ntouch "%s/SHIM"\n' "$rule" > "$rule/shims/ruff"
+chmod +x "$rule/shims/ruff"
+answers 1 "as a version manager's shim does" \
+    env PATH="$rule/shims:$PATH" python "$S/try_rule.py" --tool ruff --select T201 \
+        --config "$rule/ruff.toml" --tree "$rule/code" --checkout "$rule/code"
+test ! -e "$rule/SHIM"
+python - "$rule/script/ruff" "$(command -v ruff)" <<'EOF'
+import os, sys
+path, real = sys.argv[1:]
+with open(path, "w") as handle:
+    handle.write(f"#!{os.path.realpath(sys.executable)}\nimport os, sys\n")
+    handle.write(f"os.execv({real!r}, [{real!r}, *sys.argv[1:]])\n")
+os.chmod(path, 0o755)
+EOF
+tested=$(env PATH="$rule/script:$PATH" python "$S/try_rule.py" --tool ruff --select T201 \
+         --config "$rule/ruff.toml" --tree "$rule/code" --checkout "$rule/code")
+test "$tested" = "Tested: in the reviewed code, which is the checkout as it is now (1 file read), x.py:1."
+answers 1 "Not tested: semgrep is not on PATH." \
+    env PATH="$rule/empty" "$(command -v python)" "$S/try_rule.py" --tool semgrep \
+        --config "$rule/ruff.toml" --tree "$rule/code" --checkout "$rule/code"
+# And the spellings TOML allows besides the plain one: a dotted key and
+# an inline table. A key that spells extend through an escape -- \u in
+# TOML 1.0, \x in the 1.1 newer ruff reads -- meets the refusal of any
+# backslash instead.
+for spelling in 'extend = "x"' '[tool]\nruff.extend = "x"' \
+        '[tool]\nruff = { extend = "x" }'; do
+    printf "$spelling\n" > "$rule/extend.toml"
+    answers 2 "has an extend key" \
+        python "$S/try_rule.py" --tool ruff --select T201 --config "$rule/extend.toml" \
+            --tree "$rule/code" --checkout "$rule/code"
+done
+for spelling in '"\\u0065xtend" = "x"' '"\\x65xtend" = "x"'; do
+    printf "$spelling\n" > "$rule/extend.toml"
+    answers 2 "has a backslash" \
+        python "$S/try_rule.py" --tool ruff --select T201 --config "$rule/extend.toml" \
+            --tree "$rule/code" --checkout "$rule/code"
+done
+answers 2 "inside the reviewed code or the checkout" \
+    python "$S/try_rule.py" --tool ruff --select T201 --config "$rule/code/x.py" \
+        --tree "$rule/code" --checkout "$rule/code"
+# A tool quotes a line of a file it cannot parse, so a rule file is
+# taken from the temporary directory alone, which this checkout is not in.
+answers 2 "outside the temporary directory" \
+    python "$S/try_rule.py" --tool ruff --select T201 --config "$top/pyproject.toml" \
+        --tree "$rule/code" --checkout "$rule/code"
+# A name the reviewed code chose, which a tool would read as its own
+# flag were it not refused here and placed after -- besides.
+answers 2 "begins with -" \
+    python "$S/try_rule.py" --tool ruff --select T201 --config "$rule/ruff.toml" \
+        --tree "$rule/code" --checkout "$rule/code" --expect=--fix

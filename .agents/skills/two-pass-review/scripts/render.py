@@ -11,9 +11,11 @@ an old artifact has no checkout to hand, and is asked for none.
 
 Stdlib only, Python 3.10 syntax. The page carries no embedded JSON, no network
 requests and no sibling assets -- everything it needs is in the single file it
-writes. Its script is fixed -- a clipboard handler behind the copy buttons and a
-class toggle behind `Mark dealt with` -- and nothing a pass wrote is ever
-interpolated into it.
+writes. Its script is fixed -- a clipboard handler behind the copy buttons, a
+class toggle behind `Mark dealt with`, what keeps the counts, the map's links
+and the filter bar's verdict in step with what is on screen, and the bar's
+height, measured so that links land clear of it -- and nothing a pass wrote is
+ever interpolated into it.
 
 Internal flags (not user-facing surface):
     --no-open        write and print the path without launching a browser

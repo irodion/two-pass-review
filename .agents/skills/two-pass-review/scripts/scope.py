@@ -768,7 +768,7 @@ def main(argv: list[str]) -> int:
             if header.path is not None:
                 added, removed = churn.get(header.path, (0, 0))
                 churn[header.path] = (added + header.added, removed + header.removed)
-        # Files, for the same reason: the masthead and the run panel say "files
+        # Files, for the same reason: the report's run facts say "files
         # changed", and the patch's `diff --git` count says one more for every
         # file whose type changed. Each block whose path an earlier block already
         # named is taken off; a header that named nothing readable still counts

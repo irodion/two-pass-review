@@ -23,6 +23,12 @@ LANES_WIDE_MAX = 8
 # What one line in the map's key stands for: one finding, so singular, where a
 # heading counts a list. In page order, which is the order the key lists them.
 LANE_LABEL = {"blocking": "Blocking", "follow-up": "Follow-up", "note": "Note"}
+# A pass named in passing: over its side of the map, and on page.py's filter
+# pills and contents line, which take it from here so the page has one short
+# name for each pass. A pass's full name, which heads its own sections and
+# labels its cards, is page.py's PRODUCER_LABEL. Here rather than there because
+# page.py imports this module, and the map is the one that needs it to draw.
+PASS_NAME = {"security": "Security", "quality": "Quality"}
 # Longer paths lose leading directories, as git's own diffstat shortens them;
 # the full path rides along in the row's title.
 MAP_PATH_MAX = 46
@@ -374,10 +380,15 @@ def header_cells(grid: Grid, plan: RowPlan, ordered: list[dict[str, Any]]) -> li
     left, right = grid.left, grid.right
     cells: list[str] = []
     if left:
-        cells.append(cell("lm-pass lm-pass-left", (1, grid.path_col), 1, "Security"))
+        cells.append(cell("lm-pass lm-pass-left", (1, grid.path_col), 1, PASS_NAME["security"]))
     if right:
         cells.append(
-            cell("lm-pass lm-pass-right", (grid.right_col, grid.right_col + right), 1, "Quality")
+            cell(
+                "lm-pass lm-pass-right",
+                (grid.right_col, grid.right_col + right),
+                1,
+                PASS_NAME["quality"],
+            )
         )
     if plan.totals is not None:
         cells.append(cell("lm-colhead", grid.churn_col, 2, counts(*plan.totals)))
@@ -450,7 +461,7 @@ def file_cells(grid: Grid, plan: RowPlan) -> list[str]:
             cells.append(cell("lm-churn", grid.churn_col, here, churn(*row.churn, widest)))
         elif row.outside:
             # A finding may cite a file the diff never touched, and the docs check
-            # reads documents beside the change. The run panel says so in words;
+            # reads documents beside the change. The run's facts say so in words;
             # the row says which, where its churn would be.
             cells.append(cell("lm-churn", grid.churn_col, here, "not in this diff"))
     if plan.rest:
@@ -548,6 +559,11 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
     here -- rows, band, layout -- and each builder draws one part of it; they
     are called in document order, which is the order the cells paint in, since
     the cells share one stacking level.
+
+    The key stands in a column beside the map rather than under it, where the
+    eye reaches it from the lines it names without leaving them -- wherever the
+    window has room for the page's side track. Narrower, it follows the map:
+    see CSS_NARROW.
     """
     if not ordered:
         return ""
@@ -571,12 +587,12 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
         *lane_cells(grid, plan, ordered, cited),
     ]
     return (
-        '<section class="linemap"><h2 id="map">Where the findings land</h2>'
+        '<section class="linemap tracks"><div class="lm-main"><h2 id="map">Where the findings land</h2>'
         '<p class="lm-intro">Each finding is a line through the files it cites: the security '
         "pass&rsquo;s left of them, the quality pass&rsquo;s right.</p>"
         '<div class="lm-scroll"><div class="lm{narrow}" style="grid-template-columns:{cols};'
-        'grid-template-rows:{rows}">{cells}</div></div>'
-        '<ul class="lm-legend">{legend}</ul></section>'.format(
+        'grid-template-rows:{rows}">{cells}</div></div></div>'
+        '<div class="lm-side"><ul class="lm-legend">{legend}</ul></div></section>'.format(
             narrow=" lm-narrow" if len(ordered) > LANES_WIDE_MAX else "",
             cols=grid.columns,
             rows=grid.rows,
@@ -591,7 +607,15 @@ CSS = """
    a station's place is computed as rows from the top of its line: a row that
    grew with its content would leave the stations below it off their files.
    Positions arrive as numbers in each element's style; everything else is here. */
-.linemap h2 { margin-top: 30px; }
+/* The map in the page's reading track and its key in the side track -- the
+   section takes the page's `.tracks` -- so the key stands under the copies in
+   the masthead and the map's heading rule ends where every other one does. The
+   side track starts at the heading rather than at the map's first row: the
+   heading has no room to the right of it to lose. */
+.linemap { align-items: start; margin-top: 30px; }
+.linemap h2 { margin-top: 0; }
+.lm-main { min-width: 0; }
+.lm-side { padding-top: 4px; }
 /* `lm-intro`, never `lm-note`: lanes carry their disposition as `lm-<name>`, and
    a note's lane would take this paragraph's margins with the name. */
 .lm-intro { color: var(--muted); font-size: 13px; line-height: 1.5; margin: -8px 0 12px; }
@@ -649,7 +673,7 @@ CSS = """
 .lm-st { position: absolute; left: 50%; top: calc(var(--r, 0) * var(--row) + var(--row) / 2);
   width: var(--d); height: var(--d); transform: translate(-50%, -50%); border-radius: 50%;
   background: var(--panel); border: 3px solid var(--c); }
-.lm-legend { display: flex; flex-wrap: wrap; gap: 6px 22px; list-style: none; margin: 12px 0 0; padding: 0;
+.lm-legend { display: flex; flex-direction: column; gap: 6px; list-style: none; margin: 0; padding: 0;
   font: 13px/1.4 var(--disp); color: var(--ink-2); }
 .lm-legend li { display: flex; align-items: center; gap: 8px; }
 .lm-key { --row: 22px; width: 22px; height: 22px; }
@@ -682,4 +706,12 @@ CSS = """
    map's parts `.lm-dismissed`, which nothing hides. */
 .lm .lm-dismissed { opacity: .3; }
 .lm-label.lm-dismissed { text-decoration: line-through; }
+"""
+
+# The map's rules for a window too narrow for the page's side track. page.py
+# puts them inside its own query for that width, which is written only there.
+CSS_NARROW = """
+  /* The key follows the map, and lays out in a row again. */
+  .lm-side { padding-top: 14px; }
+  .lm-legend { flex-direction: row; flex-wrap: wrap; gap: 6px 22px; }
 """

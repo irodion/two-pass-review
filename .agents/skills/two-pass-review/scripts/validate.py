@@ -195,7 +195,7 @@ SINCE_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}")
 # can be long in honest use -- a label was first written to carry a date, a
 # time and an offset, "working tree since 2026-08-25 00:00 +0300", and a
 # branch name can run to sixty characters -- and capped for the same reason
-# TIER_MAX is: each renders into the run panel's grid, and nothing downstream
+# TIER_MAX is: each renders into the run facts' grid, and nothing downstream
 # trusts it further than escaping it.
 SCOPE_LABEL_MAX = 120
 
@@ -231,7 +231,7 @@ def label_problem(label: object) -> str | None:
     return _one_line(
         label,
         "must be a non-empty string -- leave it out when the run has no label",
-        " -- it names what the request meant, in the report's run panel, and does not argue it",
+        " -- it names what the request meant, in the report's run facts, and does not argue it",
     )
 
 
@@ -243,7 +243,7 @@ def against_problem(against: object) -> str | None:
     too.
     """
     return _one_line(
-        against, "must name a revision", " -- it is one revision, in the report's run panel"
+        against, "must name a revision", " -- it is one revision, in the report's run facts"
     )
 
 

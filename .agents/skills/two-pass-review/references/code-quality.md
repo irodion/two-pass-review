@@ -367,9 +367,9 @@ into one paragraph, and a blank line starts a new one.
 ```
 
 `what_holds_up_md` and `closing_md` are yours to use or leave `null` — write them when you have something
-to say, and the report gives each its own section and its own sidebar entry. They are not a summary slot:
-the report states the verdict at the top of the page on its own, so restating it here is a paragraph
-nobody reads.
+to say, and the report gives each its own section and a link to it at the top of the page. They are not a
+summary slot: the report states the verdict at the top of the page on its own, so restating it here is a
+paragraph nobody reads.
 
 **Zero findings is a result, not a silence.** If you emit no findings, `empty_reason_md` is required:
 say what you examined and why nothing survived it. A pass with findings leaves it `null`.

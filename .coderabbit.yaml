@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://www.coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit's settings for this repository. Anything not set here keeps its
+# default.
+reviews:
+  pre_merge_checks:
+    # Off for the reason ruff's D rules are absent from pyproject.toml: a
+    # docstring mandate contradicts "comments explain why, not what". A
+    # function with no why to give -- a three-line helper, a main() whose
+    # steps carry their own comments -- has none, so a coverage threshold
+    # measures only how often that is so, and its fix is docstrings that
+    # restate the code. Quoted, because YAML 1.1 reads a bare off as false.
+    docstrings:
+      mode: "off"

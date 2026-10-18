@@ -29,8 +29,10 @@ validator itself rather than trusting whoever invoked it.
 No dependencies, no network, no build step: the scripts want a `python3` of 3.10 or newer and nothing
 else. The report is one self-contained file — no sibling assets, no embedded JSON, nothing fetched —
 which is why it works over `file://` and still works after you email it to someone. Its whole script is a
-clipboard handler behind the copy buttons, a class toggle behind `Mark dealt with`, and the counting that
-keeps the headings honest as you filter and mark.
+clipboard handler behind the copy buttons, a class toggle behind `Mark dealt with`, the counting that
+keeps the headings honest as you filter and mark, the upkeep that keeps the map's links pointed at cards
+still on screen, a watch that shows the verdict in the filter bar once the masthead's has scrolled away,
+and a measure of the bar so that links land clear of it.
 
 ## Installing it somewhere else
 
@@ -162,7 +164,8 @@ loudly they shout, derived from severity for security findings and from category
   not be read — says so in the masthead, because a report where nothing disputed the findings should
   not read like one where something tried and everything held. (Reports from older runs may instead
   show a *withdrawn* section; that was this check's earlier, harsher form.)
-- **What the run was pointed at is in the sidebar**, under `Run`: repository, scope mode, the two object
+- **What the run was pointed at closes the page**, under `Run`, with the range it reviewed beside the
+  verdict and a link to it in the contents line under the masthead: repository, scope mode, the two object
   ids, the diff size, and the model and effort when the run chose them. When the skill found the base
   itself, it says how: the branch the base is the merge-base with, or the instant a review of "changes
   since" starts at — `2026-08-25T00:00:00+03:00`, so "review today's changes" leaves a record of which
@@ -187,7 +190,7 @@ loudly they shout, derived from severity for security findings and from category
   as a quote. Their name carries a key cut from a hash of the finding's text, so nothing the quote holds
   can close them early, and the quote is pasted exactly as written. A corroborated finding names its
   partner rather than pasting it; the partner has its own button.
-- **Under the verdict sit `Copy report as markdown`, and `Copy open blocking for agent` when something
+- **Beside the verdict sit `Copy report as markdown`, and `Copy open blocking for agent` when something
   blocks.** The report copy is the page as text, for a pull request comment: the verdict, the summary,
   the scope, the disclaimer and any warnings, every finding by disposition, what each pass said besides
   its findings, and the docs check with its notes. It leaves out the self-check, whose answers the page
@@ -197,14 +200,13 @@ loudly they shout, derived from severity for security findings and from category
   the start and the agent instruction once at the end. Its count follows your marks and filters, and the
   button goes when nothing is left.
 - **Every finding can be marked dealt with.** `✓ Mark dealt with` folds the card to its title, strikes
-  the title through, and strikes the sidebar entry with it, so the nav stops advertising findings you
-  have already dealt with and the page compacts as you read. Once anything is marked, the sidebar offers
-  `Hide N dismissed`, which takes those findings out of the flow entirely, and a disposition whose
-  findings are all dismissed takes its heading with it. Undo is where the card is. A heading counts what
-  is left beside what the passes found — `Blocking · 3 of 7` — so your progress never overwrites the
-  run's own number. It is a mark on your reading, not on the finding: it does not touch the verdict, and
-  none of it survives a reload — a report is a snapshot of one diff, and a stale mark against a
-  regenerated one would mislead.
+  the title through and fades its line on the map, so the page compacts as you read. Once anything is
+  marked, the filters offer `Hide N dismissed`, which takes those findings out of the flow entirely, and
+  a disposition whose findings are all dismissed takes its heading and its contents entry with it. Undo
+  is where the card is. A heading counts what is left beside what the passes found — `Blocking · 3 of 7`
+  — so your progress never overwrites the run's own number. It is a mark on your reading, not on the
+  finding: it does not touch the verdict, and none of it survives a reload — a report is a snapshot of
+  one diff, and a stale mark against a regenerated one would mislead.
 - **A `Documentation` section may follow the findings.** An advisory docs check reads the diff against
   the agent-facing documents — `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, a README, `CONTRIBUTING.md` and
   `GUIDE.md` at the root, plus nested `AGENTS.md`, `CLAUDE.md` and READMEs on the changed paths — and
@@ -213,18 +215,21 @@ loudly they shout, derived from severity for security findings and from category
   carry no ids and no dispositions, the section names exactly which documents were read and which the
   collector refused, and it catches explicit contradiction only — drift a change merely implies is
   beyond it, and the section says so.
-- **The report may end with a self-check** — up to four questions, each about one specific standing
-  finding it names by id, with its answer folded underneath and linked to the findings it rests on. It is a
-  nudge to engage before acting on the verdict, not a gate: the answers live on the page, nothing is
-  scored or recorded, and skipping them costs nothing. A thin report carries none — a near-empty review
-  earns no quiz.
-- **Filters for pass, severity, blocking-only and dismissal** are hidden radios and sibling selectors:
-  the state is a radio and CSS does the hiding. Severity filters the security findings only — a quality
-  finding is rated by category and a security note by nothing at all, so both stay visible, and the
-  sidebar says so while the filter is on. The script counts: a heading above a filtered list has to agree
-  with what is under it. That, the clipboard handler and the dismissal toggle are the whole of it —
-  none of them parses, renders or evaluates anything a pass wrote, and everything a pass wrote is escaped
-  before it reaches the page, script or no script.
+- **The report may close with a self-check**, just before the run's facts — up to four questions, each
+  about one specific standing finding it names by id, with its answer folded underneath and linked to the
+  findings it rests on. It is a nudge to engage before acting on the verdict, not a gate: the answers
+  live on the page, nothing is scored or recorded, and skipping them costs nothing. A thin report carries
+  none — a near-empty review earns no quiz.
+- **Filters for pass, severity, blocking-only and dismissal** sit in a thin bar under the masthead that
+  stays at the top of the window as you read; once the masthead's verdict has scrolled away, the bar
+  shows it too, as a link back up. A report with no standing finding — none reported, or every one
+  withdrawn at merge — has nothing to filter and no bar. The filters are hidden radios and sibling
+  selectors: the state is a radio and CSS does the hiding. Severity filters the security findings only —
+  a quality finding is rated by category and a security note by nothing at all, so both stay visible, and
+  the filters say so while one is on. The script counts: a heading above a filtered list has to agree
+  with what is under it. That, the clipboard handler, the dismissal toggle, the map's links, and the bar's
+  verdict and height are the whole of it — none of them parses, renders or evaluates anything a pass
+  wrote, and everything a pass wrote is escaped before it reaches the page, script or no script.
 
 ## Asking for rule suggestions
 

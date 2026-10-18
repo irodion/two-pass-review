@@ -22,6 +22,10 @@ from markdown_subset import Markdown
 
 DISPOSITION_ORDER = ("blocking", "follow-up", "note")
 DISPOSITION_LABEL = {"blocking": "Blocking", "follow-up": "Follow-up", "note": "Notes"}
+VERDICT_LABEL = {"blocked": "Blocked", "clear": "Clear"}
+# A pass's full name, for its cards and the sections it writes. Where a pass is
+# only named in passing -- the map, the filter pills, the contents line -- the
+# page uses linemap.PASS_NAME, the short one.
 PRODUCER_LABEL = {"security": "Security & correctness", "quality": "Code quality"}
 SCOPE_MODE_LABEL = {"revisions": "revision range", "local-patch": "local working patch"}
 
@@ -149,7 +153,32 @@ def close_fences(text: str) -> str:
     return text + "\n" + opener if opener else text
 
 
-def truncate(text: str, limit: int = 58) -> str:
+# What gets abbreviated: a full SHA-1 or SHA-256 object id. A base or head an
+# artifact spells any other way -- a branch name in a hand-made run -- is shown
+# as written, because cutting it would make a different name.
+OBJECT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
+
+def short_rev(rev: str) -> str:
+    """`rev` cut to twelve characters when it is an object id, on the page and in
+    its markdown copy alike, so the two name a range the same way. Twelve, not
+    git's seven: the copy is pasted into pull requests on repositories of any
+    size, where a short prefix can stop being unique. The full id is in the
+    run's facts on the page."""
+    return rev[:12] if OBJECT_ID.fullmatch(rev) else rev
+
+
+def range_parts(scope: dict[str, Any]) -> tuple[str, str]:
+    """The reviewed range as what to set apart and the words that follow it --
+    `base..head`, or a local patch's base and " against the working tree" --
+    for the masthead and the markdown copy alike, which each set it apart in
+    their own way and would otherwise word it in their own way too."""
+    base = short_rev(scope["base"])
+    head = scope.get("head")
+    return (f"{base}..{short_rev(head)}", "") if head else (base, " against the working tree")
+
+
+def truncate(text: str, limit: int) -> str:
     text = " ".join(text.split())
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
@@ -205,7 +234,7 @@ AGENT_RULE = (
 # The single agent copy: its one block between this and PROMPT_WRAPPER.
 AGENT_HEAD = "Below is one finding from a two-pass-review report. " + AGENT_RULE
 
-# What the sidebar's bulk copy puts around the open blocking findings' blocks.
+# What the masthead's bulk copy puts around the open blocking findings' blocks.
 # The instruction is the single button's, said once for all of them rather than
 # repeated under each -- and built from it, so the two cannot drift.
 BULK_HEAD = (
@@ -374,6 +403,15 @@ ICON_NO_ENTRY = icon(
 )
 
 
+def verdict_icon(verdict: str) -> str:
+    """The icon beside a verdict, for the masthead's badge and the bar's alike.
+
+    Only the blocked verdict gets one. `Clear` is the absence of a reason to
+    stop, and an icon on it would be a second thing claiming to say so.
+    """
+    return ICON_NO_ENTRY if verdict == "blocked" else ""
+
+
 def copy_attr(text: str) -> str:
     """A copy payload as an attribute value.
 
@@ -471,14 +509,10 @@ def report_markdown(merged: dict[str, Any]) -> str:
     by_id = {f["id"]: f for f in live}
     run = merged["run"]
     scope = run["scope"]
-    if scope.get("head"):
-        span = "`{}..{}`".format(scope["base"][:12], scope["head"][:12])
-    else:
-        span = "`{}` against the working tree".format(scope["base"][:12])
+    revs, rest = range_parts(scope)
+    span = f"`{revs}`{rest}"
     lines = [
-        "# Two-pass review of {}: {}".format(
-            scope["repo"], "Blocked" if merged["verdict"] == "blocked" else "Clear"
-        ),
+        "# Two-pass review of {}: {}".format(scope["repo"], VERDICT_LABEL[merged["verdict"]]),
         "",
         masthead_sentence(merged),
         "",
@@ -534,7 +568,7 @@ def report_markdown(merged: dict[str, Any]) -> str:
 
 
 def bulk_controls(merged: dict[str, Any]) -> str:
-    """The sidebar's copies of more than one finding.
+    """The masthead's copies of more than one finding.
 
     `Copy open blocking for agent` carries no payload of its own. Which
     findings it holds is the reader's -- not dismissed, and not hidden by a
@@ -705,7 +739,7 @@ def provenance_value(value: str | None) -> str:
 def provenance_state(passes: list[dict[str, Any]]) -> tuple[bool, bool, bool]:
     """What the passes recorded about model and effort, as three answers.
 
-    Read by the sidebar, which lists the fields, and by the masthead, which warns
+    Read by the run's section, which lists the fields, and by the masthead, which warns
     about them. `differ` is not the negation of `agreed`, and it is asked one field
     at a time: a split is two passes naming *different* models, or different
     efforts. One pass recording an axis the other left blank is unequal evidence,
@@ -721,20 +755,24 @@ def provenance_state(passes: list[dict[str, Any]]) -> tuple[bool, bool, bool]:
     return recorded, agreed, differ
 
 
-def render_run_panel(run: dict[str, Any], passes: list[dict[str, Any]]) -> str:
-    """The run's facts, in the sidebar rather than in the reading column.
+def render_run_facts(run: dict[str, Any], passes: list[dict[str, Any]]) -> str:
+    """The run's facts, last on the page, as a document's colophon is.
 
     They are what the run was pointed at, not something a pass found, and between
     the verdict sentence and the first finding they were a page of reference
-    material the reader had to scroll past to reach the report. Reference material
-    belongs beside the report, where it stays available and stops interrupting.
+    material the reader had to scroll past to reach the report. They sat beside
+    it in a sidebar for a while, which kept them available at the cost of a column
+    on every screen; that column is gone, so they go after everything the reader
+    came for. The masthead keeps the one fact a reader needs first -- the
+    range -- and the contents line links here.
 
-    Two columns for the short fields, full width for the ones that must not wrap
-    mid-value -- a repository path, a 40-character object id, a timestamp.
+    Cells for the short fields, a full row for the ones that must not wrap
+    mid-value -- a repository path, an object id, a timestamp.
     """
     scope = run["scope"]
-    # (label, value, full-width). Order is the reading order of the panel, and the
-    # pairs fall on their own rows because each wide row closes the one above it.
+    # (label, value, full-width). Order is the reading order of the section, and
+    # the short facts fill the rows between the wide ones, each of which closes
+    # the row above it.
     rows = [
         ("Repository", esc(scope["repo"]), True),
         ("Scope mode", esc(SCOPE_MODE_LABEL.get(scope["mode"], scope["mode"])), False),
@@ -750,7 +788,7 @@ def render_run_panel(run: dict[str, Any], passes: list[dict[str, Any]]) -> str:
     # the label: the script derived the base from this, so the two agree by
     # construction. Absent when the caller named the base itself.
     if scope.get("against"):
-        against = '<span class="chip chip-ref">{}</span>'.format(esc(scope["against"]))
+        against = '<span class="chip">{}</span>'.format(esc(scope["against"]))
         rows.append(("Merge-base with", against, True))
     if scope.get("since"):
         rows.append(("Since", '<span class="nowrap">{}</span>'.format(esc(scope["since"])), True))
@@ -818,7 +856,7 @@ def render_run_panel(run: dict[str, Any], passes: list[dict[str, Any]]) -> str:
     if recorded:
         note += " Model and effort are what this run asked for, not a measurement."
     return (
-        f'<section class="run"><p class="run-title">Run</p><dl class="run-facts">{body}</dl>'
+        f'<section class="run"><h2 id="run">Run</h2><dl class="run-facts">{body}</dl>'
         f'<p class="run-note">{note}</p></section>'
     )
 
@@ -871,9 +909,9 @@ def render_warnings(
 ) -> str:
     """The masthead's warnings, as callouts.
 
-    These went to the sidebar's neighbours in the old scope section, under the
-    facts they qualify, which put the one thing on the page that reduces what the
-    findings are worth below the fold. A warning is not reference material.
+    These went in the old scope section, under the facts they qualify, which put
+    the one thing on the page that reduces what the findings are worth below the
+    fold. A warning is not reference material.
     """
     return "".join(
         '<p class="callout"><span class="callout-mark" aria-hidden="true">!</span>'
@@ -891,6 +929,13 @@ PASS_PROSE = (
 )
 
 
+def prose_anchor(producer: str, key: str) -> str:
+    """The id of one pass's section for one PASS_PROSE key, stated once for the
+    section and for the contents line that links to it."""
+    part = "empty" if key == "empty_reason_md" else key.split("_")[0]
+    return f"prose-{esc(producer)}-{part}"
+
+
 def render_pass_prose(passes: list[dict[str, Any]], markdown: Markdown) -> str:
     out: list[str] = []
     for envelope in passes:
@@ -898,15 +943,15 @@ def render_pass_prose(passes: list[dict[str, Any]], markdown: Markdown) -> str:
         for key, heading in PASS_PROSE[:2]:
             if not envelope.get(key):
                 continue
-            anchor = "prose-{}-{}".format(producer, key.split("_")[0])
+            anchor = prose_anchor(producer, key)
             out.append(
                 f'<section id="{anchor}" class="prose"><h2>{esc(heading)} &mdash; {producer_label(producer)}</h2>'
                 f"<details open><summary>{producer_label(producer)}</summary>{markdown.render(envelope[key])}</details></section>"
             )
         if envelope.get("empty_reason_md"):
             out.append(
-                '<section id="prose-{p}-empty" class="prose"><h2>{h} &mdash; {label}</h2>{body}</section>'.format(
-                    p=esc(producer),
+                '<section id="{anchor}" class="prose"><h2>{h} &mdash; {label}</h2>{body}</section>'.format(
+                    anchor=prose_anchor(producer, "empty_reason_md"),
                     h=esc(PASS_PROSE[2][1]),
                     label=producer_label(producer),
                     body=markdown.render(envelope["empty_reason_md"]),
@@ -920,8 +965,8 @@ def render_withdrawn(withdrawn: list[dict[str, Any]], markdown: Markdown) -> str
 
     Marked, never deleted, is the artifact's rule, and this is the page keeping
     it: a report that silently lost a finding would be lying about what the
-    passes wrote. The cards render without controls, filters or nav entries --
-    a withdrawn finding is the record of a disagreement the diff settled, not
+    passes wrote. The cards render without controls or filters, and off the map
+    -- a withdrawn finding is the record of a disagreement the diff settled, not
     something to act on -- but each keeps its anchor, because a standing body
     may still cite it and the link has to land somewhere.
     """
@@ -970,8 +1015,8 @@ DOC_NOTE_KIND_LABEL = {"stale": "stale claim", "missing": "missing coverage"}
 
 # What the docs section says when the check ran and its reply could not be
 # read -- `run.docs_check` "failed", which writes no `docs_check` object. Said
-# in the section rather than left to the run panel's one word, so a reader
-# who skips the panel, and the markdown copy, still learn no document was
+# in the section rather than left to the run's facts' one word, so a reader
+# who skips those, and the markdown copy, still learn no document was
 # checked: an absent section reads as a check with nothing to say.
 DOCS_LOST = (
     "The docs check ran, but its reply could not be read, so no document was checked against the "
@@ -1080,7 +1125,7 @@ def render_docs_check(
 
 
 def render_self_check(self_check: list[dict[str, Any]], markdown: Markdown) -> str:
-    """The reader's self-check, last on the page.
+    """The reader's self-check, last in the report, before only the run's facts.
 
     Each answer sits collapsed under its question in a native <details>, so the
     reader meets the question before the answer -- collapsing is CSS-free and
@@ -1137,6 +1182,85 @@ def disposition_groups(live: list[dict[str, Any]]) -> list[tuple[str, list[dict[
     return [(d, groups[d]) for d in DISPOSITION_ORDER if groups[d]]
 
 
+def disposition_marks(flat: list[dict[str, Any]]) -> tuple[str, str]:
+    """A disposition's classes and counts, for its heading and its contents entry.
+
+    Shared, so the script's recount and the filters' rules reach the entry
+    exactly as they reach the heading: one statement of when a disposition has
+    anything left to show.
+    """
+    present = {f["producer"] for f in flat}
+    classes = "group " + " ".join("has-" + p for p in sorted(present))
+    counts = "".join(
+        '<span class="count count-{}">{}</span>'.format(
+            key, sum(1 for f in flat if key == "all" or f["producer"] == key)
+        )
+        for key in ("all", "security", "quality")
+    )
+    return classes, counts
+
+
+def contents_entry(href: str, label: str, count: str | int | None = None, attrs: str = "") -> str:
+    """One entry in the contents line: a link to where a section starts, and its count."""
+    tally = "" if count is None else f' <span class="counts">&middot; {count}</span>'
+    return f'<li{attrs}><a href="#{href}">{label}</a>{tally}</li>'
+
+
+def render_contents(
+    groups: list[tuple[str, list[dict[str, Any]]]],
+    withdrawn: list[dict[str, Any]],
+    passes: list[dict[str, Any]],
+    docs_check: dict[str, Any] | None,
+    run: dict[str, Any],
+    self_check: list[dict[str, Any]],
+) -> str:
+    """The contents line: where each section of the page starts, in page order
+    but for the passes' prose, which it groups by heading -- see below.
+
+    The findings themselves are not listed -- each id on the map is the link to
+    its card.
+    """
+    entries: list[str] = []
+    for disposition, flat in groups:
+        classes, counts = disposition_marks(flat)
+        entries.append(
+            contents_entry(
+                f"group-{disposition}",
+                DISPOSITION_LABEL[disposition],
+                counts,
+                f' class="{classes}" data-disposition="{disposition}"',
+            )
+        )
+    if withdrawn:
+        entries.append(contents_entry("group-withdrawn", "Withdrawn at merge", len(withdrawn)))
+    # One entry per heading, each pass that wrote under it a link of its own.
+    # The headings repeat once per pass, and spelled out per pass they took the
+    # line to a second row whose break fell wherever the width said. In the order
+    # each heading first appears on the page, which goes pass by pass.
+    prose: dict[str, list[str]] = {}
+    for envelope in passes:
+        producer = envelope["producer"]
+        for key, heading in PASS_PROSE:
+            if envelope.get(key):
+                name = esc(linemap.PASS_NAME.get(producer, producer))
+                prose.setdefault(heading, []).append(
+                    f'<a href="#{prose_anchor(producer, key)}">{name}</a>'
+                )
+    for heading, links in prose.items():
+        entries.append("<li>{}: {}</li>".format(esc(heading), ", ".join(links)))
+
+    if docs_check is not None:
+        entries.append(
+            contents_entry("docscheck", "Documentation", len(docs_check.get("notes") or []))
+        )
+    elif run.get("docs_check") == "failed":
+        entries.append(contents_entry("docscheck", "Documentation", "unread"))
+    if self_check:
+        entries.append(contents_entry("selfcheck", "Self-check", len(self_check)))
+    entries.append(contents_entry("run", "Run"))
+    return "".join(entries)
+
+
 def masthead_sentence(merged: dict[str, Any]) -> str:
     """The masthead's one-sentence account of the run, as plain text.
 
@@ -1180,10 +1304,24 @@ def masthead_sentence(merged: dict[str, Any]) -> str:
     return sentence
 
 
+def range_line(scope: dict[str, Any]) -> str:
+    """What was reviewed, beside the verdict: the repository and the range.
+
+    The one run fact the masthead keeps, because it is the one a reader checks
+    before trusting the verdict -- right repository, right change. A local
+    patch has no head commit; what it diffed is the working tree, and saying so
+    is also what tells this run apart from a review of commits.
+    """
+    revs, rest = range_parts(scope)
+    return '<p class="range"><span class="range-repo">{}</span> <b>{}</b>{}</p>'.format(
+        esc(scope["repo"]), esc(revs), esc(rest)
+    )
+
+
 def render_page(merged: dict[str, Any]) -> str:
     findings = merged["findings"]
     # Standing findings drive everything the reader acts on -- ordering, counts,
-    # nav, the verdict sentence. Withdrawn ones render once, in their own
+    # the map, the verdict sentence. Withdrawn ones render once, in their own
     # section, and appear nowhere else: a finding the diff contradicts is a
     # record, not a lead. The markdown cross-referencer still knows every id,
     # withdrawn included, because a standing body may cite a withdrawn finding
@@ -1194,19 +1332,10 @@ def render_page(merged: dict[str, Any]) -> str:
     by_id = {f["id"]: f for f in live}
 
     main: list[str] = []
-    nav: list[str] = []
     groups = disposition_groups(live)
     for disposition, flat in groups:
-        present = {f["producer"] for f in flat}
-        classes = "group " + " ".join("has-" + p for p in sorted(present))
-        counts = "".join(
-            '<span class="count count-{}">{}</span>'.format(
-                key, sum(1 for f in flat if key == "all" or f["producer"] == key)
-            )
-            for key in ("all", "security", "quality")
-        )
+        classes, counts = disposition_marks(flat)
         heading = f'{DISPOSITION_LABEL[disposition]} <span class="counts">&middot; {counts}</span>'
-
         main.append(
             '<section class="{cls}" data-disposition="{d}"><h2 id="group-{d}">{heading}</h2>{cards}</section>'.format(
                 cls=classes,
@@ -1216,91 +1345,36 @@ def render_page(merged: dict[str, Any]) -> str:
             )
         )
 
-        entries = "".join(
-            '<li class="nav-finding" id="nav-{fid}" data-producer="{prod}"{sev}><a href="#finding-{fid}">'
-            '<span class="nav-id">{fid}</span> {title}</a></li>'.format(
-                prod=esc(f["producer"]),
-                fid=esc(f["id"]),
-                sev=' data-severity="{}"'.format(esc(f["severity"])) if f.get("severity") else "",
-                title=esc(truncate(Markdown.plain(f["title"]))),
-            )
-            for f in flat
-        )
-        nav.append(
-            f'<div class="{classes}" data-disposition="{disposition}"><p class="nav-group">'
-            f'<a href="#group-{disposition}">{DISPOSITION_LABEL[disposition]}</a> '
-            f'<span class="counts">&middot; {counts}</span></p><ul>{entries}</ul></div>'
-        )
-
-    prose_links: list[str] = []
-    if withdrawn:
-        prose_links.append(
-            f'<li><a href="#group-withdrawn">Withdrawn at merge &middot; {len(withdrawn)}</a></li>'
-        )
-    for envelope in merged["passes"]:
-        producer = envelope["producer"]
-        for key, heading in (
-            ("what_holds_up_md", "What holds up"),
-            ("closing_md", "Closing notes"),
-        ):
-            if envelope.get(key):
-                prose_links.append(
-                    '<li><a href="#prose-{p}-{k}">{h} &mdash; {label}</a></li>'.format(
-                        p=esc(producer),
-                        k=key.split("_")[0],
-                        h=esc(heading),
-                        label=producer_label(producer),
-                    )
-                )
-        if envelope.get("empty_reason_md"):
-            prose_links.append(
-                f'<li><a href="#prose-{esc(producer)}-empty">Nothing reported &mdash; {producer_label(producer)}</a></li>'
-            )
-
     docs_check = merged.get("docs_check")
-    if docs_check is not None:
-        prose_links.append(
-            '<li><a href="#docscheck">Documentation &middot; {}</a></li>'.format(
-                len(docs_check.get("notes") or [])
-            )
-        )
-    elif merged["run"].get("docs_check") == "failed":
-        prose_links.append('<li><a href="#docscheck">Documentation &middot; unread</a></li>')
-
     self_check = merged.get("self_check") or []
-    if self_check:
-        prose_links.append(
-            f'<li><a href="#selfcheck">Self-check &middot; {len(self_check)}</a></li>'
-        )
-
     verdict = merged["verdict"]
     sentence = masthead_sentence(merged)
     scope = merged["run"]["scope"]
-    scope_line = "{} &middot; {} &middot; {} files".format(
-        esc(scope["repo"]),
-        esc(SCOPE_MODE_LABEL.get(scope["mode"], scope["mode"])),
-        scope["files_changed"],
-    )
+    ordered = [f for _, flat in groups for f in flat]
 
     return PAGE.format(
         title=esc("Two-Pass Review — {}".format(scope["repo"])),
         # The map's rules after the page's own: they name only the map's
         # classes and the filter radios, so where they sit changes no cascade.
-        css=CSS + linemap.CSS,
+        css=CSS + linemap.CSS + NARROW_QUERY.format(CSS_NARROW + linemap.CSS_NARROW),
         verdict=esc(verdict),
-        # Only the blocked badge gets one. `Clear` is the absence of a reason to
-        # stop, and an icon on it would be a second thing claiming to say so.
-        verdict_icon=ICON_NO_ENTRY if verdict == "blocked" else "",
-        verdict_label="Blocked" if verdict == "blocked" else "Clear",
+        verdict_icon=verdict_icon(verdict),
+        verdict_label=VERDICT_LABEL[verdict],
         sentence=esc(sentence),
-        scope_line=scope_line,
+        range=range_line(scope),
         bulk=bulk_controls(merged),
         disclaimer=esc(DISCLAIMER),
-        nav="\n".join(nav),
-        prose_links="".join(prose_links),
+        contents=render_contents(
+            groups, withdrawn, merged["passes"], docs_check, merged["run"], self_check
+        ),
         warnings=render_warnings(merged["run"], merged["passes"], merged["findings"]),
-        run_panel=render_run_panel(merged["run"], merged["passes"]),
-        linemap=linemap.render_line_map(merged, [f for _, flat in groups for f in flat]),
+        run=render_run_facts(merged["run"], merged["passes"]),
+        # No bar when no finding stands: the filters reach only standing cards
+        # and the map's lines, and a page with nothing to filter showed nine lit
+        # pills. The root says which, for the stylesheet's scroll-padding.
+        root=' class="has-bar"' if ordered else "",
+        filterbar=render_filter_bar(verdict) if ordered else "",
+        linemap=linemap.render_line_map(merged, ordered),
         groups="\n".join(main),
         withdrawn=render_withdrawn(withdrawn, markdown),
         prose=render_pass_prose(merged["passes"], markdown),
@@ -1310,8 +1384,58 @@ def render_page(merged: dict[str, Any]) -> str:
     )
 
 
+# The filters: labels for the radios at the top of <body>, which is where every
+# filter rule's sibling selector starts.
+FILTERS = """<div class="filters">
+    <span class="filter-group"><span class="filter-title">Pass</span>
+      <label for="f-prod-all" class="pill pill-prod-all">Both</label>
+      <label for="f-prod-security" class="pill pill-prod-security">{security}</label>
+      <label for="f-prod-quality" class="pill pill-prod-quality">{quality}</label></span>
+    <span class="filter-group"><span class="filter-title">Severity</span>
+      <label for="f-sev-all" class="pill pill-sev-all">All</label>
+      <label for="f-sev-high" class="pill pill-sev-high">High</label>
+      <label for="f-sev-medium" class="pill pill-sev-medium">Medium</label>
+      <label for="f-sev-low" class="pill pill-sev-low">Low</label></span>
+    <span class="filter-group"><span class="filter-title">Show</span>
+      <label for="f-block-all" class="pill pill-block-all">Everything</label>
+      <label for="f-block-only" class="pill pill-block-only">Blocking only</label></span>
+    <span class="dism-link" hidden>
+      <label for="f-dism-hide" class="dism-hide">Hide <span class="dism-count">0</span> dismissed</label>
+      <label for="f-dism-keep" class="dism-show">Show dismissed (<span class="dism-count">0</span>)</label>
+    </span>
+    <span class="sev-note">Quality findings aren&rsquo;t rated by severity, so they stay visible.</span>
+  </div>""".format(**{p: esc(name) for p, name in linemap.PASS_NAME.items()})
+
+
+def render_filter_bar(verdict: str) -> str:
+    """The filters, in a bar that stays at the top of the window.
+
+    The filters within reach from any card, and -- once the masthead's badge has
+    scrolled away -- the verdict, small, at the bar's far end. Only then, because
+    the same word on one screen twice reads as a mistake. A link back up,
+    because what the reader returns to the top for is there: the map, the
+    contents line and the bulk copies. Its name says so, since the word alone
+    names a verdict, not a destination. The script shows it, because only a
+    script can tell when the badge has left the screen; without one the chip
+    stays hidden and the verdict is on the first screen only.
+
+    The sticky sidebar this replaced kept the bulk copies in reach as well, and
+    the bar does not: they stay beside the verdict they answer to, a click on
+    the chip away. Copying every open blocking finding is what a reader does
+    once they have been through them, not from one card halfway down, and two
+    more buttons in the bar would be a taller bar over every card.
+    """
+    label = esc(VERDICT_LABEL[verdict])
+    return (
+        f'<div class="filterbar">\n  {FILTERS}\n'
+        f'  <a class="bar-verdict verdict-{esc(verdict)}" href="#top" '
+        f'aria-label="{label}: back to the top" title="Back to the top" hidden>'
+        f"{verdict_icon(verdict)}{label}</a>\n</div>"
+    )
+
+
 PAGE = """<!doctype html>
-<html lang="en">
+<html lang="en"{root}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1331,51 +1455,32 @@ PAGE = """<!doctype html>
 <input type="radio" name="dism" id="f-dism-keep" class="filter" checked>
 <input type="radio" name="dism" id="f-dism-hide" class="filter">
 <div class="layout">
-  <aside class="sidebar">
-    <div class="sidebar-head">
+  <header class="masthead tracks" id="top">
+    <div class="masthead-main">
       <div class="verdict verdict-{verdict}">
         {verdict_icon}<span class="verdict-label">{verdict_label}</span>
       </div>
-      {bulk}
-      <div class="filters">
-        <p class="filter-title">Pass</p>
-        <label for="f-prod-all" class="pill pill-prod-all">Both</label>
-        <label for="f-prod-security" class="pill pill-prod-security">Security</label>
-        <label for="f-prod-quality" class="pill pill-prod-quality">Quality</label>
-        <p class="filter-title">Severity</p>
-        <label for="f-sev-all" class="pill pill-sev-all">All</label>
-        <label for="f-sev-high" class="pill pill-sev-high">High</label>
-        <label for="f-sev-medium" class="pill pill-sev-medium">Medium</label>
-        <label for="f-sev-low" class="pill pill-sev-low">Low</label>
-        <p class="sev-note">Quality findings aren&rsquo;t rated by severity, so they stay visible.</p>
-        <p class="filter-title">Show</p>
-        <label for="f-block-all" class="pill pill-block-all">Everything</label>
-        <label for="f-block-only" class="pill pill-block-only">Blocking only</label>
-        <p class="dism-link" hidden>
-          <label for="f-dism-hide" class="dism-hide">Hide <span class="dism-count">0</span> dismissed</label>
-          <label for="f-dism-keep" class="dism-show">Show dismissed (<span class="dism-count">0</span>)</label>
-        </p>
+      <div class="masthead-text">
+        <p class="sentence">{sentence}</p>
+        <p class="disclaimer">{disclaimer}</p>
+        {warnings}
       </div>
     </div>
-    <nav>
-      {nav}
-      <ul class="nav-prose">{prose_links}</ul>
-    </nav>
-    {run_panel}
-  </aside>
+    <div class="masthead-side">
+      {range}
+      {bulk}
+    </div>
+  </header>
+  <nav class="contents" aria-label="Contents"><ul>{contents}</ul></nav>
+  {filterbar}
   <main>
-    <header class="masthead">
-      <p class="sentence">{sentence}</p>
-      <p class="scope-line">{scope_line}</p>
-      <p class="disclaimer">{disclaimer}</p>
-      {warnings}
-    </header>
     {linemap}
     {groups}
     {withdrawn}
     {prose}
     {docscheck}
     {selfcheck}
+    {run}
   </main>
 </div>
 <script>{script}</script>
@@ -1383,15 +1488,17 @@ PAGE = """<!doctype html>
 </html>
 """
 
-# The page's whole script: the clipboard handler, dismissal, and keeping the
-# map's links pointed at something on screen.
+# The page's whole script: the clipboard handler, dismissal, keeping the map's
+# links pointed at something on screen, showing the filter bar's verdict once
+# the masthead's has scrolled away, and measuring the bar for the stylesheet.
 #
 # None of it parses, renders or evaluates anything a pass wrote. The copy handler
 # joins strings from data- attributes and moves the result to the clipboard --
 # a button's own data-copy between its data-head and data-tail when it has them,
 # or for the bulk button the cards' agent blocks; dismissal only ever toggles a class
 # and writes digits it counted itself; the map's links get attributes built from
-# validated ids. A hostile `body_md`
+# validated ids; the bar's verdict is a `hidden` attribute set and cleared, and
+# its height a number of pixels read off the bar itself. A hostile `body_md`
 # reaching any of it is inert -- escaping still does the security work, exactly as it
 # does everywhere else here.
 #
@@ -1535,7 +1642,7 @@ SCRIPT = """
       }
     }
     // Both copies of the count, and both halves of the group: `.group` and
-    // data-disposition sit on the <section> and on the sidebar <div> alike.
+    // data-disposition sit on the <section> and on its contents entry alike.
     //
     // Emptiness is per producer, not just overall, because the producer filter
     // decides which cards are on screen: with `Security` selected, a disposition
@@ -1634,10 +1741,6 @@ SCRIPT = """
     if (!card) { return; }
     var dismissed = card.classList.toggle('dismissed');
     button.setAttribute('aria-pressed', dismissed ? 'true' : 'false');
-    // The nav entry carries the card's id under a different prefix, which is the
-    // only thing the two subtrees need to know about each other.
-    var entry = document.getElementById('nav-' + card.id.replace('finding-', ''));
-    if (entry) { entry.classList.toggle('dismissed', dismissed); }
     // The finding's lane on the map -- its id, its line, its mark in the
     // falsification band -- found by the same id under a data- attribute.
     // Ids are the validator's sec-N and qa-N, so they quote safely in a selector.
@@ -1657,26 +1760,54 @@ SCRIPT = """
   // The severity pills hide cards in CSS, like the two filters beside them, but a
   // heading counting cards the reader cannot see is a heading that is wrong. So
   // the one thing the script does here is count again: every disposition, because
-  // the filter is global, and only on change, because nothing else moves it.
+  // the filter is global, and on change, because nothing else moves it.
   // Every filter can take blocking cards off screen, so every one recounts the
-  // bulk button and the map's links. Once at load too: a browser that restores
-  // radio state on reload can open the page already filtered.
+  // bulk button and the map's links. All of it once at load too: a browser that
+  // restores radio state on reload can open the page already filtered, and a
+  // restored `High` left the headings and the contents line counting cards it
+  // had hidden.
+  function retallyAll() {
+    var sections = document.querySelectorAll('section.group[data-disposition]');
+    for (var i = 0; i < sections.length; i++) {
+      retally(sections[i].getAttribute('data-disposition'));
+    }
+  }
   var filters = document.querySelectorAll('input.filter');
   for (var f = 0; f < filters.length; f++) {
     filters[f].addEventListener('change', refreshBulk);
     filters[f].addEventListener('change', refreshMapLinks);
   }
+  var severityRadios = document.querySelectorAll('input[name="sev"]');
+  for (var s = 0; s < severityRadios.length; s++) {
+    severityRadios[s].addEventListener('change', retallyAll);
+  }
+  retallyAll();
   refreshBulk();
   refreshMapLinks();
 
-  var severityRadios = document.querySelectorAll('input[name="sev"]');
-  for (var s = 0; s < severityRadios.length; s++) {
-    severityRadios[s].addEventListener('change', function () {
-      var sections = document.querySelectorAll('section.group[data-disposition]');
-      for (var i = 0; i < sections.length; i++) {
-        retally(sections[i].getAttribute('data-disposition'));
-      }
-    });
+  // The filter bar's height, for the stylesheet's scroll-padding: see
+  // `html.has-bar`. Measured, because how many rows the pills wrap to is the
+  // face's call as much as the window's. The browser says when it changes.
+  var bar = document.querySelector('.filterbar');
+  if (bar && window.ResizeObserver) {
+    new ResizeObserver(function () {
+      document.documentElement.style.setProperty(
+        '--bar-h', bar.getBoundingClientRect().height + 'px'
+      );
+    }).observe(bar);
+  }
+
+  // The filter bar's verdict: shown while the masthead's badge is out of view,
+  // so the verdict is on every screen and never on one screen twice. The badge,
+  // not the whole masthead: a run with warnings has a masthead tall enough to
+  // stay in view for screens after its badge has gone. The browser says when
+  // the badge crosses the edge; nothing here runs on scroll.
+  var badge = document.querySelector('.masthead .verdict');
+  var chip = document.querySelector('.bar-verdict');
+  if (badge && chip && window.IntersectionObserver) {
+    new IntersectionObserver(function (entries) {
+      chip.hidden = entries[entries.length - 1].isIntersecting;
+    }).observe(badge);
   }
 })();
 """
@@ -1733,49 +1864,100 @@ body {
    it into view is a no-op. It stays just as inert either way. */
 .filter { position: fixed; top: 0; left: 0; width: 0; height: 0;
   opacity: 0; pointer-events: none; }
-.layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 40px;
-  max-width: 1240px; margin: 0 auto; padding: 32px 28px 96px; align-items: start; }
-.sidebar { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; font-size: 14px;
-  font-family: var(--disp); }
-/* The sidebar is sticky against the page *and* a scroll container of its own, so
-   its first children -- the verdict badge and the filter pills -- are the first
-   things out of it once the nav overflows. Sticky again one level in keeps them:
-   the nav scrolls underneath a head that stays. The 22px gap is padding here
-   rather than margin on `.filters` because a margin collapses out of the sticky
-   box and leaves a transparent strip for nav entries to slide through. */
-.sidebar-head { position: sticky; top: 0; z-index: 1; background: var(--bg); padding-bottom: 22px; }
-main { min-width: 0; }
+/* One column, and two tracks inside it where a block needs them: what the
+   report says runs down the reading track, and the side track beside it holds
+   only what works on what is beside it -- the copies next to the verdict they
+   answer to, the key next to the map it explains. `.tracks` is that split,
+   stated once for every block that takes it. The filters have a strip of their
+   own, see `.filterbar`. Every other block keeps the reading track's measure,
+   so every heading rule and card edge on the page ends at one line.
 
-/* The badge renders once, in the sidebar, and there is no .masthead .verdict
-   override because there is no masthead badge to resize. It used to render in
-   both: the two sat about 200px apart on the same horizontal line and read as
-   the same word printed twice, so the masthead's was deleted. This is the copy
-   that stayed because it is the one that survives scrolling while `.sidebar` is
-   sticky -- see `.sidebar-head` above -- so on the desktop layout the verdict is
-   on every screen and not just the first. Below 900px it is not: the sidebar
-   goes static and the badge scrolls away with it, because a single-column layout
-   has no second column to persist anything in. */
-/* Filled when it blocks, outlined when it is clear: the one solid block of colour
-   in the sidebar is the one fact that should stop a merge. Its own red, not
-   `--block`: the dark theme lightens that one so red text stays legible, and as
-   a fill under white the lighter red glared. */
-.verdict { display: flex; align-items: center; gap: 10px; border-radius: 4px; padding: 11px 16px;
-  margin-bottom: 18px; font: 700 26px/1.1 var(--disp); letter-spacing: .01em; }
+   There was a sidebar here: verdict, bulk copies, filters, a list of every
+   finding and the run's facts in a sticky column of their own. The map made the
+   list redundant -- each of its ids is the link to its card -- and the rest each
+   has a place beside what it is about, so the column went, and the report got
+   its width back. Its stickiness kept the filters, the verdict and the copies in
+   reach from any card; the filter bar keeps the first two in one thin strip,
+   and its verdict is the way back up to the third. See render_filter_bar. */
+.layout { --side: 17rem; --gutter: 36px;
+  max-width: 1240px; margin: 0 auto; padding: 32px 28px 96px; }
+.tracks { display: grid; grid-template-columns: minmax(0, 1fr) var(--side); column-gap: var(--gutter); }
+main > :not(.tracks) { max-width: calc(100% - var(--side) - var(--gutter)); }
+
+/* The top bar: the verdict and the sentence that accounts for it, read as one
+   statement, and beside them what a reader checks before trusting it -- which
+   range was reviewed -- and the copies that act on it. */
+.masthead { padding-bottom: 22px; border-bottom: 1px solid var(--line); }
+.masthead-main { display: flex; align-items: flex-start; gap: 22px; }
+.masthead-text { min-width: 0; }
+
+/* The badge, full size, here only. The filter bar's chip stands in for it once
+   it has scrolled away and never beside it: a masthead copy and a sidebar copy
+   about 200px apart on one line read as the same word printed twice. Filled
+   when it blocks, outlined when it is clear: the one solid block of colour on
+   the page is the one fact that should stop a merge. Its own red, not
+   `--block`: the dark theme lightens that one so red text stays legible, and
+   as a fill under white the lighter red glared. */
+.verdict { display: flex; align-items: center; gap: 10px; flex-shrink: 0; border-radius: 4px;
+  padding: 12px 18px 11px; font: 700 28px/1.1 var(--disp); letter-spacing: .01em; }
 .verdict .icon { flex-shrink: 0; }
 .verdict-blocked { background: var(--block-fill); color: #ffffff; border: 1.5px solid var(--block-fill); }
 .verdict-clear { background: var(--panel); color: var(--ink); border: 1.5px solid var(--ink); }
-/* .sentence keeps its 8px top margin now that it leads the masthead. It is what
-   lands the sentence level with the sidebar badge, so the two read as one unit
-   and the masthead loses no signal. */
-.masthead { margin-bottom: 34px; }
-.sentence { font-size: 21px; line-height: 1.45; margin: 8px 0 6px; }
-.scope-line { color: var(--muted); margin: 0; font-size: 14px; }
+/* The top margin lands the sentence's first line level with the badge's word,
+   so the two read as one statement. */
+.sentence { font-size: 21px; line-height: 1.45; margin: 9px 0 0; }
 
-/* No margin: the gap under the filters is the head's padding now, see above. */
-.filters { margin-bottom: 0; }
-.filter-title { margin: 14px 0 6px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
-.pill { display: inline-block; padding: 3px 11px; margin: 0 4px 4px 0; border: 1px solid var(--line);
-  border-radius: 999px; cursor: pointer; font: 13px/1.5 var(--disp); background: var(--panel); }
+.masthead-side { display: flex; flex-direction: column; gap: 12px; padding-top: 4px; }
+.range { margin: 0; font: 12.5px/1.5 var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.range b { color: var(--ink); font-weight: 600; }
+.range-repo { font-family: var(--disp); font-size: 13.5px; color: var(--ink-2); }
+
+/* The contents line: each disposition with its heading's own counts, then
+   where every section after the findings starts. Separated by space rather
+   than by a printed mark, because the counts already use the middle dot. The
+   masthead's width, not the reading column's: it is the page's furniture, as
+   the rule above it is. */
+.contents ul { display: flex; flex-wrap: wrap; gap: 4px 24px; list-style: none; margin: 14px 0 0;
+  padding: 0; font: 13.5px/1.5 var(--disp); color: var(--muted); }
+.contents a { color: var(--ink-2); text-decoration: none; }
+.contents a:hover { color: var(--ink); text-decoration: underline; }
+
+/* The filters, one thin strip that stays at the top of the window, so they are
+   in reach from any card. Opaque, because the report scrolls under it; ruled
+   below, because a strip with no edge reads as text lying over the cards. Not
+   above: unstuck, the masthead's rule already opens the block the contents line
+   and the strip make, and a second rule boxed the contents line in. */
+.filterbar { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 16px;
+  min-height: 46px; margin-top: 8px; padding: 7px 0; background: var(--bg);
+  border-bottom: 1px solid var(--line); font-family: var(--disp); }
+/* Whatever the browser scrolls into view -- an anchor's target, a focused button
+   -- lands 24px clear of the strip, on the root scroller where one rule covers
+   every case; `:target` alone left keyboard focus under it. The strip's height
+   is the script's measurement. It was one fixed allowance, room for two rows,
+   which is the most Liberation Sans wraps it to; a wider face -- letter-spacing
+   stood in for Century Gothic, Futura's stand-in on Windows -- wraps it to
+   three at 901 to 960px with the severity note and the dismissed link showing,
+   and a jump landed 3px below it rather than 24. An allowance for three would
+   land every jump 50px below a strip one row tall. Without the script, room for
+   two rows. `has-bar` is the renderer's, which knows whether there is a strip:
+   asked through `:has()`, a browser without it put every jump under the strip. */
+html { scroll-padding-top: 24px; }
+html.has-bar { scroll-padding-top: calc(var(--bar-h, 72px) + 24px); }
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 28px; }
+.filter-group { display: flex; align-items: center; gap: 4px; }
+.filter-title { margin-right: 6px; font-size: 12.5px; color: var(--muted); }
+.pill { display: inline-block; padding: 2px 10px; border: 1px solid var(--line);
+  border-radius: 999px; cursor: pointer; font: 12.5px/1.5 var(--disp); background: var(--panel); }
+/* The verdict, small, at the end of the bar: see render_filter_bar. Its space
+   is kept while it is hidden, so its arrival moves nothing: taken out of the
+   flow, it squeezed the pills onto a second row when it came back, and the
+   strip and everything under it jumped just as the reader scrolled past the
+   masthead. The blocked and clear classes give it the masthead badge's fill or
+   outline. */
+.bar-verdict { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: auto;
+  padding: 4px 10px; border-radius: 4px; font: 700 13px/1.2 var(--disp); text-decoration: none; }
+.bar-verdict .icon { width: 13px; height: 13px; }
+.bar-verdict[hidden] { visibility: hidden; }
 #f-prod-all:checked ~ .layout .pill-prod-all,
 #f-prod-security:checked ~ .layout .pill-prod-security,
 #f-prod-quality:checked ~ .layout .pill-prod-quality,
@@ -1789,7 +1971,7 @@ main { min-width: 0; }
 /* Said only while it is true, because the reader has to be able to trust that a
    filtered page is filtered: a quality finding on screen under `High` is not the
    filter leaking, it is a finding the rubric never rated. */
-.sev-note { display: none; margin: 6px 0 0; font-size: 11.5px; line-height: 1.4; color: var(--muted); }
+.sev-note { display: none; font-size: 12px; line-height: 1.4; color: var(--muted); }
 #f-sev-high:checked ~ .layout .sev-note,
 #f-sev-medium:checked ~ .layout .sev-note,
 #f-sev-low:checked ~ .layout .sev-note { display: block; }
@@ -1800,30 +1982,13 @@ main { min-width: 0; }
    hidden until the first mark, and the script writes only the count -- both
    captions are labels for the two radios that were already here, so the state is
    still a radio and the swap is still CSS. */
-.dism-link { margin: 12px 0 0; font-size: 12.5px; }
+.dism-link { font-size: 12.5px; }
 .dism-link label { color: var(--muted); cursor: pointer;
   text-decoration: underline; text-decoration-style: dotted; }
 .dism-link label:hover { color: var(--ink); }
 .dism-show { display: none; }
 #f-dism-hide:checked ~ .layout .dism-hide { display: none; }
 #f-dism-hide:checked ~ .layout .dism-show { display: inline; }
-
-nav .nav-group { margin: 16px 0 6px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
-/* The first group's top margin used to collapse into the filters' bottom margin
-   and disappear. Padding does not collapse, so without this the gap would be
-   22 + 16 and the unscrolled page would no longer match what it was. The rule
-   reaches one level further in than it used to: the `Scope` link was the nav's
-   own first child, and with it gone the first thing in there is a group block. */
-nav > div:first-child .nav-group { margin-top: 0; }
-nav .nav-group a { color: inherit; text-decoration: none; }
-nav ul { list-style: none; margin: 0; padding: 0; }
-nav li { margin: 0 0 3px; line-height: 1.35; }
-nav a { color: var(--ink); text-decoration: none; }
-nav a:hover { text-decoration: underline; }
-.nav-id { font-family: var(--mono); font-size: 12px; color: var(--muted); }
-[data-disposition="blocking"] .nav-id { color: var(--block); font-weight: 700; }
-.nav-prose { margin-top: 18px; }
-.nav-prose a { color: var(--muted); }
 
 /* Counts stay honest under the producer filter: the renderer emits all three
    and CSS shows the one that matches. */
@@ -1840,8 +2005,8 @@ nav a:hover { text-decoration: underline; }
 #f-block-only:checked ~ .layout [data-disposition="follow-up"],
 #f-block-only:checked ~ .layout [data-disposition="note"] { display: none; }
 
-/* Severity, on the bare attribute so a card and its nav entry obey one rule, and
-   so anything without a rating is never matched: a quality finding has a category
+/* Severity, on the bare attribute, so anything without a rating is never
+   matched: a quality finding has a category
    instead, and a security note has neither, and both belong on screen at every
    setting.
    `High` takes `critical` with it. The rubric can write either, the pills the
@@ -1853,8 +2018,8 @@ nav a:hover { text-decoration: underline; }
 #f-sev-low:checked ~ .layout [data-severity]:not([data-severity="low"]),
 /* Set by the script, which is the only party that knows what the filter left:
    `sev-empty` means this disposition has nothing on screen at the current
-   setting, so it retires its heading and its nav block like `all-dismissed`
-   does. Not scoped to a radio -- it is recomputed every time the filter moves,
+   setting, so it retires its heading and its contents entry like
+   `all-dismissed` does. Not scoped to a radio -- it is recomputed every time the filter moves,
    so it is only ever set while it is true. */
 .group.sev-empty,
 #f-prod-security:checked ~ .layout .group.sev-empty-security,
@@ -1868,31 +2033,34 @@ h2 { font: 600 19px/1.3 var(--disp); color: var(--ink);
 h2 .counts { color: var(--muted); font-weight: 400; }
 .counts { font-variant-numeric: tabular-nums; }
 
-/* The run's facts, under the nav rather than above the findings. Two columns for
-   the short ones; `.kv-wide` spans both for the values that must not be cut in
-   half -- and a full 40-character SHA must not break mid-hash either, because
-   half an object id on each of two lines is not a thing anyone can copy. */
-.run { margin-top: 26px; padding-top: 16px; border-top: 1px solid var(--line); }
-.run-title { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
-.run-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin: 0; }
+/* The run's facts, after everything the reader came for. Four cells to a row
+   for the short ones; `.kv-wide` takes the whole row for the values that should
+   not be cut in half -- an object id above all, which is read by comparing it
+   with another. Half a row was tried: a 40-character id at this size is wider
+   than half the reading column below about 925px, and a 64-character one at
+   every width, so it ran over the next cell's label. A whole row holds a
+   40-character id in a window down to about 325px wide, and a 64-character one
+   down to about 490px. Narrower than that the id breaks, through `.chip`'s
+   `overflow-wrap: anywhere`, which breaks only a word that cannot fit a line of
+   its own: kept whole there, it pushed the page into a horizontal scrollbar,
+   which costs every line on it. */
+.run-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px 24px; margin: 0;
+  font-family: var(--disp); }
 .kv-wide { grid-column: 1 / -1; }
-.kv dt { font-size: 12px; color: var(--muted); margin: 0; }
-.kv dd { margin: 1px 0 0; font-size: 13px; overflow-wrap: anywhere; }
-.run-facts .chip { font-size: 11px; line-height: 1.55; overflow-wrap: normal; word-break: keep-all; }
-/* Except a revision as typed: a branch name can outrun the column, and with no
-   hyphen to break at it would push the sidebar into a horizontal scrollbar. Unlike
-   an object id it reads fine across two lines. */
-.run-facts .chip-ref { overflow-wrap: anywhere; }
-.run-note { margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.kv dt { font-size: 12.5px; color: var(--muted); margin: 0; }
+.kv dd { margin: 2px 0 0; font-size: 14px; overflow-wrap: anywhere; }
+.run-facts .chip { font-size: 11.5px; line-height: 1.55; }
+.run-note { margin: 16px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .muted { color: var(--muted); font-size: 14px; }
 .nowrap { white-space: nowrap; }
 .finding-head h3 code { font-size: .86em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px;
   font-family: var(--mono); font-weight: 600; }
 
 /* The disclaimer is on every page and the warnings are not, so it stays quiet --
-   muted like the scope line, never tinted. Tint it and the run-specific warnings
-   below it stop standing out, which is the one job they have. */
-.disclaimer { color: var(--muted); margin: 10px 0 0; font-size: 13px; line-height: 1.5; }
+   muted and set small under the sentence it qualifies, never tinted. Tint it
+   and the run-specific warnings below it stop standing out, which is the one
+   job they have. */
+.disclaimer { color: var(--muted); margin: 6px 0 0; font-size: 13.5px; line-height: 1.5; font-style: italic; }
 
 /* A warning is the one thing on the page that reduces what the findings are
    worth, so it sits in the masthead, tinted, above everything it qualifies. */
@@ -1957,10 +2125,11 @@ h2 .counts { color: var(--muted); font-weight: 400; }
 .copy-btn .icon-done, .copy-btn[data-busy="ok"] .icon-idle { display: none; }
 .copy-btn[data-busy="ok"] .icon-done { display: flex; }
 
-/* The copies of more than one finding, under the verdict they answer to. Stacked,
-   because the sidebar is narrower than the two side by side. `[hidden]` is spelled
-   out because `.copy-btn` sets a display, which the attribute's own rule loses to. */
-.bulk { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: -6px 0 6px; }
+/* The copies of more than one finding, beside the verdict they answer to.
+   Stacked, because the side column is narrower than the two side by side, and
+   it keeps their left edge on the key's below. `[hidden]` is spelled out because
+   `.copy-btn` sets a display, which the attribute's own rule loses to. */
+.bulk { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .bulk .copy-btn[hidden] { display: none; }
 .bulk-count { margin-left: 2px; padding: 0 7px; border-radius: 999px; font-size: 11.5px; font-weight: 600;
   background: var(--block-bg); color: var(--block); }
@@ -1973,12 +2142,8 @@ h2 .counts { color: var(--muted); font-weight: 400; }
   padding: 4px 12px; cursor: pointer; }
 .dismiss:hover { color: var(--ink); border-color: var(--ink); }
 
-/* Dismissal is a class, set by the script on the card and on its sidebar entry.
-   The mark reaches the nav because a struck card under an unstruck nav entry
-   leaves the sidebar advertising findings the reader has dealt with -- and
-   reaching a second subtree is exactly what the CSS-only design had to buy with
-   a checkbox per finding at the root of the document. Nothing here is generated
-   per finding. */
+/* Dismissal is a class, set by the script on the card; the map's parts get one
+   of their own, see linemap. Nothing here is generated per finding. */
 /* Everything in the meta line except the id: a folded card is its id and its
    struck title, and the labels that qualified the finding have nothing left to
    qualify. */
@@ -1995,14 +2160,11 @@ h2 .counts { color: var(--muted); font-weight: 400; }
    dismissed finding is not one the reader is still being pointed at. Later in
    the sheet than the three disposition colours, which is what makes it win. */
 .finding.dismissed { border-left-color: var(--line); }
-/* The nav entry is struck on the <li> rather than the <a>, so the more specific
-   `nav a:hover` adds its underline instead of replacing the line through. */
-.finding.dismissed .finding-head h3,
-.nav-finding.dismissed { text-decoration: line-through; opacity: .45; }
+.finding.dismissed .finding-head h3 { text-decoration: line-through; opacity: .45; }
 /* `Hide dismissed` stays a radio and a sibling selector, like the two filters
    above it: the script owns the state, CSS filters on it. `.all-dismissed` is
-   set on the <section> and on the nav <div> together, so a disposition nobody
-   has anything left to read retires its heading and its sidebar block at once.
+   set on the <section> and on its contents entry together, so a disposition
+   nobody has anything left to read retires its heading and its entry at once.
    The two producer variants are what makes that true under the `Pass` filter as
    well: with `Security` selected, a disposition whose security findings are all
    dismissed is empty on screen whatever its quality findings are doing. */
@@ -2089,30 +2251,33 @@ a { color: var(--accent); }
 .prose details[open] summary { border-bottom: 1px solid var(--line); margin-bottom: 8px; }
 .prose details > *:last-child { margin-bottom: 16px; }
 
-:target { scroll-margin-top: 24px; }
 .finding:target { border-color: var(--accent); }
-
-@media (max-width: 900px) {
-  /* One column, and the report is not last in it. `display: contents` dissolves
-     the sidebar's box so its three parts become items of the layout in their own
-     right and can be ordered around `main`: the verdict and the filters stay
-     above the report, and the nav and the run's facts -- a table of contents and
-     a page of reference material, neither of which the reader came for -- move
-     below it. Two columns are what made those readable beside the report at all,
-     and there is no second column here to put them in.
-
-     Ordering them needs no change to the markup, which is the point: the DOM
-     order is the desktop order, where the sidebar is one sticky column and none
-     of this applies. */
-  .layout { display: flex; flex-direction: column; align-items: stretch;
-    gap: 0; padding: 20px 16px 64px; }
-  .sidebar { display: contents; }
-  main { order: 1; }
-  nav { order: 2; margin-top: 28px; }
-  .run { order: 3; }
-  /* Nothing scrolls out of a sidebar that no longer scrolls, and a head left
-     sticky here would pin itself over the report instead. Its padding is the gap
-     above the report now, which is what the sidebar's own margin used to be. */
-  .sidebar-head { position: static; }
-}
 """
+
+# The page's rules for a window too narrow for the side track, which go inside
+# NARROW_QUERY with the map's.
+CSS_NARROW = """
+  /* No side track: what sat in it follows what it sat beside, so the copies
+     come after the sentence and the key after the map. The DOM order is
+     already the reading order, which is why nothing here reorders. */
+  .layout { --side: 0px; --gutter: 0px; padding: 20px 16px 64px; }
+  .tracks { grid-template-columns: minmax(0, 1fr); }
+  .masthead { row-gap: 18px; }
+  /* Three groups of pills wrap to several rows here, and a strip that tall
+     pinned over a phone's screen would cost more reading than it saves. So
+     it scrolls away like everything else, and its verdict, which only
+     answers to a strip that stays, never shows. */
+  .filterbar { position: static; }
+  .filterbar .bar-verdict { display: none; }
+  html.has-bar { scroll-padding-top: 24px; }
+  .masthead-main { flex-direction: column; gap: 14px; }
+  .sentence { margin-top: 0; }
+  .run-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+"""
+
+# The one width below which the page has no side track. The page and the map
+# each have rules for it, and they share this query rather than each writing
+# the width: a page that lost its side track at one width and a map that did at
+# another would leave the key in a track that was no longer there. Last in the
+# sheet, so every rule inside it outranks the rule it overrides.
+NARROW_QUERY = "@media (max-width: 900px) {{{}}}\n"

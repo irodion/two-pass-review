@@ -19,7 +19,12 @@ procedure; `scripts/` holds the pipeline.
 The pipeline is four steps, and each one refuses to paper over the step before it. **Scope** pins one
 diff to disk, so both passes read an identical input and corroboration has something to compare across,
 and hands them a tree whose files match it — the reviewed head checked out beside your work when your
-checkout holds something else. The **merge** copies both passes' findings into one artifact by script,
+checkout holds something else. It also lints the files the change touched, at its base and at its head,
+with whichever of ruff, Biome and shellcheck is already on your `PATH` — this skill's own rules on
+copies outside your repository, never your project's configuration or runner, and never a version
+manager's shim — and records what the change introduced as leads in the run's `scope.json` and
+`hints.md`. Leads are not findings, and nothing in the report reads them yet; `scope.py --no-hints`
+skips the step. The **merge** copies both passes' findings into one artifact by script,
 so nothing a pass wrote is retyped, and the orchestrator supplies only the judgment: which findings
 corroborate each other, and, optionally, the self-check questions for the reader. The **validator** stands between the passes and the page: it checks the rules
 that would let the artifact lie — chiefly that the verdict agrees with the list beneath it — and nothing

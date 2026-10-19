@@ -136,7 +136,10 @@ anything about reviewing code:
   local patch that retargets a tracked link, rebuilt once the working tree has moved on, each rebuilt
   tree released again, `try_rule.py` over a one-file tree with ruff installed for it, passing over a
   `ruff` committed in that tree, refusing a shell script first on `PATH` as a version manager's shim
-  and starting a python script that hands its arguments to the real ruff,
+  and starting a python script that hands its arguments to the real ruff, `scope.py`'s hint step over a
+  two-commit repository whose leads must be exactly the B034 and the B006 the change introduced — never
+  the standing B006 on the line it edits, nor an F811 whose line number it moves — then with
+  `--no-hints`, recorded disabled, and with no linter on `PATH`, recorded skipped,
   `scope.py --since` and `--against` over a repository built with fixed
   commit dates — a midnight commit, a side branch merged since, a local `main` behind origin's — whose
   right bases are facts of its history, `collect_docs.py` over the first range's diff, `merge.py` and

@@ -258,6 +258,12 @@ def file_headers(lines: Iterable[str]) -> list[Header]:
             old = new = unrenamed_path(line[len("diff --git ") :])
         elif not started:
             continue
+        elif line.startswith("@@"):
+            # A hunk header ends the block's header and starts a hunk, whether
+            # it is the block's first or a later one. Never a body line: those
+            # begin `+`, `-`, a space or `\`.
+            in_header = False
+            number = hunk_start(line)
         elif not in_header:
             # The body, where a line's first character is all it says about
             # itself: `+` added, `-` removed, a space unchanged, `@@` a hunk and
@@ -271,12 +277,7 @@ def file_headers(lines: Iterable[str]) -> list[Header]:
                 removed += 1
             elif line.startswith(" "):
                 number += 1
-            elif line.startswith("@@"):
-                number = hunk_start(line)
             continue
-        elif line.startswith("@@"):
-            in_header = False
-            number = hunk_start(line)
         elif line.startswith("--- "):
             old = side(line[len("--- ") :], "a/")
         elif line.startswith("+++ "):

@@ -27,8 +27,9 @@ import subprocess
 # this put the directory on the path.
 import validate
 
-# What a file name could use to break the Tested line or be read as markdown:
-# the escape character itself, code spans, links, and raw HTML.
+# What a file name could use to break the line of markdown it is printed on, or
+# be read as markdown there: the escape character itself, code spans, links,
+# and raw HTML.
 MARKUP = "\\`[]<>"
 
 # How a compiled program begins: ELF, or Mach-O, thin in either byte order or
@@ -132,7 +133,8 @@ def shim(name: str, found: str, directories: list[str]) -> str | None:
 
 
 def shown(path: str) -> str:
-    """A file name as the Tested line prints it: anything that is not plain text escaped."""
+    """A file name as one line of markdown prints it: anything that is not plain text
+    escaped."""
     return "".join(
         f"\\{c}" if c in MARKUP else c if c.isprintable() else ascii(c)[1:-1] for c in path
     )

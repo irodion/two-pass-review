@@ -12,15 +12,18 @@ its own that a timeout or an interrupt takes down whole. Written twice, a fix
 to one would not reach the other.
 
 What the tool is given -- its configuration, its flags, the files it reads --
-stays each caller's business, because that is where the two differ.
+stays each caller's business, because that is where the two differ. What ruff
+reports back is read here, once, for the reason above.
 """
 
 import contextlib
+import json
 import os
 import re
 import shutil
 import signal
 import subprocess
+from collections.abc import Callable
 
 # The whole validator, for within, as try_rule.py imports it for confine. Bare,
 # with no sys.path mutation, for page.py's reason: the entrypoint that imported
@@ -43,6 +46,13 @@ COMPILED = (
     b"\xca\xfe\xba\xbe",
     b"\xca\xfe\xba\xbf",
 )
+
+# A ruff rule code. Its JSON also reports syntax errors, under a code that is
+# not one: "invalid-syntax", or null in older versions.
+RULE_CODE = re.compile(r"[A-Z]+[0-9]+")
+
+# What ruff_report calls a syntax error, whatever the version printed.
+SYNTAX = "invalid-syntax"
 
 # A python interpreter's name once its links are followed, as the #! line of
 # a script pip or uv installs names it: python3.13, or python3.13t.
@@ -141,7 +151,7 @@ def shown(path: str) -> str:
 
 
 def run(
-    command: list[str], directory: str, env: dict[str, str], timeout: int
+    command: list[str], directory: str, env: dict[str, str], timeout: float
 ) -> tuple[int | None, str, str]:
     """(exit status or None when it did not finish, stdout, stderr) of one run in `directory`.
 
@@ -177,7 +187,7 @@ def run(
 
 
 def find(
-    name: str, directories: list[str], *, allow_shim: bool = False
+    name: str, directories: list[str], *, launcher: Callable[[str], str | None] | None = None
 ) -> tuple[str | None, str, str]:
     """(the tool's own path or None, the PATH to start it with, why there is no tool).
 
@@ -186,20 +196,51 @@ def find(
     back whether or not the tool was found, because it is also the PATH every
     program the tool starts by name is found on.
 
-    `allow_shim` is for a caller that runs the tool in a directory of its own,
-    holding nothing the reviewed branch chose but the source files it copied
-    there. A shim picks the program it starts from a file in that directory or
-    above it -- .tool-versions, .python-version, a package.json -- and there is
-    none of the branch's to pick from. It is not for try_rule.py, which runs the
-    tool in the reviewed code itself.
+    `launcher` is for a tool whose installer puts a launcher on PATH in its
+    place, as npm does for Biome: given what PATH holds, it names the program
+    that launcher would start, found without running anything, or None where
+    PATH holds no such launcher. What it names is held to every test here. A
+    shim is never started, wherever it runs: the directory a caller makes for
+    the tool sits under a temporary directory any user of the machine can
+    write a .tool-versions into, and asdf and mise read one from every
+    directory above.
     """
     path = safe_path(directories)
     tool = shutil.which(name, path=path)
     if tool is None:
         return None, path, f"{name} is not on PATH."
+    if launcher is not None:
+        tool = launcher(tool) or tool
     if any(inside(directory, tool) for directory in directories):
         return None, path, f"the only {name} on PATH is inside the reviewed code or the checkout."
-    reason = None if allow_shim else shim(name, tool, directories)
+    reason = shim(name, tool, directories)
     if reason:
         return None, path, reason
     return os.path.realpath(tool), path, ""
+
+
+def ruff_report(out: str, directory: str) -> list[tuple[str, int, str, str]] | None:
+    """ruff's JSON report as (path under `directory`, line, code, message), or None where `out`
+    is not one.
+
+    An entry whose code is no rule's is a syntax error, and comes back as SYNTAX
+    whatever the version printed. try_rule.py counts rules alone; the hints step
+    keeps a syntax error the change introduced, since ruff reports nothing else
+    in a file it cannot parse.
+    """
+    root = os.path.realpath(directory)
+    entries: list[tuple[str, int, str, str]] = []
+    try:
+        for entry in json.loads(out):
+            code = entry.get("code")
+            entries.append(
+                (
+                    os.path.relpath(os.path.realpath(entry["filename"]), root),
+                    int(entry["location"]["row"]),
+                    code if isinstance(code, str) and RULE_CODE.fullmatch(code) else SYNTAX,
+                    str(entry["message"]),
+                )
+            )
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return None
+    return entries

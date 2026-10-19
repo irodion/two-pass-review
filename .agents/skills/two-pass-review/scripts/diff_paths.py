@@ -22,8 +22,18 @@ from typing import NamedTuple
 # escapes is octal, and every byte it does not escape stands for itself.
 UNESCAPES = {"a": 7, "b": 8, "f": 12, "n": 10, "r": 13, "t": 9, "v": 11, "\\": 92, '"': 34}
 
-# Where a hunk starts on the new side: the c of `@@ -a,b +c,d @@`.
-HUNK = re.compile(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+# A hunk header, `@@ -a,b +c,d @@`, either count left out where it is 1.
+HUNK = re.compile(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
+
+class Change(NamedTuple):
+    """One run of `-` and `+` lines with no unchanged line between them: the
+    `removed` lines from line `old` on became the `added` lines from line `new`."""
+
+    old: int
+    removed: int
+    new: int
+    added: int
 
 
 class Header(NamedTuple):
@@ -40,9 +50,9 @@ class Header(NamedTuple):
     block and lets each caller do its own arithmetic.
 
     `added` and `removed` count the block's body lines, `+` and `-`, and
-    `changed` holds the new-side line number of each `+` line. They come from
-    this walk and no second one because only this walk knows where a block's
-    header ends -- see file_headers.
+    `changes` holds where they stand, for a caller that asks for it. They come
+    from this walk and no second one because only this walk knows where a
+    block's header ends -- see file_headers.
     """
 
     old: str | None
@@ -50,7 +60,7 @@ class Header(NamedTuple):
     deleted: bool
     added: int = 0
     removed: int = 0
-    changed: tuple[int, ...] = ()
+    changes: tuple[Change, ...] = ()
 
     @property
     def path(self) -> str | None:
@@ -215,7 +225,7 @@ def unrenamed_path(header: str) -> str | None:
     return path if header == f"a/{path} b/{path}" else None
 
 
-def file_headers(lines: Iterable[str]) -> list[Header]:
+def file_headers(lines: Iterable[str], *, changes: bool = False) -> list[Header]:
     """One Header per `diff --git` block, in the order the diff names them.
 
     Walks the header/body state a unified diff already carries, because `+++ `
@@ -231,6 +241,11 @@ def file_headers(lines: Iterable[str]) -> list[Header]:
     two mode lines; and an empty file added or deleted, which has no content and
     so no sides at all. The `diff --git` line names the file in all of them, so
     it seeds both sides and the rest of the block overrides or cancels the seed.
+
+    With `changes`, each Header also holds its runs of changed lines, for the
+    one caller that maps a line of the base to the head. collect_docs.py does
+    not ask: it streams a diff it never holds whole, and runs kept for every
+    block would be memory that grows with it.
     """
     headers: list[Header] = []
     in_header = False
@@ -239,20 +254,25 @@ def file_headers(lines: Iterable[str]) -> list[Header]:
     deleted = False
     started = False
     added = removed = 0
-    changed: list[int] = []
-    # The new-side number of the next `+` or context line in the current hunk.
-    number = 0
+    runs: list[Change] = []
+    # The old-side and new-side numbers of the next body line, and the run of
+    # changed lines it would extend, as Change's four fields.
+    at_old = at_new = 0
+    run: list[int] | None = None
 
     for line in lines:
         line = line.rstrip("\n")
         if line.startswith("diff --git "):
             if started:
-                headers.append(Header(old, new, deleted, added, removed, tuple(changed)))
+                if run:
+                    runs.append(Change(*run))
+                headers.append(Header(old, new, deleted, added, removed, tuple(runs)))
             started = True
             in_header = True
             deleted = False
             added = removed = 0
-            changed = []
+            runs = []
+            run = None
             # The same path on both sides until the block says otherwise, which
             # is the whole of what a mode change or an empty file ever says.
             old = new = unrenamed_path(line[len("diff --git ") :])
@@ -263,7 +283,10 @@ def file_headers(lines: Iterable[str]) -> list[Header]:
             # it is the block's first or a later one. Never a body line: those
             # begin `+`, `-`, a space or `\`.
             in_header = False
-            number = hunk_start(line)
+            if run:
+                runs.append(Change(*run))
+                run = None
+            at_old, at_new = hunk_starts(line)
         elif not in_header:
             # The body, where a line's first character is all it says about
             # itself: `+` added, `-` removed, a space unchanged, `@@` a hunk and
@@ -271,12 +294,22 @@ def file_headers(lines: Iterable[str]) -> list[Header]:
             # `--- comment` here, which is why the count lives in this walk.
             if line.startswith("+"):
                 added += 1
-                changed.append(number)
-                number += 1
+                if changes:
+                    run = run or [at_old, 0, at_new, 0]
+                    run[3] += 1
+                at_new += 1
             elif line.startswith("-"):
                 removed += 1
+                if changes:
+                    run = run or [at_old, 0, at_new, 0]
+                    run[1] += 1
+                at_old += 1
             elif line.startswith(" "):
-                number += 1
+                if run:
+                    runs.append(Change(*run))
+                    run = None
+                at_old += 1
+                at_new += 1
             continue
         elif line.startswith("--- "):
             old = side(line[len("--- ") :], "a/")
@@ -310,11 +343,18 @@ def file_headers(lines: Iterable[str]) -> list[Header]:
             old = None
 
     if started:
-        headers.append(Header(old, new, deleted, added, removed, tuple(changed)))
+        if run:
+            runs.append(Change(*run))
+        headers.append(Header(old, new, deleted, added, removed, tuple(runs)))
     return headers
 
 
-def hunk_start(line: str) -> int:
-    """The new-side line a hunk header says its first line is; 0 when it says none."""
+def hunk_starts(line: str) -> tuple[int, int]:
+    """The old-side and new-side numbers of a hunk's first line; (0, 0) where the header
+    says none. A side with no lines names the line before the hunk, as `-5,0` does under
+    diff.context=0, so its first line is the one after."""
     match = HUNK.match(line)
-    return int(match.group(1)) if match else 0
+    if not match:
+        return 0, 0
+    old, removed, new, added = match.groups()
+    return int(old) + (removed == "0"), int(new) + (added == "0")

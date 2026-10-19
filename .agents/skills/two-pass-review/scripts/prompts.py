@@ -61,7 +61,13 @@ FENCE = re.compile(r"^(`{3,})(.*)$")
 
 
 def run_values(
-    *, repo_root: str, checkout: str, run_dir: str, context_diff: str, file_lines: str
+    *,
+    repo_root: str,
+    checkout: str,
+    run_dir: str,
+    context_diff: str,
+    context_diff_lines: int,
+    file_lines: str,
 ) -> dict[str, str]:
     """What the four run prompts may name. The one statement of their placeholders."""
     return {
@@ -69,6 +75,13 @@ def run_values(
         "checkout": checkout,
         "run_dir": run_dir,
         "context_diff": context_diff,
+        # Where the diff ends, because nothing else tells a subagent. A
+        # file-reading tool hands back a long file in parts, and the part it
+        # stops at need not say it is not the last: probed on 2026-10-19, one
+        # falsification check paged to line 2,445 of 2,794 and stopped there,
+        # and three others searched a 3,415-line diff past its first 1,071
+        # lines rather than read it.
+        "context_diff_lines": str(context_diff_lines),
         "file_lines": file_lines,
         "skill-dir": SKILL_DIR,
     }
@@ -90,7 +103,9 @@ def rules_values(*, checkout: str, run_dir: str, tree: str) -> dict[str, str]:
 # placeholder exists in one place: load() refuses a block naming anything else,
 # before scope.py has made a run directory for a fill to fail inside.
 RUN_KEYS = frozenset(
-    run_values(repo_root="", checkout="", run_dir="", context_diff="", file_lines="")
+    run_values(
+        repo_root="", checkout="", run_dir="", context_diff="", context_diff_lines=0, file_lines=""
+    )
 )
 RULES_KEYS = frozenset(rules_values(checkout="", run_dir="", tree=""))
 

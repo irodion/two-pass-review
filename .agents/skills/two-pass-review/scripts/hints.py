@@ -139,15 +139,20 @@ def left(deadline: float) -> float:
     return deadline - time.monotonic()
 
 
-def listing(checkout: str, revision: str, paths: list[str]) -> dict[str, tuple[str, int]]:
-    """path -> (blob, size) for each of `paths` that `revision` holds as a regular file.
+def listing(
+    checkout: str, revision: str, paths: list[str]
+) -> tuple[dict[str, tuple[str, int]], str | None]:
+    """(path -> (blob, size) for each of `paths` that `revision` holds as a regular file,
+    problem): nothing and why, where git could not list them.
 
     The mode is asked, because a link and a submodule are a blob and a commit
-    git would otherwise hand over as if they were source.
+    git would otherwise hand over as if they were source. A listing that failed
+    is never read as an empty one: at the base, that would make every file in
+    it new and every diagnostic it already had a lead.
     """
     found: dict[str, tuple[str, int]] = {}
     for start in range(0, len(paths), BATCH):
-        code, out, _ = git(
+        code, out, error = git(
             checkout,
             "--literal-pathspecs",
             "ls-tree",
@@ -158,7 +163,7 @@ def listing(checkout: str, revision: str, paths: list[str]) -> dict[str, tuple[s
             *paths[start : start + BATCH],
         )
         if code != 0:
-            continue
+            return {}, failed("ls-tree", code, error)
         for entry in out.split(b"\0"):
             meta, _, name = entry.partition(b"\t")
             fields = meta.split()
@@ -169,19 +174,22 @@ def listing(checkout: str, revision: str, paths: list[str]) -> dict[str, tuple[s
                 and fields[3].isdigit()
             ):
                 found[name.decode("utf-8", "replace")] = (fields[2].decode("ascii"), int(fields[3]))
-    return found
+    return found, None
 
 
-def contents(checkout: str, blobs: list[str]) -> dict[str, bytes]:
-    """blob -> its bytes, read in one cat-file --batch."""
+def contents(checkout: str, blobs: list[str]) -> tuple[dict[str, bytes], str | None]:
+    """(blob -> its bytes, read in one cat-file --batch, problem): nothing and why, where git
+    could not read them."""
     if not blobs:
-        return {}
-    code, out, _ = git(
+        return {}, None
+    code, out, error = git(
         checkout, "cat-file", "--batch", input="".join(f"{b}\n" for b in blobs).encode()
     )
+    if code != 0:
+        return {}, failed("cat-file", code, error)
     found: dict[str, bytes] = {}
     at = 0
-    while code == 0 and at < len(out):
+    while at < len(out):
         end = out.find(b"\n", at)
         if end < 0:
             break
@@ -193,11 +201,20 @@ def contents(checkout: str, blobs: list[str]) -> dict[str, bytes]:
         size = int(fields[2])
         found[fields[0].decode("ascii")] = out[at : at + size]
         at += size + 1
-    return found
+    return found, None
 
 
-def read_changed(checkout: str, base: str, head: str, headers: list[Header]) -> Sides:
-    """Each changed file a linter will read, as the base held it and as the head holds it.
+def failed(command: str, code: int, error: str) -> str:
+    """A git read that failed, as a linter's record says why it did not run."""
+    said = error.splitlines()[0] if error else f"exit status {code}"
+    return f"the changed files could not be read from git: git {command} failed: {said}"
+
+
+def read_changed(
+    checkout: str, base: str, head: str, headers: list[Header]
+) -> tuple[Sides, str | None]:
+    """(each changed file a linter will read, as the base held it and as the head holds it,
+    problem): nothing and why, where git could not read them.
 
     Both ends are read from git's objects -- a local patch's head from the
     commit scope.py records its working tree as -- so neither has been through
@@ -211,15 +228,27 @@ def read_changed(checkout: str, base: str, head: str, headers: list[Header]) -> 
         name = relative(header.new or "")
         if name is not None:
             named[name] = header.old
-    listed = listing(checkout, head, list(named))
-    read = contents(checkout, sorted({blob for blob, size in listed.values() if size <= LARGEST}))
+    listed, problem = listing(checkout, head, list(named))
+    if problem:
+        return {}, problem
+    read, problem = contents(
+        checkout, sorted({blob for blob, size in listed.values() if size <= LARGEST})
+    )
+    if problem:
+        return {}, problem
     at_head = {
         name: read[blob] for name, (blob, _) in listed.items() if name in named and blob in read
     }
 
     olds = {name: old for name, old in named.items() if name in at_head and old is not None}
-    listed = listing(checkout, base, sorted(set(olds.values())))
-    read = contents(checkout, sorted({blob for blob, size in listed.values() if size <= LARGEST}))
+    listed, problem = listing(checkout, base, sorted(set(olds.values())))
+    if problem:
+        return {}, problem
+    read, problem = contents(
+        checkout, sorted({blob for blob, size in listed.values() if size <= LARGEST})
+    )
+    if problem:
+        return {}, problem
     sides: Sides = {}
     for name, data in at_head.items():
         entry = listed.get(olds[name]) if name in olds else None
@@ -228,7 +257,7 @@ def read_changed(checkout: str, base: str, head: str, headers: list[Header]) -> 
         # A base too large to read is no base to compare with: the file is left out.
         elif entry[0] in read:
             sides[name] = (read[entry[0]], data)
-    return sides
+    return sides, None
 
 
 def moved(line: int, changes: tuple[Change, ...]) -> int | None:
@@ -454,9 +483,12 @@ def collect(
                 else:
                     found[linter.name] = (tool, path)
             mine = [header for name in found for header in chosen[name]]
-            sides = read_changed(checkout, base, head, mine) if found else {}
+            sides, unread = read_changed(checkout, base, head, mine) if found else ({}, None)
             for linter in applicable:
                 if linter.name not in found:
+                    continue
+                if unread:
+                    done[linter.name] = (unrun(linter, unread), [])
                     continue
                 tool, path = found[linter.name]
                 named = {relative(h.new or ""): h.changes for h in chosen[linter.name]}

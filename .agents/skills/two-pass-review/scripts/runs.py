@@ -217,6 +217,7 @@ class Record(TypedDict, total=False):
     file_lines: str
     latest: str
     prompts: dict[str, str]
+    hints: dict[str, Any]
     scope: dict[str, Any]
 
 

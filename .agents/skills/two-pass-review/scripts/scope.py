@@ -27,6 +27,11 @@ after a rule derivation, which makes the tree again; see release in runs.py.
 Flags are internal surface, invoked by SKILL.md; natural language is what the
 user types.
 
+Once the diff is pinned it also lints the changed files at the base and at the
+head, with whichever of ruff, Biome and shellcheck is installed and this skill's
+own rules, and keeps what the change introduced, for the hint check; see
+hints.py. `--no-hints` skips that, and scope.json records which happened.
+
 Exit status: 0 resolved, 2 bad invocation, 3 needs confirmation, 4 unusable scope,
 5 the skill's own references/prompts.md cannot be filled.
 `--release` exits 0 when nothing of the run's tree is left, and 4 when git
@@ -44,6 +49,7 @@ from typing import TypedDict, cast
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import diff_paths  # sibling module, same directory
+import hints
 import prompts
 import validate
 from gitrun import git, git_text, toplevel
@@ -520,6 +526,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--head")
     parser.add_argument("--label")
     parser.add_argument("--confirm-large", action="store_true")
+    parser.add_argument("--no-hints", action="store_true")
     try:
         args = parser.parse_args(argv[1:])
     except SystemExit:
@@ -704,6 +711,13 @@ def main(argv: list[str]) -> int:
                 "reporting.\n".format(unread, patch["files"])
             )
 
+        # Linted here, once, rather than left to a pass that might: passes
+        # told the linters were installed used them in 2 runs of 20. Never
+        # fatal -- a linter that is missing or fails is recorded and skipped.
+        hinted = (
+            hints.disabled() if args.no_hints else hints.collect(root, tree, base, headers, run_dir)
+        )
+
         # Every prompt the run sends, filled with this run's paths and written
         # beside the files it names. What is handed over is one line pointing
         # at the file, so the orchestrator retypes no path and paraphrases no
@@ -828,6 +842,11 @@ def main(argv: list[str]) -> int:
                 # Each subagent's whole prompt, by name: security, quality,
                 # docs, falsification. Sent exactly as printed.
                 "prompts": handed,
+                # What the linters found new in the change, or why none ran:
+                # status, the number of leads, hints.md when there are any,
+                # and each linter's version, rules and files. Outside `scope`,
+                # as `now` is: it is no fact about the range.
+                "hints": dict(hinted),
                 "scope": scope,
             },
         )

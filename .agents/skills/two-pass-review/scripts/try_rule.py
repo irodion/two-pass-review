@@ -55,13 +55,11 @@ Exit status: 0 tested, 1 not tested, 2 bad invocation.
 """
 
 import argparse
-import contextlib
 import json
 import os
 import re
 import shutil
 import signal
-import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
@@ -73,6 +71,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # it costs a run nothing it can notice; moving the two into a module of their
 # own would change three scripts that work, and what none of them does.
 import validate  # sibling module, same directory
+from tools import find, inside, run, shown
 
 # Per directory, the places named before the rest are only counted, so a rule
 # that flags hundreds of lines does not bury the line it is for.
@@ -103,118 +102,8 @@ EXTEND = re.compile(r"""(?<![\w-])["']?extend["']?\s*=""")
 # got past a check for the first two alone. A pattern that needs one is written
 # without it: [0-9] for \d.
 
-# What a file name could use to break the Tested line or be read as markdown:
-# the escape character itself, code spans, links, and raw HTML.
-MARKUP = "\\`[]<>"
-
-# How a compiled program begins: ELF, or Mach-O, thin in either byte order or
-# fat.
-COMPILED = (
-    b"\x7fELF",
-    b"\xcf\xfa\xed\xfe",
-    b"\xce\xfa\xed\xfe",
-    b"\xfe\xed\xfa\xcf",
-    b"\xfe\xed\xfa\xce",
-    b"\xca\xfe\xba\xbe",
-    b"\xca\xfe\xba\xbf",
-)
-
-# A python interpreter's name once its links are followed, as the #! line of
-# a script pip or uv installs names it: python3.13, or python3.13t.
-PYTHON = re.compile(r"python[0-9.]*t?")
-
 # A tool's run: places flagged or None when it failed, files read, and errors.
 Outcome = tuple[list[tuple[str, int]] | None, set[str], list[str]]
-
-
-def safe_path(directories: list[str]) -> str:
-    """PATH without an entry the reviewed code could put a program in.
-
-    An empty entry and `.` mean the current directory, and a relative one is
-    read from it, so wherever the tool or a program it starts stands, any of
-    them can find a file the reviewed branch committed. An absolute entry
-    inside either directory is the same file by another name.
-    """
-    entries = [
-        entry
-        for entry in os.environ.get("PATH", "").split(os.pathsep)
-        if os.path.isabs(entry) and not any(inside(d, entry) for d in directories)
-    ]
-    return os.pathsep.join(entries)
-
-
-def inside(directory: str, path: str) -> bool:
-    """validate.within, for two paths not yet resolved."""
-    return validate.within(os.path.realpath(directory), os.path.realpath(path))
-
-
-def head(path: str) -> bytes:
-    """A program's first bytes, as much as Linux reads of a #! line; nothing when unreadable."""
-    try:
-        with open(path, "rb") as handle:
-            return handle.read(256)
-    except OSError:
-        return b""
-
-
-def shim(name: str, found: str, directories: list[str]) -> str | None:
-    """Why `found`, first on PATH for `name`, may not be the tool itself, or None when it is.
-
-    A version manager puts a shim on PATH in the tool's place, and the shim
-    picks the program it starts from a file in the directory it runs in, which
-    here is the reviewed code: a branch that commits a .tool-versions saying
-    `ruff path:evil` has asdf start the branch's own evil/bin/ruff, and the
-    line reads tested. asdf, pyenv and rbenv write their shims as shell
-    scripts; mise, aqua and Volta link every name to one program that goes by
-    the name it was started under. So the tool is started only as itself: a
-    compiled program of its own name once its links are followed, or a script
-    whose #! line names a compiled python by absolute path, which is what pip
-    and uv install semgrep as. That refuses a tool someone wrapped by hand,
-    and pip's /bin/sh launcher for an interpreter whose path is too long for
-    a #! line; both get a line saying why.
-
-    Not the tool started somewhere else instead: ruff resolves the relative
-    paths of a --config file against the directory it runs in, and the file
-    is the repository's own settings, whose per-file-ignores would then match
-    nothing. Nor a later entry on PATH when the first is a shim: semgrep
-    starts pysemgrep by name, and on that PATH would find the shim's first. A
-    program the tool starts by name -- git, for semgrep -- is not judged here,
-    since that would take a version manager's git.
-    """
-    tool = os.path.realpath(found)
-    if os.path.basename(tool) != name:
-        return (
-            f"{name} on PATH is a link to {shown(tool)}, which goes by the name it was started "
-            "under, as a version manager's shim does, and a shim picks the program it starts from "
-            f"the directory it runs in, here the reviewed code. Put a {name} that is the tool "
-            "itself first on PATH."
-        )
-    start = head(tool)
-    if start.startswith(COMPILED):
-        return None
-    words = start[2:].split(b"\n", 1)[0].split() if start.startswith(b"#!") else []
-    named = os.fsdecode(words[0]) if words else ""
-    interpreter = os.path.realpath(named)
-    if (
-        os.path.isabs(named)
-        and PYTHON.fullmatch(os.path.basename(interpreter))
-        and head(interpreter).startswith(COMPILED)
-        and not any(inside(directory, interpreter) for directory in directories)
-    ):
-        return None
-    return (
-        f"{name} on PATH is {shown(tool)}, which is not {name} itself but a program that starts "
-        "it, as a version manager's shim does, and a shim picks the program it starts from the "
-        f"directory it runs in, here the reviewed code. Put a {name} that is the tool itself "
-        "first on PATH."
-    )
-
-
-def shown(path: str) -> str:
-    """A file name as the Tested line prints it: anything that is not plain text escaped."""
-    return "".join(
-        f"\\{c}" if c in MARKUP else c if c.isprintable() else ascii(c)[1:-1] for c in path
-    )
 
 
 def places(found: list[tuple[str, int]]) -> str:
@@ -224,40 +113,6 @@ def places(found: list[tuple[str, int]]) -> str:
     named = [f"{shown(path)}:{line}" for path, line in sorted(set(found))]
     listed = ", ".join(named[:LISTED])
     return listed if len(named) <= LISTED else f"{listed}, and {len(named) - LISTED} more"
-
-
-def run(command: list[str], directory: str, env: dict[str, str]) -> tuple[int | None, str, str]:
-    """(exit status or None when it did not finish, stdout, stderr) of one run in `directory`.
-
-    The tool runs in a process group of its own, and a run that times out, or
-    that this script is interrupted in, takes the whole group with it. semgrep
-    becomes pysemgrep, which starts semgrep-core as a child, and killing the
-    process it started -- all subprocess.run's timeout does -- left the engine
-    scanning on after the line said not tested. A group of its own also keeps
-    a signal meant for this script's group from reaching it -- the terminal's
-    interrupt, or the terminate a caller sends when its own timeout runs out --
-    so each is passed on here, as the kill: an interrupt arrives as
-    KeyboardInterrupt, and main makes a terminate or a hangup arrive as
-    SystemExit.
-    """
-    with subprocess.Popen(
-        command,
-        cwd=directory,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        start_new_session=True,
-    ) as process:
-        try:
-            out, err = process.communicate(timeout=TIMEOUT)
-        except BaseException as stopped:
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(process.pid, signal.SIGKILL)
-            process.communicate()
-            if isinstance(stopped, subprocess.TimeoutExpired):
-                return None, "", ""
-            raise
-    return process.returncode, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
 
 
 def tail(text: str) -> list[str]:
@@ -295,6 +150,7 @@ def semgrep(
         ],
         directory,
         env,
+        TIMEOUT,
     )
     if code is None:
         return None, set(), [f"semgrep did not finish within {TIMEOUT} seconds"]
@@ -369,6 +225,7 @@ def ruff(
         ],
         directory,
         env,
+        TIMEOUT,
     )
     if code is None:
         return None, set(), [f"ruff did not finish within {TIMEOUT} seconds"]
@@ -389,7 +246,7 @@ def ruff(
         return None, set(), tail(err) or ["ruff printed no report"]
     # The files a run reads, which its JSON does not say: --show-files lists
     # them with the same configuration and targets, and lints nothing.
-    code, out, err = run([tool, *common, "--show-files", "--", *targets], directory, env)
+    code, out, err = run([tool, *common, "--show-files", "--", *targets], directory, env, TIMEOUT)
     if code != 0:
         return None, set(), tail(err) or [f"ruff --show-files exited {code}"]
     read = {
@@ -484,18 +341,9 @@ def main(argv: list[str]) -> int:
         expected.append(os.path.normpath(path))
 
     directories = [tree, checkout]
-    path = safe_path(directories)
-    tool = shutil.which(args.tool, path=path)
+    tool, path, reason = find(args.tool, directories)
     if tool is None:
-        return untested(f"{args.tool} is not on PATH.")
-    if any(inside(directory, tool) for directory in directories):
-        return untested(
-            f"the only {args.tool} on PATH is inside the reviewed code or the checkout."
-        )
-    reason = shim(args.tool, tool, directories)
-    if reason:
         return untested(reason)
-    tool = os.path.realpath(tool)
 
     same = os.path.realpath(tree) == os.path.realpath(checkout)
     named = (

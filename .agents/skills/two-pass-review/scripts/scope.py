@@ -717,6 +717,10 @@ def main(argv: list[str]) -> int:
                 checkout=root,
                 run_dir=run_dir,
                 context_diff=context,
+                # Counted as the validator counts, so the number agrees with
+                # the line a reader's tool numbers last, or falls one short of
+                # a tool that numbers the empty line after the final newline.
+                context_diff_lines=validate.line_count(context),
                 file_lines=lines_path,
             ),
         )

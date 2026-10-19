@@ -10,8 +10,8 @@ and a rule you paraphrase is a rule the subagent may never see.
 
 This file is still the only place a prompt is written: edit a block here and the next run sends the new
 text. Its placeholders are the values `scripts/prompts.py` fills — `<repo_root>`, `<checkout>`,
-`<run_dir>`, `<context_diff>`, `<file_lines>` and `<skill-dir>`, the directory holding `SKILL.md`, in
-the four run prompts; `<checkout>`, `<tree>`, `<run_dir>`, `<context_diff>`, `<findings_json>` and
+`<run_dir>`, `<context_diff>`, `<context_diff_lines>` (how many lines it has), `<file_lines>` and
+`<skill-dir>`, the directory holding `SKILL.md`, in the four run prompts; `<checkout>`, `<tree>`, `<run_dir>`, `<context_diff>`, `<findings_json>` and
 `<skill-dir>` in rule derivation — each one shell-quoted where it needs it. An unknown placeholder, a missing or
 repeated section, a second block under one heading, or a fence opened inside a block stops `scope.py`
 before it makes anything, so a broken edit here fails in CI rather than in a run. To show a fenced
@@ -99,6 +99,8 @@ Apart from this prompt, read these files and no other. Do not read the repositor
 2. Findings, one JSON object per line: <run_dir>/findings.security.jsonl
 3. Findings, one JSON object per line: <run_dir>/findings.quality.jsonl
 If one of the two findings files does not exist, skip it.
+
+Read the whole diff, from line 1 to line <context_diff_lines>, its last. Your file-reading tool may give you only part of a long file at a time, and may not say that more is left. When the last line you were given is not line <context_diff_lines>, read on from the line after it, and keep going until you have read line <context_diff_lines>. Do not search the diff instead of reading it: a contradiction can be on any line, and a search finds only what you already thought to look for.
 
 Rules:
 1. Flag a finding only when the diff directly contradicts the finding's key claim. For example: the finding says that a line still does X, and the diff shows that line doing Y.

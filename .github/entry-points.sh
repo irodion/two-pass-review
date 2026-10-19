@@ -434,3 +434,43 @@ answers 2 "outside the temporary directory" \
 answers 2 "begins with -" \
     python "$S/try_rule.py" --tool ruff --select T201 --config "$rule/ruff.toml" \
         --tree "$rule/code" --checkout "$rule/code" --expect=--fix
+# The hints step, over a repository of its own whose last commit hands
+# re.sub its flags as the count -- the bench's redact plant, which only
+# ruff's B rules see. The one lead must be that line: the base already
+# holds a mutable default (B006) on the line the change edits, and a delta
+# that compared lines rather than counts would hand that on as new.
+hint=$(mktemp -d)
+git -C "$hint" init -q -b main
+git -C "$hint" config user.email ci@example.invalid
+git -C "$hint" config user.name ci
+printf 'import re\n\n\ndef f(t, cache=[]):\n    return t\n' > "$hint/a.py"
+git -C "$hint" add a.py
+git -C "$hint" commit -qm base
+printf 'import re\n\n\ndef f(t, cache=[], flags=0):\n    return re.sub("a", "b", t, flags)\n' \
+    > "$hint/a.py"
+git -C "$hint" commit -qam change
+python "$S/scope.py" --repo "$hint" --base HEAD~1 --mode revisions --head HEAD > hints-on.json
+python - hints-on.json <<'PY'
+import json, sys
+hints = json.load(open(sys.argv[1]))["hints"]
+assert hints["status"] == "given" and hints["leads"] == 1, hints
+leads = [line for line in open(hints["file"]) if line.startswith("- `")]
+assert len(leads) == 1 and leads[0].startswith("- `a.py:5` ruff B034"), leads
+PY
+# Turned off, it says so, and lints nothing.
+python "$S/scope.py" --repo "$hint" --base HEAD~1 --mode revisions --head HEAD --no-hints \
+    > hints-off.json
+python -c "import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))['hints'] == {'status': 'disabled', 'leads': 0, 'file': None, 'tools': []} else 1)" hints-off.json
+# A linter that is not installed is a linter skipped, recorded with why,
+# never a scope that fails. PATH holds git alone, so the check does not
+# depend on what else the image put in /usr/bin.
+mkdir "$hint.bin"
+ln -s "$(command -v git)" "$hint.bin/git"
+env PATH="$hint.bin" "$(command -v python)" "$S/scope.py" --repo "$hint" --base HEAD~1 \
+    --mode revisions --head HEAD > hints-none.json
+python - hints-none.json <<'PY'
+import json, sys
+hints = json.load(open(sys.argv[1]))["hints"]
+assert hints["status"] == "skipped" and hints["leads"] == 0, hints
+assert hints["tools"][0]["skipped"] == "ruff is not on PATH.", hints
+PY

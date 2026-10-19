@@ -174,13 +174,22 @@ def run(
     return process.returncode, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
 
 
-def find(name: str, directories: list[str]) -> tuple[str | None, str, str]:
+def find(
+    name: str, directories: list[str], *, allow_shim: bool = False
+) -> tuple[str | None, str, str]:
     """(the tool's own path or None, the PATH to start it with, why there is no tool).
 
     `directories` are the ones the reviewed branch controls: the reviewed code,
     the checkout, and anything a caller copied out of either. The PATH comes
     back whether or not the tool was found, because it is also the PATH every
     program the tool starts by name is found on.
+
+    `allow_shim` is for a caller that runs the tool in a directory of its own,
+    holding nothing the reviewed branch chose but the source files it copied
+    there. A shim picks the program it starts from a file in that directory or
+    above it -- .tool-versions, .python-version, a package.json -- and there is
+    none of the branch's to pick from. It is not for try_rule.py, which runs the
+    tool in the reviewed code itself.
     """
     path = safe_path(directories)
     tool = shutil.which(name, path=path)
@@ -188,7 +197,7 @@ def find(name: str, directories: list[str]) -> tuple[str | None, str, str]:
         return None, path, f"{name} is not on PATH."
     if any(inside(directory, tool) for directory in directories):
         return None, path, f"the only {name} on PATH is inside the reviewed code or the checkout."
-    reason = shim(name, tool, directories)
+    reason = None if allow_shim else shim(name, tool, directories)
     if reason:
         return None, path, reason
     return os.path.realpath(tool), path, ""

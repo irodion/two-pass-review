@@ -80,7 +80,10 @@ def run_values(
         # stops at need not say it is not the last: probed on 2026-10-19, one
         # falsification check paged to line 2,445 of 2,794 and stopped there,
         # and three others searched a 3,415-line diff past its first 1,071
-        # lines rather than read it.
+        # lines rather than read it. The passes and the docs check did worse
+        # by choice -- 11 of 36 listed the diff's files and read only the
+        # stretches they picked, one docs check 15% of the changed lines --
+        # so every run prompt names the last line, not the falsifier's alone.
         "context_diff_lines": str(context_diff_lines),
         "file_lines": file_lines,
         "skill-dir": SKILL_DIR,

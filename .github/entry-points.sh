@@ -56,8 +56,8 @@ python -c "import os,sys; sys.exit(1 if os.path.realpath(sys.argv[1]).startswith
 # one printed line naming its file. Checked on both runs, because only
 # the second has a review tree: there the passes must be pointed at the
 # tree and not at the checkout, which a run read in place cannot tell
-# apart. The falsification check is told the diff's last line, counted
-# here from its newlines rather than by the script under test.
+# apart. Each is told the diff's last line, counted here from its
+# newlines rather than by the script under test.
 python - <<'PROMPTS'
 import json, os, sys
 for printed in ("scope.json", "scope-tree.json"):
@@ -74,9 +74,10 @@ for printed in ("scope.json", "scope-tree.json"):
     if f"The repository to review: {run['repo_root']}" not in security or f"--repo {run['repo_root']}" not in security:
         sys.exit(f"{printed}: the security pass is not pointed at the reviewed tree")
     last = open(run["context_diff"], "rb").read().count(b"\n")
-    falsification = open(os.path.join(run["run_dir"], "prompt.falsification.md")).read()
-    if f"from line 1 to line {last}, its last" not in falsification:
-        sys.exit(f"{printed}: the falsification check is not told the diff ends at line {last}")
+    for name in names:
+        text = open(os.path.join(run["run_dir"], f"prompt.{name}.md")).read()
+        if f"from line 1 to line {last}, its last" not in text:
+            sys.exit(f"{printed}: {name}'s prompt is not told the diff ends at line {last}")
 PROMPTS
 # Release removes it -- the directory and the registration in this
 # checkout -- and releasing a run read in place is a no-op, not an

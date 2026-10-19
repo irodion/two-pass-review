@@ -65,19 +65,17 @@ for printed in ("scope.json", "scope-tree.json"):
     names = ["docs", "falsification", "quality", "security"]
     if sorted(run["prompts"]) != names:
         sys.exit(f"{printed}: prompts printed {sorted(run['prompts'])}")
+    last = open(run["context_diff"], "rb").read().count(b"\n")
     for name in names:
         path = os.path.join(run["run_dir"], f"prompt.{name}.md")
         text = open(path).read()
         if path not in run["prompts"][name] or run["run_dir"] not in text or "<run_dir>" in text:
             sys.exit(f"{printed}: {name}'s handover line or filled prompt is wrong")
+        if f"from line 1 to line {last}, its last" not in text:
+            sys.exit(f"{printed}: {name}'s prompt is not told the diff ends at line {last}")
     security = open(os.path.join(run["run_dir"], "prompt.security.md")).read()
     if f"The repository to review: {run['repo_root']}" not in security or f"--repo {run['repo_root']}" not in security:
         sys.exit(f"{printed}: the security pass is not pointed at the reviewed tree")
-    last = open(run["context_diff"], "rb").read().count(b"\n")
-    for name in names:
-        text = open(os.path.join(run["run_dir"], f"prompt.{name}.md")).read()
-        if f"from line 1 to line {last}, its last" not in text:
-            sys.exit(f"{printed}: {name}'s prompt is not told the diff ends at line {last}")
 PROMPTS
 # Release removes it -- the directory and the registration in this
 # checkout -- and releasing a run read in place is a no-op, not an

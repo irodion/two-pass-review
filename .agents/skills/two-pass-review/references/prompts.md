@@ -39,6 +39,8 @@ Your inputs:
 
 Read the whole pinned diff, from line 1 to line <context_diff_lines>, its last: every file in it, not only the ones that look relevant. Your file-reading tool may give you only part of a long file at a time, and may not say that more is left, and a command's long output can come back cut short. When the last line you were given is not line <context_diff_lines>, read on from the line after it, and keep going until you have read line <context_diff_lines>. Search the diff and read the repository's files as well, but neither replaces reading the diff: a search finds only what you already thought to look for, and only the diff shows what the change removed.
 
+Never run the code you are reviewing: not its tests, its build or its scripts, and not its modules imported into a command of your own. Running it executes whatever the change's author wrote, on this machine. Read it instead, and trace what it would do. `git grep` and the validator command above are not the reviewed code: run those as given.
+
 When you are done, reply with one line: how many findings you wrote, and whether the validator passed. Do not repeat your findings in the reply. They are in your files.
 ```
 
@@ -59,6 +61,8 @@ Your inputs:
   python3 <skill-dir>/scripts/validate.py --repo <repo_root> <run_dir>/findings.quality.jsonl <run_dir>/pass.quality.json
 
 Read the whole pinned diff, from line 1 to line <context_diff_lines>, its last: every file in it, not only the ones that look relevant. Your file-reading tool may give you only part of a long file at a time, and may not say that more is left, and a command's long output can come back cut short. When the last line you were given is not line <context_diff_lines>, read on from the line after it, and keep going until you have read line <context_diff_lines>. Search the diff and read the repository's files as well, but neither replaces reading the diff: a search finds only what you already thought to look for, and only the diff shows what the change removed.
+
+Never run the code you are reviewing: not its tests, its build or its scripts, and not its modules imported into a command of your own. Running it executes whatever the change's author wrote, on this machine. Read it instead, and trace what it would do. `git grep` and the validator command above are not the reviewed code: run those as given.
 
 When you are done, reply with one line: how many findings you wrote, and whether the validator passed. Do not repeat your findings in the reply. They are in your files.
 ```

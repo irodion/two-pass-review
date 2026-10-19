@@ -42,6 +42,7 @@ import argparse
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -532,6 +533,17 @@ def main(argv: list[str]) -> int:
     except SystemExit:
         return 2
 
+    def stop(signum: int, frame: object) -> None:
+        raise SystemExit(128 + signum)
+
+    # A terminate or a hangup arrives as SystemExit, as an interrupt arrives as
+    # KeyboardInterrupt, so the cleanup below runs for each: the review tree is
+    # discarded, and a linter the hints step started goes down with its process
+    # group -- see tools.run. Without it the terminate an orchestrator sends
+    # when a command's time runs out left both behind.
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, stop)
+
     repo = os.path.abspath(os.path.expanduser(args.repo))
     if not os.path.isdir(repo):
         return fail(f"{repo} is not a directory")
@@ -679,7 +691,7 @@ def main(argv: list[str]) -> int:
     # release, and the worktree would stay registered in the user's repository.
     # So it is removed here, before the failure propagates.
     try:
-        headers = diff_paths.file_headers(patch["text"].split("\n"))
+        headers = diff_paths.file_headers(patch["text"].split("\n"), changes=True)
         named = [header.new for header in headers if header.new is not None]
         omitted = sum(1 for header in headers if header.deleted)
         lines_path = os.path.join(run_dir, "file_lines.json")
@@ -714,8 +726,11 @@ def main(argv: list[str]) -> int:
         # Linted here, once, rather than left to a pass that might: passes
         # told the linters were installed used them in 2 runs of 20. Never
         # fatal -- a linter that is missing or fails is recorded and skipped.
+        # A local patch's head is the commit its working tree was recorded as.
         hinted = (
-            hints.disabled() if args.no_hints else hints.collect(root, tree, base, headers, run_dir)
+            hints.disabled()
+            if args.no_hints
+            else hints.collect(root, tree, base, head or held, headers, run_dir)
         )
 
         # Every prompt the run sends, filled with this run's paths and written

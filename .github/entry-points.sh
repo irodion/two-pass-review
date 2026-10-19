@@ -436,11 +436,13 @@ answers 2 "begins with -" \
         --tree "$rule/code" --checkout "$rule/code" --expect=--fix
 # The hints step, over a repository of its own whose last commit hands
 # re.sub its flags as the count -- the bench's redact plant, which only
-# ruff's B rules see. The one lead must be that line. Two standing
-# diagnostics must stay out: a mutable default (B006) on the line the
-# change edits, which a delta comparing lines rather than counts would hand
-# on as new, and a redefinition (F811) whose message names a line number
-# the change moves -- "from line 8" becomes "from line 10".
+# ruff's B rules see -- and adds a function with a mutable default (B006)
+# below one that already had one. The two leads must be those lines. Two
+# standing diagnostics must stay out: the B006 on the line the change edits,
+# which a delta comparing lines rather than counts would hand on as new, and
+# which counts alone would name in place of the new one; and a redefinition
+# (F811) whose message names a line number the change moves -- "from line 8"
+# becomes "from line 10".
 hint=$(mktemp -d)
 git -C "$hint" init -q -b main
 git -C "$hint" config user.email ci@example.invalid
@@ -449,16 +451,17 @@ redefined='\n\ndef g():\n    return 1\n\n\ndef g():\n    return 2\n'
 printf "import re\n\n\ndef f(t, cache=[]):\n    return t\n$redefined" > "$hint/a.py"
 git -C "$hint" add a.py
 git -C "$hint" commit -qm base
-printf '"""Helpers."""\n\nimport re\n\n\ndef f(t, cache=[], flags=0):\n    return re.sub("a", "b", t, flags)\n%b' \
-    "$redefined" > "$hint/a.py"
+printf '"""Helpers."""\n\nimport re\n\n\ndef f(t, cache=[], flags=0):\n    return re.sub("a", "b", t, flags)\n%b%b' \
+    "$redefined" '\n\ndef h(y={}):\n    return y\n' > "$hint/a.py"
 git -C "$hint" commit -qam change
 python "$S/scope.py" --repo "$hint" --base HEAD~1 --mode revisions --head HEAD > hints-on.json
 python - hints-on.json <<'PY'
 import json, sys
 hints = json.load(open(sys.argv[1]))["hints"]
-assert hints["status"] == "given" and hints["leads"] == 1, hints
+assert hints["status"] == "given" and hints["leads"] == 2, hints
 leads = [line for line in open(hints["file"]) if line.startswith("- `")]
-assert len(leads) == 1 and leads[0].startswith("- `a.py:7` ruff B034"), leads
+assert len(leads) == 2, leads
+assert leads[0].startswith("- `a.py:7` ruff B034") and leads[1].startswith("- `a.py:18` ruff B006"), leads
 PY
 # Turned off, it says so, and lints nothing.
 python "$S/scope.py" --repo "$hint" --base HEAD~1 --mode revisions --head HEAD --no-hints \

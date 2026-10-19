@@ -71,7 +71,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # it costs a run nothing it can notice; moving the two into a module of their
 # own would change three scripts that work, and what none of them does.
 import validate  # sibling module, same directory
-from tools import find, inside, run, shown
+from tools import SYNTAX, find, inside, ruff_report, run, shown
 
 # Per directory, the places named before the rest are only counted, so a rule
 # that flags hundreds of lines does not bury the line it is for.
@@ -84,11 +84,6 @@ TIMEOUT = 600
 # ruff's selectors: codes, prefixes and ALL, comma-separated. Held to this so a
 # value can never be read as another option.
 SELECTORS = re.compile(r"[A-Z][A-Z0-9]*(,[A-Z][A-Z0-9]*)*")
-
-# A ruff rule code. Its JSON also carries syntax errors, under a code that is
-# not one ("invalid-syntax", or null in older versions), and those are no
-# rule's.
-RULE_CODE = re.compile(r"[A-Z]+[0-9]+")
 
 # An `extend` key, wherever TOML lets a key stand: at the start of a line, after
 # the dot of a dotted key such as `ruff.extend`, or inside an inline table after
@@ -231,24 +226,17 @@ def ruff(
         return None, set(), [f"ruff did not finish within {TIMEOUT} seconds"]
     if code not in (0, 1):
         return None, set(), tail(err) or [f"ruff exited {code}"]
-    root = os.path.realpath(directory)
-    try:
-        diagnostics = json.loads(out)
-        found = [
-            (
-                os.path.relpath(os.path.realpath(entry["filename"]), root),
-                int(entry["location"]["row"]),
-            )
-            for entry in diagnostics
-            if isinstance(entry.get("code"), str) and RULE_CODE.fullmatch(entry["code"])
-        ]
-    except (ValueError, KeyError, TypeError, AttributeError):
+    report = ruff_report(out, directory)
+    if report is None:
         return None, set(), tail(err) or ["ruff printed no report"]
+    # A syntax error is no rule's.
+    found = [(path, line) for path, line, code, _ in report if code != SYNTAX]
     # The files a run reads, which its JSON does not say: --show-files lists
     # them with the same configuration and targets, and lints nothing.
     code, out, err = run([tool, *common, "--show-files", "--", *targets], directory, env, TIMEOUT)
     if code != 0:
         return None, set(), tail(err) or [f"ruff --show-files exited {code}"]
+    root = os.path.realpath(directory)
     read = {
         os.path.relpath(os.path.realpath(line), root) for line in out.splitlines() if line.strip()
     }

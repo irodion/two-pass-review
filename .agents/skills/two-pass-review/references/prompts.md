@@ -11,11 +11,12 @@ and a rule you paraphrase is a rule the subagent may never see.
 This file is still the only place a prompt is written: edit a block here and the next run sends the new
 text. Its placeholders are the values `scripts/prompts.py` fills — `<repo_root>`, `<checkout>`,
 `<run_dir>`, `<context_diff>`, `<context_diff_lines>` (how many lines it has), `<file_lines>` and
-`<skill-dir>`, the directory holding `SKILL.md`, in the four run prompts; `<checkout>`, `<tree>`, `<run_dir>`, `<context_diff>`, `<findings_json>` and
-`<skill-dir>` in rule derivation — each one shell-quoted where it needs it. An unknown placeholder, a missing or
-repeated section, a second block under one heading, or a fence opened inside a block stops `scope.py`
-before it makes anything, so a broken edit here fails in CI rather than in a run. To show a fenced
-example inside a block, open the block with four backticks.
+`<skill-dir>`, the directory holding `SKILL.md`, in the four run prompts; `<checkout>`, `<tree>`,
+`<run_dir>`, `<context_diff>`, `<findings_json>` and `<skill-dir>` in rule derivation — each one
+shell-quoted where it needs it. An unknown placeholder, a missing or repeated section, a second block
+under one heading, or a fence opened inside a block stops `scope.py` before it makes anything, so a
+broken edit here fails in CI rather than in a run. To show a fenced example inside a block, open the
+block with four backticks.
 
 This file is original to this repository, not part of the forked rubrics — see
 [`NOTICE.md`](../NOTICE.md).

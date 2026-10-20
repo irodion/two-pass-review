@@ -98,6 +98,12 @@ operationalize the rubric's own demands, never add a subject, a weighting, or a 
 does not already require.** A contract procedure you cannot trace back to a sentence in the rubric half
 does not belong in this repository.
 
+`references/hint-check.md` has the same layout and none of the fork: both halves are ours. It is a stage
+beside the passes, not an edit to either — no rubric and no pass contract mentions the leads, which is
+what keeps the line above intact — so its procedure answers to no rubric sentence; it checks the leads
+`scope.py` recorded and nothing else. Its recording rules are the pass contracts' shared core, word for
+word, and CI holds it to that.
+
 ## How to check a change
 
 There is no test runner, deliberately. CI checks the floor and nothing above it — what it covers is at the
@@ -139,7 +145,10 @@ anything about reviewing code:
   and starting a python script that hands its arguments to the real ruff, `scope.py`'s hint step over a
   two-commit repository whose leads must be exactly the B034 and the B006 the change introduced — never
   the standing B006 on the line it edits, nor an F811 whose line number it moves — then with
-  `--no-hints`, recorded disabled, and with no linter on `PATH`, recorded skipped,
+  `--no-hints`, recorded disabled, and with no linter on `PATH`, recorded skipped — with leads, the
+  hint check's prompt written and printed and the falsifier's naming its findings, without them no
+  hint prompt at all, and a hint check that confirmed the B034 merged beside two empty passes into a
+  version-5 artifact that renders —
   `scope.py --since` and `--against` over a repository built with fixed
   commit dates — a midnight commit, a side branch merged since, a local `main` behind origin's — whose
   right bases are facts of its history, `collect_docs.py` over the first range's diff, `merge.py` and
@@ -172,8 +181,9 @@ anything about reviewing code:
   payloads reach the page through their own `esc()` calls, each one forgotten call from an injection. So
   the check judges the rendered page rather than any one function. It used to be two — the markdown
   sanitiser on its own, then the whole page — with two attack lists and two ways of judging, until the
-  second covered everything the first did. It builds a valid artifact — both schema shapes a page still
-  renders — with a payload in every field that carries text, renders it, and parses the result with
+  second covered everything the first did. It builds a valid artifact — in each schema shape that renders
+  differently: v3 with a withdrawal, v4 with a contest, v5 with the hint check — with a payload in every
+  field that carries text, renders it, and parses the result with
   Python's HTML parser: no tag or attribute a payload planted, no inline handler, no link outside an
   anchor or a safe scheme, no more scripts, styles or frames than the same artifact renders with harmless
   text. What counts as markup is the parser's call, never a rule imported from `page.py`.
@@ -215,7 +225,9 @@ anything about reviewing code:
   own pass name is taken out: a pair must read the same, and a paragraph in only one contract fails.
   The exceptions are three short lists in `checks.py` — `DIFFERS`, `SECURITY_ONLY`, `QUALITY_ONLY` — so
   a difference is always a choice someone wrote down, and an entry that no longer names anything fails
-  too.
+  too. The hint check's contract is held to the core the two share: every paragraph that reads the same
+  in both reads the same in `hint-check.md`, but for the few `HINTS_REWORDS` lists, because a rule fixed
+  for the passes must not miss the third subagent that writes findings.
 - **`lint and types`** — ruff's configured rule set, the formatter, and `mypy --strict`, pinned.
   The rule set and its exclusions are argued in `pyproject.toml`'s comments; the job only runs what
   that file declares.

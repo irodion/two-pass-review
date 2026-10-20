@@ -8,8 +8,9 @@ disable-model-invocation: true
 
 # Two-Pass Review
 
-Two rubrics review one pinned diff, each emits findings as validated JSON, a script merges the two into
-one list, and another renders a single self-contained HTML file the user opens.
+Two rubrics review one pinned diff, and a hint check confirms or dismisses what linters found new in it.
+Each emits findings as validated JSON, a script merges them into one list, and another renders a single
+self-contained HTML file the user opens.
 
 A fork of Cursor's `thermos` plugin — see [`NOTICE.md`](NOTICE.md).
 
@@ -35,12 +36,14 @@ separate checkout of the reviewed commit, and every `--repo` after step 1 takes 
    `python3 <skill-dir>/scripts/scope.py --repo <repo> --base <rev> --mode revisions --head <rev>`
 2. **Collect the documents** for the docs check — [§2](#the-docs-check).
    `python3 <skill-dir>/scripts/collect_docs.py --repo <repo_root> --diff <context_diff>`
-3. **Start the security pass, the quality pass and the docs check together**, as three subagents in
-   one message — [§2](#2-run-the-passes-and-the-docs-check). Each one's whole prompt is the line step 1
-   printed under `prompts` — `prompts.security`, `prompts.quality`, `prompts.docs` — sent exactly as
-   printed, with nothing added. Leave out the docs check when step 2 listed no documents.
-4. **When both passes have finished, start the falsification check** — [§3](#3-falsification) — with
-   `prompts.falsification` as its whole prompt, unless the passes wrote no findings at all.
+3. **Start the security pass, the quality pass, the hint check and the docs check together**, as up to
+   four subagents in one message — [§2](#2-run-the-passes-and-the-docs-check). Each one's whole prompt
+   is the line step 1 printed under `prompts` — `prompts.security`, `prompts.quality`, `prompts.hints`,
+   `prompts.docs` — sent exactly as printed, with nothing added. Leave out the hint check when step 1
+   printed no `prompts.hints`, and the docs check when step 2 listed no documents.
+4. **When both passes and the hint check have finished, start the falsification check** —
+   [§3](#3-falsification) — with `prompts.falsification` as its whole prompt, unless none of them wrote
+   a finding.
 5. **Decide which findings corroborate each other** — usually none — [§4](#corroboration). First print
    the pairs worth reading; it writes nothing.
    `python3 <skill-dir>/scripts/merge.py --candidates <run_dir>`
@@ -55,10 +58,10 @@ separate checkout of the reviewed commit, and every `--repo` after step 1 takes 
    `python3 <skill-dir>/scripts/scope.py --release <run_dir>`
 10. **Tell the user** the verdict, where the report is, and every warning — [§5](#tell-the-user).
 
-Where the host offers no subagents, steps 3 and 4 change: run the security pass and then the quality
-pass yourself, each by reading the file its `prompts` line names and doing what it says, skip the docs
-check and the falsification check, and say so at the merge with
-`--passes sequential --falsification skipped --docs-check skipped`.
+Where the host offers no subagents, steps 3 and 4 change: run the security pass, then the quality pass,
+then the hint check when step 1 printed `prompts.hints`, yourself, each by reading the file its `prompts`
+line names and doing what it says; skip the docs check and the falsification check, and say so at the
+merge with `--passes sequential --falsification skipped --docs-check skipped`.
 
 ## 1. Resolve the scope
 
@@ -184,6 +187,31 @@ get a fresh context window, while a sequential run puts both rubrics through one
 the second pass reviews with a badly degraded window. **A sequential run is the weaker run, and the
 reader is owed that.**
 
+### The hint check
+
+Before the passes start, `scope.py` lints the files the change touched, at its base and at its head, with
+whichever of ruff, Biome and shellcheck is installed and this skill's own rules, and records what the
+change introduced as **leads**. When there are any, it writes them to `<run_dir>/hints.md` and prints
+`prompts.hints`. **Start the hint check with that line as its whole prompt, beside the passes.** When
+`prompts.hints` is absent there were no leads — no linter applied, none was installed, nothing new, or
+`--no-hints` — and there is no hint check to start.
+
+It is not a third pass: it reads no rubric, and it checks only the leads, so it never stands in for
+either pass. For each lead it reads the code and decides whether the change introduced a real defect
+there, and it records the ones it confirms as findings under its own producer, `hints`, with ids
+`hint-<n>` — its contract is [`references/hint-check.md`](references/hint-check.md). It never sees what
+the passes found, and they never see the leads, so a hint finding that agrees with a pass's is
+corroboration like any other: two subagents reached one defect, each its own way.
+
+**Run it at the model and effort the passes ran at,** for the reason the passes share one: its findings
+corroborate theirs only while it is their peer. On a split run its tier is the user's to name, in the same
+exchange that ordered the split, like the falsifier's. Where the host offers no subagents, run it yourself
+after both passes, as the run sheet says.
+
+Nothing records that you started it but its own files, as for a pass. A hint check that died leaves no
+envelope, and `merge.py` warns that its findings were left out; one never started, when `scope.py` had
+handed it leads, draws a warning too. Pass either on.
+
 ### The docs check
 
 Advisory, and not a third pass: it reads no rubric, emits no findings, and nothing it reports can
@@ -235,16 +263,17 @@ withdraw, edit, or demote. The shape is adapted from OpenCodeReview's Independen
 findings was measured near one in five at the weak tier, so its word travels to the reader and the
 verifying agent instead of moving anything on its own.
 
-Start one fresh subagent with `prompts.falsification` as its whole prompt, once both passes have
-finished. Apart from its prompt, it reads exactly three files — `context.diff` and the two
-`findings.*.jsonl` — and nothing else: no rubric, no repository, none of the passes' reasoning. The
-starvation is the mechanism. Both passes read the repository as peers, so their errors arrive
-correlated, and only a checker that saw none of what they saw can catch what both misread. Where the
+Start one fresh subagent with `prompts.falsification` as its whole prompt, once both passes — and the
+hint check, when it ran — have finished. Apart from its prompt, it reads `context.diff` and the
+`findings.*.jsonl` files — the two passes', and the hint check's when it wrote one — and nothing else:
+no rubric, no repository, none of the passes' reasoning. The starvation is the mechanism. Both passes
+read the repository as peers, so their errors arrive correlated, and only a checker that saw none of
+what they saw can catch what both misread. Where the
 host offers no fresh subagent, skip the check: running it in your own window, which has read the
 repository and both pass files, checks nothing. Run it at the model and effort the passes ran at.
 A split run has no single such tier, so there the falsifier's tier is the user's to name — ask in
-the same exchange that ordered the split, never pick one yourself. When the passes wrote no findings
-at all there is nothing to check and no subagent to start.
+the same exchange that ordered the split, never pick one yourself. When nothing wrote a finding there
+is nothing to check and no subagent to start.
 
 Its instruction is to falsify, never verify. It flags a finding only when the diff itself directly
 contradicts the finding's key claim; a claim resting on anything outside the diff — other files,
@@ -285,27 +314,30 @@ findings corroborate each other, and, optionally, what the reader should check t
 
 ### Corroboration
 
-Both passes sometimes argue the same defect from different angles. Link those, and link nothing else:
+Two findings sometimes argue the same defect from different angles — the two passes', or a pass's and
+the hint check's. Link those, and link nothing else:
 
 1. **Link two findings when fixing one would make the other's argument redundant. If unsure, do not link.**
    Corroboration raises a finding's rank, so a wrong link promotes something, while a missed one merely
    leaves two cards apart. The doubt resolves toward not linking.
 2. **Link only within one disposition.** If a `note` and a `blocking` finding really argued one defect, a
    pass mis-tagged it, and quietly promoting it would hide that.
-3. **Link a security finding to a quality finding, never two from one pass.** Corroboration is agreement
-   between the passes; one pass agreeing with itself is one model in one window.
-4. **A contested finding links like any other.** The contest is a recorded dispute, not a verdict — the
-   two passes' independent agreement is not undone by a third voice disagreeing, and the reader sees
-   all three.
+3. **Link findings from two producers, never two from one.** A security finding to a quality finding,
+   or either to a hint-check finding. Corroboration is agreement between subagents that each reached the
+   defect in a window of their own; one pass agreeing with itself is one model in one window.
+4. **A contested finding links like any other.** The contest is a recorded dispute, not a verdict — two
+   independent findings' agreement is not undone by another voice disagreeing, and the reader sees all
+   of them.
 
-Judge this by reading, not by matching strings — the two passes routinely describe one defect with no
+Judge this by reading, not by matching strings — two subagents routinely describe one defect with no
 shared phrasing. Findings that **disagree** get no link at all: both render, both argue, and that is the
 information.
 
-**Start from `merge.py --candidates <run_dir>`.** It prints every pair `--link` would accept — one
-finding from each pass, one disposition — whose locations cite overlapping lines in one file, with both
-titles. Those are the pairs most likely to be one defect, and the ones most often left apart. A
-candidate is a place to look, not a link:
+**Start from `merge.py --candidates <run_dir>`.** It prints every pair `--link` would accept — findings
+from two producers, one disposition — whose locations cite overlapping lines in one file, with both
+titles. A hint finding beside a pass's on the same lines is the likeliest link of all: a linter pointed
+the hint check there. Those are the pairs most likely to be one defect, and the ones most often left
+apart. A candidate is a place to look, not a link:
 
 - **Read both findings of every candidate**, and link it only by rule 1. Two different defects on the
   same lines are common — a missing check and a log line in one function — and they stay apart.
@@ -315,7 +347,7 @@ candidate is a place to look, not a link:
 
 Each link is one `--link` at the merge — `--link sec-1,qa-2` — and `merge.py` writes it onto both
 findings, because the validator requires the link to be mutual. It refuses a link across dispositions or
-within one pass, naming the flag.
+within one producer, naming the flag.
 
 ### Self-check
 
@@ -384,12 +416,13 @@ A started check with no answer `merge.py` can read is recorded `"failed"`, and t
 is the truth about a check that was stopped. Merge only once a check you started has stopped: an answer
 still being written is read cut off, and recorded `"failed"` with it.
 
-`merge.py` reads everything else from the run directory by name — `scope.json`, both passes' files,
-`falsification.json`, `docs.json`, `docs-notes.json` — and writes `<run_dir>/findings.json`. It
-validates each pass's files before copying anything out of them, copies every finding unchanged apart
-from the contests and the links, derives the verdict, and validates what it wrote, with `repo_root`, so
-the line ranges are proven against the review tree. It prints a short JSON summary — the verdict, the
-counts, which findings are contested, and how each check was recorded.
+`merge.py` reads everything else from the run directory by name — `scope.json`, both passes' files, the
+hint check's, `falsification.json`, `docs.json`, `docs-notes.json` — and writes
+`<run_dir>/findings.json`. It validates each pass's files, and the hint check's, before copying anything
+out of them, copies every finding unchanged apart from the contests and the links, derives the verdict,
+and validates what it wrote, with `repo_root`, so the line ranges are proven against the review tree. It
+prints a short JSON summary — the verdict, the counts, which findings are contested, and how each check
+was recorded.
 
 - **Exit 1 naming a pass's files** means that pass's output does not validate: send the listed problems
   back to that pass to repair from its own artifacts, then merge again.
@@ -397,23 +430,24 @@ counts, which findings are contested, and how each check was recorded.
   self-check file, or a doc note. The message names it; fix that input and merge again.
 - **Exit 2** is a malformed command, or a link or flag it refuses by name. Fix it and run it again.
 - **A warning on stderr** — a contest naming a finding that does not exist, a check whose answer could
-  not be read, a pass that left findings but no envelope — does not stop the merge. Pass it on when you
-  report.
+  not be read, a pass or hint check that left findings but no envelope, leads no hint check read — does
+  not stop the merge. Pass it on when you report.
 
 **Model and effort go in as flags**, because you are the only party that knows what you asked each pass
-to run on — a pass cannot see what served it. `--model` and `--effort` record one value for both passes;
-`--security-model`, `--quality-effort` and the rest record a split. Leave them all out when you did not
-choose and the host does not tell you: the page presents these as provenance, and a blank there says
-less than a guess but nothing false.
+to run on — a pass cannot see what served it. `--model` and `--effort` record one value for both passes
+and the hint check; `--security-model`, `--quality-effort`, `--hints-model` and the rest record a split.
+Leave them all out when you did not choose and the host does not tell you: the page presents these as
+provenance, and a blank there says less than a guess but nothing false.
 
-What `merge.py` writes is schema version 4, `kind` `"merged"` — the version where falsification
-contests instead of withdrawing: `falsified` does not exist there, `contested_md` does, and the verdict
-reads dispositions alone. Version 3 added the docs check, version 2 added falsification; every older
-shape stays valid so old artifacts re-render — a v2 or v3 page still shows its withdrawals — and none of
-them is what a new merge writes. The verdict is **derived, never authored**: any finding tagged
-`blocking` makes it `"blocked"`, contested or not, otherwise `"clear"`. `clear` means nothing blocks, not
-that nothing was found — and a contested blocking finding still blocks, because un-blocking on the
-check's word would hand a one-in-five-wrong checker the verdict. `generated_at` is the `now` that
+What `merge.py` writes is schema version 5, `kind` `"merged"` — the version where the hint check exists:
+its findings, under producer `hints`, and its envelope beside the passes'. Version 4 is where
+falsification contests instead of withdrawing: `falsified` does not exist there, `contested_md` does, and
+the verdict reads dispositions alone. Version 3 added the docs check, version 2 added falsification;
+every older shape stays valid so old artifacts re-render — a v2 or v3 page still shows its withdrawals —
+and none of them is what a new merge writes. The verdict is **derived, never authored**: any finding
+tagged `blocking` makes it `"blocked"`, contested or not, otherwise `"clear"`. `clear` means nothing
+blocks, not that nothing was found — and a contested blocking finding still blocks, because un-blocking
+on the check's word would hand a one-in-five-wrong checker the verdict. `generated_at` is the `now` that
 `scope.py` printed: the moment the scope was pinned, which is the review's own duration before the merge.
 No reader decides anything on that difference, and `base` and `head` are what actually date a report.
 
@@ -459,7 +493,8 @@ You are the error handler. There is no status field, no retry protocol and no de
   has an envelope and warns about the one that does not: `passes` holds one entry, the report renders
   one pass, and the absence is visible on the page with nothing added to the schema. Say which pass
   died, and offer to re-run just that one — each pass is independently re-runnable against the same
-  pinned `context.diff`.
+  pinned `context.diff`. A hint check without an envelope is merged the same way, without it, and so is
+  offered again on its own.
 - **A run that ends early still releases its review tree** — step 9 is not conditional on a report,
   and `scope.py --release <run_dir>` is safe whether or not a worktree was made.
 

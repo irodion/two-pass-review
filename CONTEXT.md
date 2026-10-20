@@ -14,12 +14,16 @@ _Avoid_: reviewer, skill, prompt
 One execution of one rubric over one review scope. A run has two passes.
 _Avoid_: review, reviewer, agent, subagent
 
+**Hint check**:
+The subagent that checks a run's leads against the code and records the ones that point at a real defect the change introduces, as findings of its own under producer `hints`. Runs beside the passes, only when there are leads. Not a third pass: no rubric, and it checks only what the leads point at, never the change at large. A defect that breaks behaviour counts with no attacker needed, and its severity grades what breaks and for whom. A peer of the passes — same model, same effort, a window of its own, none of their findings — so its findings corroborate theirs.
+_Avoid_: hints pass, lint pass, third pass, linter review
+
 **Producer**:
-Which pass a finding came from. An attribute on a finding, never the axis findings are listed by: the report orders one list by disposition and rank, both passes' findings in it. The line map is the one place it lays anything out — each finding's line stands on its pass's side of the changed files, because two passes reading one change is what the map exists to show.
+Which pass a finding came from — or the hint check. An attribute on a finding, never the axis findings are listed by: the report orders one list by disposition and rank, every producer's findings in it. The line map is the one place it lays anything out — each finding's line stands on its producer's side of the changed files, the hint check's beside the security pass's, because two passes reading one change is what the map exists to show.
 _Avoid_: source, author, origin
 
 **Run**:
-One invocation of the skill: a pinned review scope, two passes, a merge, and one report.
+One invocation of the skill: a pinned review scope, two passes — and a hint check when the linters left leads — a merge, and one report.
 
 **Mode**:
 Whether a run's passes executed concurrently or one after another. Recorded because a sequential run puts both rubrics through one context window and is the weaker run.
@@ -31,8 +35,12 @@ _Avoid_: mode, scan mode, target type
 
 ### What a review produces
 
+**Lead**:
+One diagnostic a linter reports at the change's head and not at its base, recorded by `scope.py` for the hint check — ruff, Biome or shellcheck, whichever is installed, with this skill's own rules, never the repository's. A place to look, never a finding: a linter is often right about a pattern and wrong about a defect, and the hint check decides which. Nothing reads a lead but the hint check.
+_Avoid_: hint (alone), diagnostic, warning, finding
+
 **Finding**:
-One defect a pass is willing to argue for, with its claim and remedy inseparable.
+One defect a pass, or the hint check, is willing to argue for, with its claim and remedy inseparable.
 _Avoid_: issue, item, candidate, result
 
 **Disposition**:
@@ -44,7 +52,7 @@ How sure a pass is that a finding is real — strictly separate from how much it
 _Avoid_: certainty, likelihood, probability
 
 **Corroboration**:
-The relationship between two findings from different passes that argue the same defect from different angles. Both survive and are linked; neither is collapsed into the other.
+The relationship between two findings from different producers — the two passes, or a pass and the hint check — that argue the same defect from different angles. Both survive and are linked; neither is collapsed into the other.
 _Avoid_: duplicate, dedupe, merge
 
 **Falsification**:

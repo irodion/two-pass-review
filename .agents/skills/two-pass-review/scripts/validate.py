@@ -8,6 +8,7 @@ Give it a pass's two files together so the cross-file rules can run:
 
     validate.py findings.security.jsonl pass.security.json
 
+-- the hint check's two files have the same shape, under the name `hints` --
 or the merged artifact on its own:
 
     validate.py findings.json
@@ -72,13 +73,31 @@ SCHEMA_VERSION = 1
 # 'contested_md', and the verdict derives from dispositions alone -- measured
 # grounds, not taste: the check's wrong-withdrawal rate on true findings ran
 # near one in five at the weak tier, so its word became an annotation the
-# reader adjudicates rather than a verdict-moving act. Older versions are the
-# shapes from before each change, kept so every artifact already on disk
-# validates and re-renders exactly as it always did.
-MERGED_SCHEMA_VERSIONS = (1, 2, 3, 4)
+# reader adjudicates rather than a verdict-moving act. Version 5 is where the
+# hint check exists: its findings and its envelope, under producer 'hints',
+# beside the passes'; nothing else changed. Older versions are the shapes from
+# before each change, kept so every artifact already on disk validates and
+# re-renders exactly as it always did.
+MERGED_SCHEMA_VERSIONS = (1, 2, 3, 4, 5)
+HINTS_FROM = 5
 
-PRODUCERS = ("security", "quality")
-ID_PREFIX = {"security": "sec", "quality": "qa"}
+# The two passes, then the hint check: a subagent that checks the leads the
+# linters found new in the change and records the ones it confirms. Not a pass
+# -- it reads no rubric -- but its files have a pass's shape, and its findings
+# are findings, so it is a producer like the two passes.
+PASSES = ("security", "quality")
+PRODUCERS = (*PASSES, "hints")
+ID_PREFIX = {"security": "sec", "quality": "qa", "hints": "hint"}
+# What a message calls each producer. The hint check is no pass, and a sentence
+# saying "the hints pass" would name a thing the skill does not have.
+PRODUCER_NOUN = {
+    "security": "the security pass",
+    "quality": "the quality pass",
+    "hints": "the hint check",
+}
+# The producers whose findings carry a severity: the security pass's, and the
+# hint check's, whose defects are graded by what breaks and for whom.
+RATED = ("security", "hints")
 DISPOSITIONS = ("blocking", "follow-up", "note")
 SEVERITIES = ("critical", "high", "medium", "low")
 CONFIDENCES = ("high", "medium", "low")
@@ -104,7 +123,7 @@ VERDICTS = ("blocked", "clear")
 
 TIER_MAX = 64
 
-ID_RE = re.compile(r"^(sec|qa)-([0-9]+)$")
+ID_RE = re.compile(r"^({})-([0-9]+)$".format("|".join(ID_PREFIX.values())))
 
 
 def id_sort_key(finding_id: str) -> tuple[str, int]:
@@ -122,7 +141,7 @@ def id_sort_key(finding_id: str) -> tuple[str, int]:
 # Finding ids as they appear inside running text -- a self-check question names
 # the findings it is about, and this is how the naming is checked. Bounded on
 # both sides so 'sec-3' never matches inside 'sec-31'.
-NAMED_ID_RE = re.compile(r"\b(?:sec|qa)-[0-9]+\b")
+NAMED_ID_RE = re.compile(r"\b(?:{})-[0-9]+\b".format("|".join(ID_PREFIX.values())))
 TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 FINDING_FIELDS = frozenset(
@@ -423,9 +442,11 @@ def check_finding(
     finding_id = _nonempty_str(report, where, finding, "id")
     matched = ID_RE.match(finding_id) if finding_id else None
     if finding_id and not matched:
-        report.add(where, f"id {finding_id!r} must look like 'sec-3' or 'qa-14'")
+        report.add(where, f"id {finding_id!r} must look like 'sec-3', 'qa-14' or 'hint-2'")
 
     producer = _enum(report, where, finding, "producer", PRODUCERS)
+    if producer == "hints" and version is not None and version < HINTS_FROM:
+        report.add(where, f"producer 'hints' does not exist before schema version {HINTS_FROM}")
     if producer and matched and matched.group(1) != ID_PREFIX[producer]:
         report.add(
             where,
@@ -442,10 +463,10 @@ def check_finding(
 
     check_locations(report, where, finding.get("locations"), repo)
 
-    # severity iff security and not a note. A note is not "low severity" -- it
-    # is the claim that the thing does not warrant attention, which is exactly
-    # what a severity label would deny.
-    wants_severity = producer == "security" and disposition != "note"
+    # severity iff security or the hint check, and not a note. A note is not
+    # "low severity" -- it is the claim that the thing does not warrant
+    # attention, which is exactly what a severity label would deny.
+    wants_severity = producer in RATED and disposition != "note"
     if (
         producer is not None
         and disposition is not None
@@ -455,7 +476,7 @@ def check_finding(
             finding,
             "severity",
             wants_severity,
-            "on a security finding that is not a note",
+            "on a security or hint-check finding that is not a note",
         )
     ):
         _enum(report, where, finding, "severity", SEVERITIES)
@@ -1227,7 +1248,7 @@ def validate_merged(report: Report, path: str, repo: str | None = None) -> None:
             )
 
     check_verdict(report, where, merged.get("verdict"), findings, marks)
-    check_passes(report, where, merged.get("passes"), findings)
+    check_passes(report, where, merged.get("passes"), findings, version)
     if "self_check" in merged:
         check_self_check(report, where, merged["self_check"], by_id, marks_active=marks == "active")
 
@@ -1403,10 +1424,11 @@ def link_problems(first: dict[str, Any], second: dict[str, Any]) -> list[str]:
 
     Across dispositions: a link means one of the two was mis-tagged, and a unit
     spanning dispositions would break the one ordering the page has. Within one
-    pass: corroboration is agreement between the two passes, and two findings
-    from one pass are one model in one context window agreeing with itself. A
-    three-way unit is still reachable, since union-find groups through a
-    partner in the other pass.
+    producer: corroboration is agreement between two subagents that each
+    reached the defect in a window of their own -- the two passes, or either
+    and the hint check -- and two findings from one are one model in one
+    context window agreeing with itself. A three-way unit is still reachable,
+    since union-find groups through a partner from another producer.
     """
     problems: list[str] = []
     if first.get("disposition") != second.get("disposition"):
@@ -1417,8 +1439,8 @@ def link_problems(first: dict[str, Any], second: dict[str, Any]) -> list[str]:
         )
     if first.get("producer") == second.get("producer"):
         problems.append(
-            "the two come from the same pass -- corroboration links a finding to one the other "
-            "pass argued"
+            "the two come from one producer -- corroboration links findings from two: the two "
+            "passes, or a pass and the hint check"
         )
     return problems
 
@@ -1858,7 +1880,9 @@ def _check_doc_path(report: Report, at: str, path: str, repo: str) -> None:
         report.add(at, f"examined path {path!r} is not a file in the repository")
 
 
-def check_passes(report: Report, where: str, passes: object, findings: list[Any]) -> None:
+def check_passes(
+    report: Report, where: str, passes: object, findings: list[Any], version: int
+) -> None:
     if not isinstance(passes, list) or not passes:
         report.add(where, "'passes' must be an array holding at least one pass")
         return
@@ -1870,6 +1894,8 @@ def check_passes(report: Report, where: str, passes: object, findings: list[Any]
             continue
         _check_unknown(report, at, envelope, EMBEDDED_PASS_FIELDS, "envelope")
         producer = _enum(report, at, envelope, "producer", PRODUCERS)
+        if producer == "hints" and version < HINTS_FROM:
+            report.add(at, f"producer 'hints' does not exist before schema version {HINTS_FROM}")
         if producer in seen:
             report.add(at, f"producer {producer!r} appears twice")
         seen.add(producer)
@@ -1893,8 +1919,16 @@ def check_passes(report: Report, where: str, passes: object, findings: list[Any]
     for producer in orphans:
         report.add(
             where,
-            f"findings from the {producer} pass are present with no matching envelope in 'passes'",
+            "findings from {} are present with no matching envelope in 'passes'".format(
+                PRODUCER_NOUN.get(producer, f"the {producer} pass")
+            ),
         )
+    # The hint check reviews nothing on its own: it checks leads beside a
+    # review, and a report holding its envelope alone would be a review of
+    # the linters' output with no pass in it. merge.py refuses to write one.
+    named = seen - {None}
+    if named and not named & set(PASSES):
+        report.add(where, "'passes' holds the hint check alone -- a report needs at least one pass")
 
 
 # --- entry point -------------------------------------------------------------

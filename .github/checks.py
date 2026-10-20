@@ -224,7 +224,9 @@ def _hostile_artifact(version: int, benign: bool = False) -> dict[str, Any]:
 
     Version 4 carries corroboration, a contest, doc notes and a self-check;
     version 3 carries a withdrawn finding and a pass that found nothing, the
-    two render paths a version-4 artifact never reaches. `benign` swaps every
+    two render paths a version-4 artifact never reaches; version 5 adds the
+    hint check -- a finding of its, linked to the security pass's, and its
+    envelope -- which is the only shape whose page offers a third producer. `benign` swaps every
     payload for its bare token, which gives the page's own structure to compare
     against.
     """
@@ -292,6 +294,29 @@ def _hostile_artifact(version: int, benign: bool = False) -> dict[str, Any]:
     else:
         findings[1]["falsified"] = True
         quality["empty_reason_md"] = block("empty")
+    passes = [security, quality]
+    if version >= 5:
+        findings[0]["corroborated_by"] = ["hint-1", "qa-1"]
+        findings.append(
+            {
+                "id": "hint-1",
+                "producer": "hints",
+                "disposition": "blocking",
+                "severity": "medium",
+                "title": text("hint-title"),
+                "locations": [{"path": text("hint-path"), "start_line": 2}],
+                "body_md": block("hint-body"),
+                "corroborated_by": ["sec-1"],
+            }
+        )
+        passes.append(
+            {
+                "producer": "hints",
+                "what_holds_up_md": block("hint-holds"),
+                "closing_md": block("hint-closing"),
+                "empty_reason_md": None,
+            }
+        )
 
     artifact: dict[str, Any] = {
         "schema_version": version,
@@ -315,7 +340,7 @@ def _hostile_artifact(version: int, benign: bool = False) -> dict[str, Any]:
                 "diff_bytes": 1,
             },
         },
-        "passes": [security, quality],
+        "passes": passes,
         "findings": findings,
         "docs_check": {
             "examined": [text("doc"), text("noted-doc")],
@@ -471,7 +496,7 @@ def page_escapes_everything(problems: list[str]) -> None:
         problems.append(f"cannot import page or validate: {error}")
         return
 
-    artifacts = {version: _hostile_artifact(version) for version in (4, 3)}
+    artifacts = {version: _hostile_artifact(version) for version in (5, 4, 3)}
 
     declared = {name for name in vars(validate) if name.endswith("_FIELDS")}
     for name in sorted(declared - OBJECTS.keys() - NOT_IN_ARTIFACT):
@@ -687,7 +712,7 @@ def copy_script_copies(problems: list[str]) -> None:
         problems.append("page.py: SCRIPT has no textOf(button), so no copy button was run")
         return
 
-    artifact = _hostile_artifact(4)
+    artifact = _hostile_artifact(5)
     live = {f["id"]: f for f in page.standing(artifact["findings"])}
     collector = _Buttons()
     collector.feed(page.render_page(artifact))

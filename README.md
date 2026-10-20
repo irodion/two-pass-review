@@ -13,8 +13,8 @@ was forked, what changed, and what was read but not copied.
 ## What it is
 
 Everything lives under `.agents/skills/two-pass-review/`. `SKILL.md` is the orchestrator; `references/`
-holds the two forked rubrics, the exact prompt for every subagent, and the on-demand rule-derivation
-procedure; `scripts/` holds the pipeline.
+holds the two forked rubrics, the hint check's contract, the exact prompt for every subagent, and the
+on-demand rule-derivation procedure; `scripts/` holds the pipeline.
 
 The pipeline is four steps, and each one refuses to paper over the step before it. **Scope** pins one
 diff to disk, so both passes read an identical input and corroboration has something to compare across,
@@ -23,8 +23,11 @@ checkout holds something else. It also lints the files the change touched, at it
 with whichever of ruff, Biome and shellcheck is already on your `PATH` — this skill's own rules on
 copies outside your repository, never your project's configuration or runner, and never a version
 manager's shim — and records what the change introduced as leads in the run's `scope.json` and
-`hints.md`. Leads are not findings, and nothing in the report reads them yet; `scope.py --no-hints`
-skips the step. The **merge** copies both passes' findings into one artifact by script,
+`hints.md`. Leads are not findings: when there are any, a **hint check** runs beside the passes, reads
+the code each one points at, and keeps as findings only the defects the change really introduced — a
+`re.sub` handed its flags as the count, a key a dict literal repeats far from the hunk. It never sees the
+passes' findings, so where it and a pass agree, that is corroboration. `scope.py --no-hints` skips the
+step. The **merge** copies every finding into one artifact by script,
 so nothing a pass wrote is retyped, and the orchestrator supplies only the judgment: which findings
 corroborate each other, and, optionally, the self-check questions for the reader. The **validator** stands between the passes and the page: it checks the rules
 that would let the artifact lie — chiefly that the verdict agrees with the list beneath it — and nothing
@@ -141,14 +144,16 @@ after your first review.
 
 Findings are ordered by **disposition** — blocking first, then follow-ups, then notes — because that is
 the only question the two rubrics both answer natively. Within a disposition they are ordered by how
-loudly they shout, derived from severity for security findings and from category for quality ones.
+loudly they shout, derived from severity for security and hint-check findings and from category for
+quality ones.
 
 - The **verdict** is derived from the list, never written by hand, so it cannot contradict what is beneath
   it. The validator enforces that.
 - **Findings that corroborate each other** sit together with a banner, rather than being merged. Two
   passes reaching one defect from two directions is evidence, and collapsing it would throw that away.
 - **A map of where the findings land opens the report.** Each finding is a line through the files it
-  cites — the security pass's left of the files, the quality pass's right — drawn in its disposition's
+  cites — the security pass's left of the files, the quality pass's right, and the hint check's on the
+  left beside the security pass's, with square stations — drawn in its disposition's
   colour and weight, as its card's edge is, so a finding that cuts across several files and a file that
   several findings reach both show at a glance. Every changed file is a row with its churn, up to thirty,
   and so is every document the docs check has a note on; past thirty changed files, only the cited files
@@ -229,12 +234,13 @@ loudly they shout, derived from severity for security findings and from category
   stays at the top of the window as you read; once the masthead's verdict has scrolled away, the bar
   shows it too, as a link back up. A report with no standing finding — none reported, or every one
   withdrawn at merge — has nothing to filter and no bar. The filters are hidden radios and sibling
-  selectors: the state is a radio and CSS does the hiding. Severity filters the security findings only —
-  a quality finding is rated by category and a security note by nothing at all, so both stay visible, and
-  the filters say so while one is on. The script counts: a heading above a filtered list has to agree
-  with what is under it. That, the clipboard handler, the dismissal toggle, the map's links, and the bar's
-  verdict and height are the whole of it — none of them parses, renders or evaluates anything a pass
-  wrote, and everything a pass wrote is escaped before it reaches the page, script or no script.
+  selectors: the state is a radio and CSS does the hiding. Severity filters the security and hint-check
+  findings only — a quality finding is rated by category and a security or hint-check note by nothing at
+  all, so both stay visible, and the filters say so while one is on. The script counts: a heading above a
+  filtered list has to agree with what is under it. That, the clipboard handler, the dismissal toggle,
+  the map's links, and the bar's verdict and height are the whole of it — none of them parses, renders
+  or evaluates anything a pass wrote, and everything a pass wrote is escaped before it reaches the page,
+  script or no script.
 
 ## Asking for rule suggestions
 

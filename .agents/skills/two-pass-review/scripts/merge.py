@@ -8,11 +8,13 @@ Usage:
              [--model M] [--effort E]
              [--security-model M] [--security-effort E]
              [--quality-model M] [--quality-effort E]
+             [--hints-model M] [--hints-effort E]
     merge.py --candidates RUN_DIR
 
 Writes RUN_DIR/findings.json, validates it, and prints a JSON summary.
-`--candidates` writes nothing: it prints the cross-pass pairs that cite
-overlapping lines, for the orchestrator to read before choosing its --links.
+`--candidates` writes nothing: it prints the pairs from two producers that
+cite overlapping lines, for the orchestrator to read before choosing its
+--links.
 
 The merge used to be the orchestrator hand-writing that file: every finding
 copied back out of the pass files, long escaped bodies included, beside the
@@ -30,8 +32,8 @@ which way each subagent ran. Everything else is read from the files the run
 already wrote, by name:
 
     scope.json                      scope.py's output: scope, clock, repo_root
-    findings.<producer>.jsonl       each pass's findings
-    pass.<producer>.json            each pass's envelope
+    findings.<producer>.jsonl       each pass's findings, and the hint check's
+    pass.<producer>.json            each pass's envelope, and the hint check's
     falsification.json              the falsifier's answer   (--falsification ran)
     docs.json                       collect_docs.py's output (--docs-check ran)
     docs-notes.json                 the docs checker's answer (--docs-check ran)
@@ -53,6 +55,7 @@ printed, 1 a pass's files do not validate, 2 no run directory to read.
 """
 
 import argparse
+import itertools
 import json
 import os
 import re
@@ -312,29 +315,31 @@ def read_passes(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]] | int:
     """(each pass's envelope, every finding), or the exit status after refusing.
 
-    Each pass is validated before anything is copied out of it. A pass without
-    an envelope died before finishing, and its findings stay out: the merged
-    artifact requires an envelope for every pass it carries, and the page shows
-    the absence.
+    Each pass is validated before anything is copied out of it, and so is the
+    hint check, whose files have a pass's shape. A pass without an envelope
+    died before finishing, and its findings stay out: the merged artifact
+    requires an envelope for every pass it carries, and the page shows the
+    absence.
     """
     envelopes: list[dict[str, Any]] = []
     findings: list[dict[str, Any]] = []
     for producer in validate.PRODUCERS:
+        noun = validate.PRODUCER_NOUN[producer]
         findings_path = os.path.join(run_dir, f"findings.{producer}.jsonl")
         envelope_path = os.path.join(run_dir, f"pass.{producer}.json")
         if not os.path.exists(envelope_path):
             if os.path.exists(findings_path) and doing == "merge":
                 warn(
-                    f"the {producer} pass wrote findings but no envelope, so none of its findings "
-                    "are merged. Say which pass died, and offer to re-run just that one"
+                    f"{noun} wrote findings but no envelope, so none of its findings are merged. "
+                    "Say which one died, and offer to re-run just that one"
                 )
             continue
         given = [envelope_path] + ([findings_path] if os.path.exists(findings_path) else [])
         problems = validate.validate_paths(given, repo)
         if problems:
             sys.stderr.write(
-                f"Cannot {doing}: the {producer} pass's files do not validate. Send these back to "
-                "that pass to repair:\n\n"
+                f"Cannot {doing}: {noun}'s files do not validate. Send these back to it to "
+                "repair:\n\n"
             )
             for problem in problems:
                 sys.stderr.write(f"  {problem}\n")
@@ -386,13 +391,13 @@ CANDIDATES_NOTE = (
 
 CANDIDATES = "list candidates"
 CANDIDATES_HELP = (
-    "prints the cross-pass pairs that cite overlapping lines, for choosing --link, and writes "
-    "nothing."
+    "prints the pairs from two producers that cite overlapping lines, for choosing --link, and "
+    "writes nothing."
 )
 
 
 def candidates(run_dir: str) -> int:
-    """Print the cross-pass pairs worth reading for corroboration, then exit.
+    """Print the pairs worth reading for corroboration, then exit.
 
     Measured before it was built. On strong-model runs the rule proposed four
     pairs, and only one was a link, which the orchestrator had already made.
@@ -401,6 +406,10 @@ def candidates(run_dir: str) -> int:
     agreements too. A small orchestrator misses links that sit on the same
     lines, and those lines are what this finds. Reads, never writes: a link is
     still a judgment, made with --link at the merge.
+
+    Every pair of producers, in PRODUCERS order: the two passes first, then
+    each against the hint check, whose finding on a line a pass also cited is
+    the likeliest link of all -- it was pointed at that line by a linter.
     """
     run_dir = os.path.abspath(os.path.expanduser(run_dir))
     pinned = read_pinned(run_dir, CANDIDATES)
@@ -410,31 +419,36 @@ def candidates(run_dir: str) -> int:
     if isinstance(read, int):
         return read
     _, findings = read
-    first_pass, second_pass = validate.PRODUCERS
     pairs: list[dict[str, Any]] = []
-    for first in (f for f in findings if f["producer"] == first_pass):
-        for second in (f for f in findings if f["producer"] == second_pass):
-            # Only the pairs --link would accept.
-            if validate.link_problems(first, second):
-                continue
-            shared = overlap(first, second)
-            if shared is None:
-                continue
-            path, start, end = shared
-            pairs.append(
-                {
-                    "ids": [first["id"], second["id"]],
-                    "disposition": first["disposition"],
-                    "path": path,
-                    "lines": f"{start}-{end}" if end != start else str(start),
-                    "titles": [first["title"], second["title"]],
-                }
-            )
+    for first_producer, second_producer in itertools.combinations(validate.PRODUCERS, 2):
+        for first in (f for f in findings if f["producer"] == first_producer):
+            for second in (f for f in findings if f["producer"] == second_producer):
+                pair = candidate(first, second)
+                if pair is not None:
+                    pairs.append(pair)
     json.dump(
         {"note": CANDIDATES_NOTE, "candidates": pairs}, sys.stdout, indent=2, ensure_ascii=False
     )
     sys.stdout.write("\n")
     return 0
+
+
+def candidate(first: dict[str, Any], second: dict[str, Any]) -> dict[str, Any] | None:
+    """The two as a candidate pair, or None where --link would refuse them or they share no line."""
+    # Only the pairs --link would accept.
+    if validate.link_problems(first, second):
+        return None
+    shared = overlap(first, second)
+    if shared is None:
+        return None
+    path, start, end = shared
+    return {
+        "ids": [first["id"], second["id"]],
+        "disposition": first["disposition"],
+        "path": path,
+        "lines": f"{start}-{end}" if end != start else str(start),
+        "titles": [first["title"], second["title"]],
+    }
 
 
 def main(argv: list[str]) -> int:
@@ -464,7 +478,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--docs-check", required=True, choices=("ran", "skipped"))
     parser.add_argument("--link", action="append", default=[])
     parser.add_argument("--self-check")
-    for prefix in ("", "security-", "quality-"):
+    # --model and --effort record one tier for every subagent that wrote
+    # findings, the hint check's included, since it runs at the passes'.
+    for prefix in ("", *(f"{producer}-" for producer in validate.PRODUCERS)):
         parser.add_argument(f"--{prefix}model")
         parser.add_argument(f"--{prefix}effort")
     try:
@@ -494,8 +510,24 @@ def main(argv: list[str]) -> int:
             if value is not None:
                 entry[field] = value
         passes.append(entry)
-    if not passes:
+    if not any(entry["producer"] in validate.PASSES for entry in passes):
         return refuse("neither pass wrote an envelope, so there is no review to merge")
+    # Leads nobody checked are a gap the page cannot show: an artifact without
+    # the hint check reads exactly like a run whose change gave the linters
+    # nothing to say. So the run's own record of what it handed over is the
+    # one place the absence can be noticed, and it is said here -- unless the
+    # check began and died, which read_passes has already said.
+    hinted = pinned.get("hints") or {}
+    if hinted.get("leads") and not any(
+        os.path.exists(os.path.join(run_dir, name))
+        for name in ("pass.hints.json", "findings.hints.jsonl")
+    ):
+        warn(
+            "scope.py handed the hint check {} lead(s), but it wrote no envelope, so no lead was "
+            "checked and none is in the report. Say so, and offer to run the hint check".format(
+                hinted["leads"]
+            )
+        )
 
     known = {finding["id"]: finding for finding in findings}
 

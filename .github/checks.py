@@ -1096,6 +1096,20 @@ CONTRACTS = (
     ("code-quality.md", "quality", "qa", QUALITY_ONLY),
 )
 
+# The hint check's contract records findings as the passes do, and is held to
+# what the two pass contracts share: every paragraph that reads the same in
+# both reads the same in hint-check.md too, so a rule fixed for the passes
+# cannot miss the third subagent that writes findings. Only that core, because
+# the rest of the file is the hint check's own -- its procedure, its severity
+# examples, its field table -- and a difference the passes already have is one
+# it may have too. These are the core paragraphs it words for itself, each a
+# choice: it has two passes for peers, not one.
+HINTS = ("hint-check.md", "hints", "hint")
+HINTS_REWORDS: tuple[str, ...] = (
+    "**Do the review yourself.** Never invoke",
+    "## `disposition` is tagged as you emit, ",
+)
+
 
 # The line that divides a rubric file: forked rubric above, this repository's
 # output contract below. Matched as a whole line, and found one way only --
@@ -1182,6 +1196,38 @@ def contracts_mirror(problems: list[str]) -> None:
                 problems.append(
                     f"contracts: {label} lists {opening!r}, which names no such paragraph now"
                 )
+
+    name, own, prefix = HINTS
+    hints = _contract_paragraphs(name, own, prefix)
+    if isinstance(hints, str):
+        problems.append(f"contracts: {hints}")
+        return
+    core = {opening: text for opening, text in sec.items() if qa.get(opening) == text}
+    for opening, text in core.items():
+        if opening not in hints:
+            problems.append(
+                f"contracts: {name} has no paragraph opening {opening!r}, which both pass "
+                "contracts share -- add it, worded as they word it"
+            )
+        elif hints[opening] != text and opening not in HINTS_REWORDS:
+            at = len(os.path.commonprefix([text, hints[opening]]))
+            problems.append(
+                f"contracts: the paragraph opening {opening!r} differs -- both pass contracts have "
+                f"{text[max(0, at - 20) : at + 40]!r}, {name} has "
+                f"{hints[opening][max(0, at - 20) : at + 40]!r}. An edit reached the passes and "
+                "not the hint check, or the difference is meant and belongs in HINTS_REWORDS"
+            )
+        elif hints[opening] == text and opening in HINTS_REWORDS:
+            problems.append(
+                f"contracts: HINTS_REWORDS lists {opening!r}, which {name} now words as the pass "
+                "contracts do -- take it out of HINTS_REWORDS"
+            )
+    for opening in HINTS_REWORDS:
+        if opening not in core:
+            problems.append(
+                f"contracts: HINTS_REWORDS lists {opening!r}, which is no paragraph both pass "
+                "contracts share"
+            )
 
 
 # Where the pins live: a table in NOTICE.md, beside the list of authorised

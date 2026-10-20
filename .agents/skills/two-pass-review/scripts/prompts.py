@@ -4,9 +4,10 @@
 Usage:
     prompts.py --rules RUN_DIR [--checkout PATH]
 
-Mostly a library: `scope.py` calls it to fill the four prompts every run sends,
-write each into the run directory, and print the one line that hands it over.
-The command line is the fifth, the rule-derivation prompt, which is asked for
+Mostly a library: `scope.py` calls it to fill the prompts a run sends -- four
+always, and the hint check's when the linters left leads -- write each into the
+run directory, and print the one line that hands it over. The command line is
+the last, the rule-derivation prompt, which is asked for
 long after a run and so is filled when it is asked for, from the prompts.md the
 skill holds then -- never from a copy saved when the run was pinned, which
 would replay old wording and paths that may no longer exist.
@@ -49,6 +50,7 @@ SOURCE = os.path.join(SKILL_DIR, "references", "prompts.md")
 RUN_SECTIONS = {
     "Security pass": "security",
     "Quality pass": "quality",
+    "Hint check": "hints",
     "Docs check": "docs",
     "Falsification check": "falsification",
 }
@@ -69,7 +71,7 @@ def run_values(
     context_diff_lines: int,
     file_lines: str,
 ) -> dict[str, str]:
-    """What the four run prompts may name. The one statement of their placeholders."""
+    """What the run prompts may name. The one statement of their placeholders."""
     return {
         "repo_root": repo_root,
         "checkout": checkout,
@@ -230,7 +232,7 @@ def handover(path: str) -> str:
 def write_prompt(path: str, text: str) -> str:
     """Write one filled prompt and return the line that hands it over.
 
-    The one place a prompt file is written, for the run's four and for rule
+    The one place a prompt file is written, for the run's and for rule
     derivation alike. An OSError is the caller's: scope.py lets it reach the
     block that removes the review tree, and the command line refuses with it.
     """
@@ -239,11 +241,20 @@ def write_prompt(path: str, text: str) -> str:
     return handover(path)
 
 
-def write_run(blocks: dict[str, str], run_dir: str, values: dict[str, str]) -> dict[str, str]:
-    """Write the four run prompts into the run directory. Returns name -> handover line."""
+def write_run(
+    blocks: dict[str, str], run_dir: str, values: dict[str, str], hints: bool
+) -> dict[str, str]:
+    """Write the run prompts into the run directory. Returns name -> handover line.
+
+    The hint check's only when `hints` says the linters left it leads. Left
+    out otherwise, rather than written and left for the orchestrator to judge:
+    a prompt it was handed is a subagent it starts, and a hint check with no
+    leads would check nothing at a pass's cost.
+    """
     return {
         name: write_prompt(os.path.join(run_dir, f"prompt.{name}.md"), fill(blocks[name], values))
         for name in RUN_SECTIONS.values()
+        if hints or name != "hints"
     }
 
 

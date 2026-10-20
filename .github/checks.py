@@ -91,11 +91,14 @@ def page_script_parses(problems: list[str]) -> None:
         tree = ast.parse(handle.read(), filename=path)
 
     source: object = None
+    tally: object = None
     for node in ast.walk(tree):
         if not (isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)):
             continue
         if any(isinstance(t, ast.Name) and t.id == "SCRIPT" for t in node.targets):
             source = node.value.value
+        if any(isinstance(t, ast.Name) and t.id == "TALLY" for t in node.targets):
+            tally = node.value.value
 
     # Not "nothing to do": the constant being gone means either the page stopped
     # carrying a script, or it started building one some other way. Both want a
@@ -103,6 +106,14 @@ def page_script_parses(problems: list[str]) -> None:
     if not isinstance(source, str):
         problems.append("page.py: no SCRIPT string constant, so its JavaScript was not checked")
         return
+    # page_script() swaps this one line for a page with hint findings, and a
+    # line it cannot find is swapped silently for nothing: that page would
+    # count the hint check nowhere while its filter still offered it.
+    if not isinstance(tally, str) or source.count(tally) != 1:
+        problems.append(
+            "page.py: TALLY is not a line SCRIPT holds exactly once, so page_script() cannot give "
+            "a page with hint findings its count -- edit the two together"
+        )
 
     node_bin = shutil.which("node")
     if node_bin is None:

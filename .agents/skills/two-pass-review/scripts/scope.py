@@ -736,8 +736,9 @@ def main(argv: list[str]) -> int:
         # Every prompt the run sends, filled with this run's paths and written
         # beside the files it names. What is handed over is one line pointing
         # at the file, so the orchestrator retypes no path and paraphrases no
-        # rule. Rule derivation is not among them: it is asked for later, and
-        # filled then.
+        # rule. The hint check's only when there are leads for it to check.
+        # Rule derivation is not among them: it is asked for later, and filled
+        # then.
         handed = prompts.write_run(
             blocks,
             run_dir,
@@ -752,6 +753,7 @@ def main(argv: list[str]) -> int:
                 context_diff_lines=validate.line_count(context),
                 file_lines=lines_path,
             ),
+            hints=hinted["leads"] > 0,
         )
 
         scope: dict[str, str | int | list[dict[str, str | int]] | None] = {
@@ -855,7 +857,8 @@ def main(argv: list[str]) -> int:
                 "file_lines": lines_path,
                 "latest": os.path.join(report_dir, "latest.html"),
                 # Each subagent's whole prompt, by name: security, quality,
-                # docs, falsification. Sent exactly as printed.
+                # hints when there are leads, docs, falsification. Sent
+                # exactly as printed.
                 "prompts": handed,
                 # What the linters found new in the change, or why none ran:
                 # status, the number of leads, hints.md when there are any,

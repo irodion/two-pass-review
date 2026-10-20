@@ -57,12 +57,14 @@ python -c "import os,sys; sys.exit(1 if os.path.realpath(sys.argv[1]).startswith
 # the second has a review tree: there the passes must be pointed at the
 # tree and not at the checkout, which a run read in place cannot tell
 # apart. Each is told the diff's last line, counted here from its
-# newlines rather than by the script under test.
+# newlines rather than by the script under test. The hint check's prompt
+# is there exactly when the run recorded leads, which on this repository's
+# own range depends on which ruff the image has.
 python - <<'PROMPTS'
 import json, os, sys
 for printed in ("scope.json", "scope-tree.json"):
     run = json.load(open(printed))
-    names = ["docs", "falsification", "quality", "security"]
+    names = sorted(["docs", "falsification", "quality", "security"] + (["hints"] if run["hints"]["leads"] else []))
     if sorted(run["prompts"]) != names:
         sys.exit(f"{printed}: prompts printed {sorted(run['prompts'])}")
     last = open(run["context_diff"], "rb").read().count(b"\n")
@@ -463,10 +465,56 @@ leads = [line for line in open(hints["file"]) if line.startswith("- `")]
 assert len(leads) == 2, leads
 assert leads[0].startswith("- `a.py:7` ruff B034") and leads[1].startswith("- `a.py:18` ruff B006"), leads
 PY
+# With leads, the hint check gets a prompt, written beside the others,
+# that names the leads file and its own two files; and the falsifier is
+# handed its findings beside the passes'.
+python - hints-on.json <<'PY'
+import json, os, sys
+run = json.load(open(sys.argv[1]))
+prompt = os.path.join(run["run_dir"], "prompt.hints.md")
+assert prompt in run["prompts"]["hints"], run["prompts"]
+text = open(prompt).read()
+assert run["hints"]["file"] in text and "findings.hints.jsonl" in text, text
+falsifier = open(os.path.join(run["run_dir"], "prompt.falsification.md")).read()
+assert "findings.hints.jsonl" in falsifier, falsifier
+PY
+# A hint check that confirmed the B034 lead, beside two passes that found
+# nothing: its files validate as a pass's do, the merge writes them into a
+# version-5 artifact whose verdict they decide, and the page renders.
+hrun=$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['run_dir'])" hints-on.json)
+for pass in security quality; do
+    : > "$hrun/findings.$pass.jsonl"
+    printf '{"schema_version": 1, "kind": "pass", "producer": "%s", "empty_reason_md": "Constructed by CI; no review ran."}\n' \
+        "$pass" > "$hrun/pass.$pass.json"
+done
+printf '%s\n' '{"id": "hint-1", "producer": "hints", "disposition": "blocking", "severity": "high", "title": "The flags land in count", "locations": [{"path": "a.py", "start_line": 7, "end_line": 7}], "body_md": "```python\n    return re.sub(\"a\", \"b\", t, flags)\n```\n\nConstructed by CI."}' \
+    > "$hrun/findings.hints.jsonl"
+printf '%s\n' '{"schema_version": 1, "kind": "pass", "producer": "hints", "what_holds_up_md": "- `a.py:18` ruff B006: constructed by CI."}' \
+    > "$hrun/pass.hints.json"
+python "$S/validate.py" --repo "$hint" "$hrun/findings.hints.jsonl" "$hrun/pass.hints.json"
+echo '[]' > "$hrun/falsification.json"
+python "$S/merge.py" --run-dir "$hrun" --passes parallel --falsification ran \
+       --docs-check skipped > hints-merged.json
+python - hints-merged.json "$hrun/findings.json" <<'PY'
+import json, sys
+summary, artifact = json.load(open(sys.argv[1])), json.load(open(sys.argv[2]))
+assert summary["verdict"] == "blocked" and summary["findings"]["hints"] == 1, summary
+assert artifact["schema_version"] == 5, artifact["schema_version"]
+PY
+python "$S/merge.py" --candidates "$hrun" > hints-candidates.json
+python "$S/render.py" --repo "$hint" "$hrun/findings.json" --no-open
 # Turned off, it says so, and lints nothing.
 python "$S/scope.py" --repo "$hint" --base HEAD~1 --mode revisions --head HEAD --no-hints \
     > hints-off.json
 python -c "import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))['hints'] == {'status': 'disabled', 'leads': 0, 'file': None, 'tools': []} else 1)" hints-off.json
+# And with no leads there is no hint check to start: no prompt is written
+# or printed for one.
+python - hints-off.json <<'PY'
+import json, os, sys
+run = json.load(open(sys.argv[1]))
+assert "hints" not in run["prompts"], run["prompts"]
+assert not os.path.exists(os.path.join(run["run_dir"], "prompt.hints.md"))
+PY
 # A linter that is not installed is a linter skipped, recorded with why,
 # never a scope that fails. PATH holds git alone, so the check does not
 # depend on what else the image put in /usr/bin.

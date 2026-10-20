@@ -26,7 +26,11 @@ VERDICT_LABEL = {"blocked": "Blocked", "clear": "Clear"}
 # A pass's full name, for its cards and the sections it writes. Where a pass is
 # only named in passing -- the map, the filter pills, the contents line -- the
 # page uses linemap.PASS_NAME, the short one.
-PRODUCER_LABEL = {"security": "Security & correctness", "quality": "Code quality"}
+PRODUCER_LABEL = {
+    "security": "Security & correctness",
+    "quality": "Code quality",
+    "hints": "Hint check",
+}
 SCOPE_MODE_LABEL = {"revisions": "revision range", "local-patch": "local working patch"}
 
 CATEGORY_LABEL: dict[str | None, str] = {
@@ -50,14 +54,14 @@ CATEGORY_RANK: dict[str | None, int] = {
     "modularity-decomposition": 2,
     "legibility": 3,
 }
-UNRANKED = 3  # a security note carries no severity, so it has nothing to rank by
+UNRANKED = 3  # a note carries no severity, so it has nothing to rank by
 
 
 # --- ordering ----------------------------------------------------------------
 
 
 def rank_of(finding: dict[str, Any]) -> int:
-    if finding.get("producer") == "security":
+    if finding.get("producer") in validate.RATED:
         return SEVERITY_RANK.get(finding.get("severity"), UNRANKED)
     return CATEGORY_RANK.get(finding.get("category"), UNRANKED)
 
@@ -111,6 +115,25 @@ def ordered_units(findings: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
 def producer_label(producer: str) -> str:
     """Escaped at the point of use, like every other string on the page."""
     return esc(PRODUCER_LABEL.get(producer, producer))
+
+
+def producer_noun(producer: str) -> str:
+    """What a sentence calls a producer, without its article: "security pass",
+    "hint check". Plain text, like the sentences it goes into."""
+    return validate.PRODUCER_NOUN.get(producer, f"the {producer} pass").removeprefix("the ")
+
+
+def shown_producers(live: list[dict[str, Any]]) -> tuple[str, ...]:
+    """The producers the filters offer and the counts count: the two passes
+    always, and the hint check when a finding of its stands.
+
+    Only then, so that a page without its findings is byte for byte the page
+    it was before the check existed -- every artifact from before version 5,
+    and every run whose change gave the linters nothing to say. A pill for a
+    producer with no card would filter to nothing.
+    """
+    hinted = any(f["producer"] == "hints" for f in live)
+    return validate.PASSES + (("hints",) if hinted else ())
 
 
 def standing(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -271,7 +294,7 @@ def copy_payload(finding: dict[str, Any], partners: list[dict[str, Any]], level:
     axis = finding.get("severity") or CATEGORY_LABEL.get(
         finding.get("category"), finding.get("category")
     )
-    meta = "{} pass · {}".format(finding["producer"], finding["disposition"])
+    meta = "{} · {}".format(producer_noun(finding["producer"]), finding["disposition"])
     if axis:
         meta += f" · {axis}"
     lines.append(meta)
@@ -712,7 +735,12 @@ def verdict_sentence(verdict: str, findings: list[dict[str, Any]]) -> str:
         by_producer: dict[str, int] = {}
         for finding in blocking:
             by_producer[finding["producer"]] = by_producer.get(finding["producer"], 0) + 1
-        parts = [f"{count} from the {name} pass" for name, count in sorted(by_producer.items())]
+        parts = [
+            f"{count} from the {producer_noun(name)}" for name, count in sorted(by_producer.items())
+        ]
+        # Three only once the hint check blocks beside both passes.
+        if len(parts) > 2:
+            parts = [", ".join(parts[:-1]) + ",", parts[-1]]
         return "{} of {} findings block this change — {}.".format(
             len(blocking), total, " and ".join(parts)
         )
@@ -1182,12 +1210,12 @@ def disposition_groups(live: list[dict[str, Any]]) -> list[tuple[str, list[dict[
     return [(d, groups[d]) for d in DISPOSITION_ORDER if groups[d]]
 
 
-def disposition_marks(flat: list[dict[str, Any]]) -> tuple[str, str]:
+def disposition_marks(flat: list[dict[str, Any]], producers: tuple[str, ...]) -> tuple[str, str]:
     """A disposition's classes and counts, for its heading and its contents entry.
 
     Shared, so the script's recount and the filters' rules reach the entry
     exactly as they reach the heading: one statement of when a disposition has
-    anything left to show.
+    anything left to show. A count for every producer the filters offer.
     """
     present = {f["producer"] for f in flat}
     classes = "group " + " ".join("has-" + p for p in sorted(present))
@@ -1195,7 +1223,7 @@ def disposition_marks(flat: list[dict[str, Any]]) -> tuple[str, str]:
         '<span class="count count-{}">{}</span>'.format(
             key, sum(1 for f in flat if key == "all" or f["producer"] == key)
         )
-        for key in ("all", "security", "quality")
+        for key in ("all", *producers)
     )
     return classes, counts
 
@@ -1208,6 +1236,7 @@ def contents_entry(href: str, label: str, count: str | int | None = None, attrs:
 
 def render_contents(
     groups: list[tuple[str, list[dict[str, Any]]]],
+    producers: tuple[str, ...],
     withdrawn: list[dict[str, Any]],
     passes: list[dict[str, Any]],
     docs_check: dict[str, Any] | None,
@@ -1222,7 +1251,7 @@ def render_contents(
     """
     entries: list[str] = []
     for disposition, flat in groups:
-        classes, counts = disposition_marks(flat)
+        classes, counts = disposition_marks(flat, producers)
         entries.append(
             contents_entry(
                 f"group-{disposition}",
@@ -1333,8 +1362,9 @@ def render_page(merged: dict[str, Any]) -> str:
 
     main: list[str] = []
     groups = disposition_groups(live)
+    producers = shown_producers(live)
     for disposition, flat in groups:
-        classes, counts = disposition_marks(flat)
+        classes, counts = disposition_marks(flat, producers)
         heading = f'{DISPOSITION_LABEL[disposition]} <span class="counts">&middot; {counts}</span>'
         main.append(
             '<section class="{cls}" data-disposition="{d}"><h2 id="group-{d}">{heading}</h2>{cards}</section>'.format(
@@ -1356,7 +1386,12 @@ def render_page(merged: dict[str, Any]) -> str:
         title=esc("Two-Pass Review — {}".format(scope["repo"])),
         # The map's rules after the page's own: they name only the map's
         # classes and the filter radios, so where they sit changes no cascade.
-        css=CSS + linemap.CSS + NARROW_QUERY.format(CSS_NARROW + linemap.CSS_NARROW),
+        # The hint check's rules after both, and only on a page that has its
+        # findings: see shown_producers.
+        css=CSS
+        + linemap.CSS
+        + (HINTS_CSS + linemap.HINTS_CSS if "hints" in producers else "")
+        + NARROW_QUERY.format(CSS_NARROW + linemap.CSS_NARROW),
         verdict=esc(verdict),
         verdict_icon=verdict_icon(verdict),
         verdict_label=VERDICT_LABEL[verdict],
@@ -1365,7 +1400,7 @@ def render_page(merged: dict[str, Any]) -> str:
         bulk=bulk_controls(merged),
         disclaimer=esc(DISCLAIMER),
         contents=render_contents(
-            groups, withdrawn, merged["passes"], docs_check, merged["run"], self_check
+            groups, producers, withdrawn, merged["passes"], docs_check, merged["run"], self_check
         ),
         warnings=render_warnings(merged["run"], merged["passes"], merged["findings"]),
         run=render_run_facts(merged["run"], merged["passes"]),
@@ -1373,24 +1408,24 @@ def render_page(merged: dict[str, Any]) -> str:
         # and the map's lines, and a page with nothing to filter showed nine lit
         # pills. The root says which, for the stylesheet's scroll-padding.
         root=' class="has-bar"' if ordered else "",
-        filterbar=render_filter_bar(verdict) if ordered else "",
+        filterbar=render_filter_bar(verdict, producers) if ordered else "",
         linemap=linemap.render_line_map(merged, ordered),
         groups="\n".join(main),
         withdrawn=render_withdrawn(withdrawn, markdown),
         prose=render_pass_prose(merged["passes"], markdown),
         docscheck=render_docs_check(docs_check, merged["run"].get("docs_check"), markdown),
         selfcheck=render_self_check(self_check, markdown),
-        script=SCRIPT,
+        radios=producer_radios(producers),
+        script=page_script(producers),
     )
 
 
 # The filters: labels for the radios at the top of <body>, which is where every
-# filter rule's sibling selector starts.
+# filter rule's sibling selector starts. One pill per producer the page offers,
+# from filters(); the rest is fixed.
 FILTERS = """<div class="filters">
     <span class="filter-group"><span class="filter-title">Pass</span>
-      <label for="f-prod-all" class="pill pill-prod-all">Both</label>
-      <label for="f-prod-security" class="pill pill-prod-security">{security}</label>
-      <label for="f-prod-quality" class="pill pill-prod-quality">{quality}</label></span>
+{producer_pills}</span>
     <span class="filter-group"><span class="filter-title">Severity</span>
       <label for="f-sev-all" class="pill pill-sev-all">All</label>
       <label for="f-sev-high" class="pill pill-sev-high">High</label>
@@ -1404,10 +1439,36 @@ FILTERS = """<div class="filters">
       <label for="f-dism-keep" class="dism-show">Show dismissed (<span class="dism-count">0</span>)</label>
     </span>
     <span class="sev-note">Quality findings aren&rsquo;t rated by severity, so they stay visible.</span>
-  </div>""".format(**{p: esc(name) for p, name in linemap.PASS_NAME.items()})
+  </div>"""
 
 
-def render_filter_bar(verdict: str) -> str:
+def filters(producers: tuple[str, ...]) -> str:
+    """The filters, with a pill for each producer the page offers.
+
+    `Both` while that is the two passes, which is every page without a hint
+    finding, and `All` once the hint check makes three.
+    """
+    pills = [("all", "Both" if len(producers) == 2 else "All")]
+    pills += [(p, esc(linemap.PASS_NAME.get(p, p))) for p in producers]
+    return FILTERS.format(
+        producer_pills="\n".join(
+            f'      <label for="f-prod-{key}" class="pill pill-prod-{key}">{name}</label>'
+            for key, name in pills
+        )
+    )
+
+
+def producer_radios(producers: tuple[str, ...]) -> str:
+    """The producer filter's radios, at the top of <body> with the others."""
+    return "\n".join(
+        '<input type="radio" name="prod" id="f-prod-{}" class="filter"{}>'.format(
+            key, " checked" if key == "all" else ""
+        )
+        for key in ("all", *producers)
+    )
+
+
+def render_filter_bar(verdict: str, producers: tuple[str, ...]) -> str:
     """The filters, in a bar that stays at the top of the window.
 
     The filters within reach from any card, and -- once the masthead's badge has
@@ -1427,7 +1488,7 @@ def render_filter_bar(verdict: str) -> str:
     """
     label = esc(VERDICT_LABEL[verdict])
     return (
-        f'<div class="filterbar">\n  {FILTERS}\n'
+        f'<div class="filterbar">\n  {filters(producers)}\n'
         f'  <a class="bar-verdict verdict-{esc(verdict)}" href="#top" '
         f'aria-label="{label}: back to the top" title="Back to the top" hidden>'
         f"{verdict_icon(verdict)}{label}</a>\n</div>"
@@ -1443,9 +1504,7 @@ PAGE = """<!doctype html>
 <style>{css}</style>
 </head>
 <body>
-<input type="radio" name="prod" id="f-prod-all" class="filter" checked>
-<input type="radio" name="prod" id="f-prod-security" class="filter">
-<input type="radio" name="prod" id="f-prod-quality" class="filter">
+{radios}
 <input type="radio" name="sev" id="f-sev-all" class="filter" checked>
 <input type="radio" name="sev" id="f-sev-high" class="filter">
 <input type="radio" name="sev" id="f-sev-medium" class="filter">
@@ -1811,6 +1870,21 @@ SCRIPT = """
   }
 })();
 """
+
+# The one line of SCRIPT that names the producers: the recount's tally, which
+# keeps a count per producer the filters offer. A page with a hint finding
+# counts the hint check too; every other page carries SCRIPT as it stands, and
+# so is the page it always was. Its ids still quote safely in a selector, as
+# the comment on dismissal says of sec-N and qa-N: hint-N is the validator's
+# shape too.
+TALLY = "var tally = {all: [0, 0], security: [0, 0], quality: [0, 0]};"
+
+
+def page_script(producers: tuple[str, ...]) -> str:
+    """SCRIPT, its tally keeping a count for each producer in `producers`."""
+    keys = ", ".join(f"{key}: [0, 0]" for key in ("all", *producers))
+    return SCRIPT.replace(TALLY, f"var tally = {{{keys}}};", 1)
+
 
 CSS = """
 /* Faces the reader's machine already has, because the page loads nothing: it is
@@ -2252,6 +2326,24 @@ a { color: var(--accent); }
 .prose details > *:last-child { margin-bottom: 16px; }
 
 .finding:target { border-color: var(--accent); }
+"""
+
+# The producer filter's rules for the hint check, on a page that has its
+# findings: the same four the passes have above -- the lit pill, the count it
+# shows, the cards and headings it hides, and the headings it retires once
+# filtered or dismissed empty -- for the third producer. Apart from CSS so that
+# a page without them is the page it always was; see shown_producers.
+HINTS_CSS = """
+/* The hint check, in the producer filter. */
+#f-prod-hints:checked ~ .layout .pill-prod-hints { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+#f-prod-hints:checked ~ .layout .count-hints { display: inline; }
+#f-prod-security:checked ~ .layout [data-producer="hints"],
+#f-prod-quality:checked ~ .layout [data-producer="hints"],
+#f-prod-hints:checked ~ .layout [data-producer="security"],
+#f-prod-hints:checked ~ .layout [data-producer="quality"],
+#f-prod-hints:checked ~ .layout .group:not(.has-hints),
+#f-prod-hints:checked ~ .layout .group.sev-empty-hints,
+#f-prod-hints:checked ~ #f-dism-hide:checked ~ .layout .group.all-dismissed-hints { display: none; }
 """
 
 # The page's rules for a window too narrow for the side track, which go inside

@@ -28,7 +28,10 @@ LANE_LABEL = {"blocking": "Blocking", "follow-up": "Follow-up", "note": "Note"}
 # name for each pass. A pass's full name, which heads its own sections and
 # labels its cards, is page.py's PRODUCER_LABEL. Here rather than there because
 # page.py imports this module, and the map is the one that needs it to draw.
-PASS_NAME = {"security": "Security", "quality": "Quality"}
+PASS_NAME = {"security": "Security", "quality": "Quality", "hints": "Hint check"}
+# The producers whose lines stand left of the files, outermost first: the
+# security pass's, then the hint check's. The quality pass's stand right.
+LEFT = ("security", "hints")
 # Longer paths lose leading directories, as git's own diffstat shortens them;
 # the full path rides along in the row's title.
 MAP_PATH_MAX = 46
@@ -330,10 +333,13 @@ def layout(ordered: list[dict[str, Any]], plan: RowPlan, band: Band | None) -> G
     """The grid's columns and rows, decided once for every builder below.
 
     The security pass's lanes stand left of the files and the quality pass's
-    right, each side's first finding in page order nearest them.
+    right, each side's first finding in page order nearest them. The hint
+    check's stand left too, in lanes of their own between the security pass's
+    and the files: its defects are the security rubric's kind, and its side's
+    heading names both in the order they stand.
     """
-    left = [f for f in ordered if f["producer"] == "security"][::-1]
-    right = [f for f in ordered if f["producer"] != "security"]
+    left = [f for producer in LEFT for f in [g for g in ordered if g["producer"] == producer][::-1]]
+    right = [f for f in ordered if f["producer"] not in LEFT]
     path_col = len(left) + 2
     right_col = path_col + 3
     column = {f["id"]: index + 1 for index, f in enumerate(left)}
@@ -380,7 +386,9 @@ def header_cells(grid: Grid, plan: RowPlan, ordered: list[dict[str, Any]]) -> li
     left, right = grid.left, grid.right
     cells: list[str] = []
     if left:
-        cells.append(cell("lm-pass lm-pass-left", (1, grid.path_col), 1, PASS_NAME["security"]))
+        # "Security · Hint check" over both, in the order their lanes stand.
+        named = [PASS_NAME[p] for p in LEFT if any(f["producer"] == p for f in ordered)]
+        cells.append(cell("lm-pass lm-pass-left", (1, grid.path_col), 1, " · ".join(named)))
     if right:
         cells.append(
             cell(
@@ -524,6 +532,13 @@ def legend_items(
         for d, label in LANE_LABEL.items()
         if d in present
     ]
+    # The hint check's own mark: its lines stop at square stations, so a line
+    # standing among the security pass's says by its stations whose it is.
+    if any(f["producer"] == "hints" for f in ordered):
+        items.append(
+            '<li><span class="lm-key lm-lane lm-hints" aria-hidden="true"><i class="lm-st"></i></span>'
+            "a line from the hint check</li>"
+        )
     outside = {row.path for row in plan.rows if row.outside}
     if any(path in outside for paths in cited.values() for path in paths):
         items.append(
@@ -589,10 +604,15 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
     return (
         '<section class="linemap tracks"><div class="lm-main"><h2 id="map">Where the findings land</h2>'
         '<p class="lm-intro">Each finding is a line through the files it cites: the security '
-        "pass&rsquo;s left of them, the quality pass&rsquo;s right.</p>"
+        "pass&rsquo;s{hints} left of them, the quality pass&rsquo;s right.</p>"
         '<div class="lm-scroll"><div class="lm{narrow}" style="grid-template-columns:{cols};'
         'grid-template-rows:{rows}">{cells}</div></div></div>'
         '<div class="lm-side"><ul class="lm-legend">{legend}</ul></div></section>'.format(
+            hints=(
+                " and the hint check&rsquo;s"
+                if any(f["producer"] == "hints" for f in ordered)
+                else ""
+            ),
             narrow=" lm-narrow" if len(ordered) > LANES_WIDE_MAX else "",
             cols=grid.columns,
             rows=grid.rows,
@@ -706,6 +726,23 @@ CSS = """
    map's parts `.lm-dismissed`, which nothing hides. */
 .lm .lm-dismissed { opacity: .3; }
 .lm-label.lm-dismissed { text-decoration: line-through; }
+"""
+
+# The map's rules for the hint check, which page.py adds to a page that has its
+# findings and to no other: the filter's dimming for the third producer, and
+# the check's own mark. A station is a ring where a line meets a file; on the
+# hint check's lines it is a square, so they read apart from the security
+# pass's beside them.
+HINTS_CSS = """
+#f-prod-security:checked ~ .layout .lm .lm-hints,
+#f-prod-quality:checked ~ .layout .lm .lm-hints,
+#f-prod-hints:checked ~ .layout .lm .lm-security,
+#f-prod-hints:checked ~ .layout .lm .lm-quality { opacity: .15; }
+.lm-lane.lm-hints .lm-st { border-radius: 3px; }
+/* Its ids are six characters from hint-1 on, wider than a lane at the map's
+   12px, and a label that may wrap broke them at the hyphen. Set smaller and
+   tighter, to sit inside the lane with room between neighbours. */
+.lm-label.lm-hints { white-space: nowrap; font-size: 11px; letter-spacing: -.4px; }
 """
 
 # The map's rules for a window too narrow for the page's side track. page.py

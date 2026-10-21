@@ -90,6 +90,14 @@ HINTS_FROM = 5
 # are findings, so it is a producer like the two passes.
 PASSES = ("security", "quality")
 PRODUCERS = (*PASSES, "hints")
+# Adding a producer: checks.py holds every module-level dict that names two
+# producers to this tuple, and nothing else. By hand: the tuples that pick some
+# -- PASSES, RATED, linemap.LEFT; page.py's filter CSS, which has a rule for each
+# pair of producers; every test of a producer by name, `== "hints"`; and the
+# code that reads the envelopes or findings as one set, where the hint check's
+# misses were -- page.masthead_warnings comparing every envelope's tier,
+# linemap's side heading. Read each place that loops over `passes` or PRODUCERS
+# for whether the new producer belongs in it.
 ID_PREFIX = {"security": "sec", "quality": "qa", "hints": "hint"}
 # What a message calls each producer. The hint check is no pass, and a sentence
 # saying "the hints pass" would name a thing the skill does not have.

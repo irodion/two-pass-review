@@ -255,6 +255,9 @@ The same ruleset makes every CI job a required status check — `constraints`, `
 `python 3.10`, `python 3.13` and `readme install` — so a red run blocks **Rebase and merge** rather than
 advising against it. The requirement names the jobs, so renaming one in `checks.yml` means renaming it in
 the ruleset in the same change; otherwise GitHub waits for a check that never reports, and nothing merges.
+The ruleset also requires every review thread resolved, CodeRabbit's included: one left open blocks
+**Rebase and merge** with *"the base branch policy prohibits the merge"*, so answer each thread — the fix,
+or why there is none — and resolve it.
 
 The history is therefore linear, and it is meant to stay readable commit by commit. That is not decoration
 here: `git log` is one of the two surviving records of why anything is the way it is, which is the subject

@@ -147,8 +147,10 @@ anything about reviewing code:
   the standing B006 on the line it edits, nor an F811 whose line number it moves — then with
   `--no-hints`, recorded disabled, and with no linter on `PATH`, recorded skipped — with leads, the
   hint check's prompt written and printed and the falsifier's naming its findings, without them no
-  hint prompt at all, and a hint check that confirmed the B034 merged beside two empty passes into a
-  version-5 artifact that renders —
+  hint prompt at all, and a hint check that confirmed the B034, which `merge.py --candidates` must pair
+  with a security finding on its line and the merge links to it, in a version-5 artifact that records
+  the two leads and renders, then merged again with the hint check's files gone, whose page says no
+  lead was checked —
   `scope.py --since` and `--against` over a repository built with fixed
   commit dates — a midnight commit, a side branch merged since, a local `main` behind origin's — whose
   right bases are facts of its history, `collect_docs.py` over the first range's diff, `merge.py` and

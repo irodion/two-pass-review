@@ -219,10 +219,11 @@ into one paragraph, and a blank line starts a new one.
 }
 ```
 
-`what_holds_up_md` and `closing_md` are yours to use or leave `null` — write them when you have something
-to say, and the report gives each its own section and a link to it at the top of the page. They are not a
-summary slot: the report states the verdict at the top of the page on its own, so restating it here is a
-paragraph nobody reads.
+`what_holds_up_md` and `closing_md` are not a summary slot: the report states the verdict at the top of
+the page on its own, so restating it in either is a paragraph nobody reads. `what_holds_up_md` is where
+the leads you dismissed are accounted for, below — leave it `null` only when every lead became a finding.
+`closing_md` is yours to use or leave `null`: write it when you have something to say. The report gives
+each its own section and a link to it at the top of the page.
 
 **Account for every lead you dismissed.** In `what_holds_up_md`, list each one — its file, line and rule
 as the leads file gives them — with one line saying why the code is sound. A lead that left no finding

@@ -15,7 +15,7 @@ One execution of one rubric over one review scope. A run has two passes.
 _Avoid_: review, reviewer, agent, subagent
 
 **Hint check**:
-The subagent that checks a run's leads against the code and records the ones that point at a real defect the change introduces, as findings of its own under producer `hints`. Runs beside the passes, only when there are leads. Not a third pass: no rubric, and it checks only what the leads point at, never the change at large. A defect that breaks behaviour counts with no attacker needed, and its severity grades what breaks and for whom. A peer of the passes — same model, same effort, a window of its own, none of their findings — so its findings corroborate theirs.
+The subagent that checks a run's leads against the code and records the ones that point at a real defect the change introduces, as findings of its own under producer `hints`. Runs beside the passes, only when there are leads. Not a third pass: no rubric, and it checks only what the leads point at, never the change at large. A defect that breaks behaviour counts with no attacker needed, and its severity grades what breaks and for whom. A peer of the passes — same model, same effort, a window of its own, none of their findings — so its findings corroborate theirs; in a sequential run it shares the orchestrator's window, after both passes, and the report says so. The artifact records how many leads it was handed, so a report whose leads nobody checked says that too.
 _Avoid_: hints pass, lint pass, third pass, linter review
 
 **Producer**:

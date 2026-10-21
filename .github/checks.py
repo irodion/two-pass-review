@@ -225,8 +225,9 @@ def _hostile_artifact(version: int, benign: bool = False) -> dict[str, Any]:
     Version 4 carries corroboration, a contest, doc notes and a self-check;
     version 3 carries a withdrawn finding and a pass that found nothing, the
     two render paths a version-4 artifact never reaches; version 5 adds the
-    hint check -- a finding of its, linked to the security pass's, and its
-    envelope -- which is the only shape whose page offers a third producer. `benign` swaps every
+    hint check -- a finding of its, linked to the security pass's, its
+    envelope, and the run's record of its leads -- which is the only shape
+    whose page offers a third producer. `benign` swaps every
     payload for its bare token, which gives the page's own structure to compare
     against.
     """
@@ -360,6 +361,8 @@ def _hostile_artifact(version: int, benign: bool = False) -> dict[str, Any]:
     # versions split them. `since` has one shape, so it carries no payload, but
     # it is carried all the same: that is what puts its row under this check.
     scope = artifact["run"]["scope"]
+    if version >= 5:
+        artifact["run"]["hints"] = {"status": "given", "leads": 1}
     if version >= 4:
         artifact["self_check"] = [
             {
@@ -383,6 +386,7 @@ def _hostile_artifact(version: int, benign: bool = False) -> dict[str, Any]:
 OBJECTS: dict[str, Callable[[dict[str, Any]], list[Any]]] = {
     "MERGED_FIELDS": lambda a: [a],
     "RUN_FIELDS": lambda a: [a["run"]],
+    "RUN_HINTS_FIELDS": lambda a: [a["run"]["hints"]] if "hints" in a["run"] else [],
     "SCOPE_FIELDS": lambda a: [a["run"]["scope"]],
     "SCOPE_FILE_FIELDS": lambda a: a["run"]["scope"].get("files", []),
     "EMBEDDED_PASS_FIELDS": lambda a: a["passes"],
@@ -398,6 +402,7 @@ OBJECTS: dict[str, Callable[[dict[str, Any]], list[Any]]] = {
 NOT_IN_ARTIFACT = frozenset(["PASS_FIELDS"])
 # Fields that cannot carry text, by object.
 NOT_TEXT = {
+    "RUN_HINTS_FIELDS": frozenset(["status", "leads"]),
     "SCOPE_FIELDS": frozenset(["untracked"]),
     "SCOPE_FILE_FIELDS": frozenset(["added", "removed"]),
 }
@@ -1133,6 +1138,8 @@ HINTS = ("hint-check.md", "hints", "hint")
 HINTS_REWORDS: tuple[str, ...] = (
     "**Do the review yourself.** Never invoke",
     "## `disposition` is tagged as you emit, ",
+    # Optional for a pass; for the hint check, the account of its dismissed leads.
+    "`what_holds_up_md` and `closing_md` are ",
 )
 
 

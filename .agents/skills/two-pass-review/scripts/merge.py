@@ -31,7 +31,7 @@ reader: which findings corroborate each other, the self-check questions, and
 which way each subagent ran. Everything else is read from the files the run
 already wrote, by name:
 
-    scope.json                      scope.py's output: scope, clock, repo_root
+    scope.json                      scope.py's output: scope, clock, repo_root, hint step
     findings.<producer>.jsonl       each pass's findings, and the hint check's
     pass.<producer>.json            each pass's envelope, and the hint check's
     falsification.json              the falsifier's answer   (--falsification ran)
@@ -331,7 +331,9 @@ def read_passes(
             if os.path.exists(findings_path) and doing == "merge":
                 warn(
                     f"{noun} wrote findings but no envelope, so none of its findings are merged. "
-                    "Say which one died, and offer to re-run just that one"
+                    "Say which one died, and offer to re-run just that one -- then start the "
+                    "falsification check again before merging, because the one that ran never "
+                    "read the re-run's findings"
                 )
             continue
         given = [envelope_path] + ([findings_path] if os.path.exists(findings_path) else [])
@@ -512,21 +514,44 @@ def main(argv: list[str]) -> int:
         passes.append(entry)
     if not any(entry["producer"] in validate.PASSES for entry in passes):
         return refuse("neither pass wrote an envelope, so there is no review to merge")
-    # Leads nobody checked are a gap the page cannot show: an artifact without
-    # the hint check reads exactly like a run whose change gave the linters
-    # nothing to say. So the run's own record of what it handed over is the
-    # one place the absence can be noticed, and it is said here -- unless the
-    # check began and died, which read_passes has already said.
-    hinted = pinned.get("hints") or {}
-    if hinted.get("leads") and not any(
+    # What the hint step handed over goes into the artifact as run.hints, so
+    # the page can say when leads went unchecked: without it, a report with no
+    # hint check reads the same whether the linters found nothing or nobody
+    # checked what they found. A scope.json from before the hint step has no
+    # record to copy, and no status here would be true of it.
+    hinted = pinned.get("hints")
+    if not isinstance(hinted, dict) or "status" not in hinted or "leads" not in hinted:
+        return refuse(
+            "scope.json holds no record of the hint step -- a scope.py older than the hint "
+            "check pinned this run. Pin it again with this skill's scope.py"
+        )
+    # Said here as well as on the page, for the orchestrator to pass on --
+    # unless the check began and died, which read_passes has already said.
+    if hinted["leads"] and not any(
         os.path.exists(os.path.join(run_dir, name))
         for name in ("pass.hints.json", "findings.hints.jsonl")
     ):
         warn(
             "scope.py handed the hint check {} lead(s), but it wrote no envelope, so no lead was "
-            "checked and none is in the report. Say so, and offer to run the hint check".format(
-                hinted["leads"]
+            "checked and none is in the report. Say so, and offer to run the hint check -- if it "
+            "then writes findings, start the falsification check again before merging, because "
+            "the one that ran never read them".format(hinted["leads"])
+        )
+    # The two ways the linters can have had something to say and handed on
+    # nothing. Neither stops a review, and each is the user's to know: a change
+    # every linter flagged too heavily to hand on, or linters that never ran.
+    tools = [t for t in hinted.get("tools") or [] if isinstance(t, dict)]
+    if hinted["status"] == "over-cap":
+        warn(
+            "the hint step handed on no leads: every linter that found something new in this "
+            "change found more than the hint step hands on ({}), so none of it was checked".format(
+                "; ".join(f"{t.get('tool')}: {t.get('new')} new" for t in tools if t.get("new"))
             )
+        )
+    elif hinted["status"] == "skipped":
+        warn(
+            "the hint step handed on no leads: no linter that applies to the changed files could "
+            "run ({})".format("; ".join(f"{t.get('tool')}: {t.get('skipped')}" for t in tools))
         )
 
     known = {finding["id"]: finding for finding in findings}
@@ -591,6 +616,7 @@ def main(argv: list[str]) -> int:
             "mode": args.passes,
             "falsification": falsification,
             "docs_check": docs_state,
+            "hints": {"status": hinted["status"], "leads": hinted["leads"]},
             "generated_at": pinned.get("now"),
             "scope": pinned["scope"],
         },

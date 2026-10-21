@@ -193,8 +193,11 @@ Before the passes start, `scope.py` lints the files the change touched, at its b
 whichever of ruff, Biome and shellcheck is installed and this skill's own rules, and records what the
 change introduced as **leads**. When there are any, it writes them to `<run_dir>/hints.md` and prints
 `prompts.hints`. **Start the hint check with that line as its whole prompt, beside the passes.** When
-`prompts.hints` is absent there were no leads — no linter applied, none was installed, nothing new, or
-`--no-hints` — and there is no hint check to start.
+`prompts.hints` is absent there were no leads, and there is no hint check to start. `scope.json`'s
+`hints.status` says why: `none` — no linter applied, or none found anything new; `skipped` — no linter
+that applies could run, most often because none is installed; `over-cap` — every linter that found
+something new found more than the step hands on; `disabled` — `--no-hints`. `merge.py` warns about
+`skipped` and `over-cap`, with the reason, and you pass that on like any warning.
 
 It is not a third pass: it reads no rubric, and it checks only the leads, so it never stands in for
 either pass. For each lead it reads the code and decides whether the change introduced a real defect
@@ -206,11 +209,14 @@ corroboration like any other: two subagents reached one defect, each its own way
 **Run it at the model and effort the passes ran at,** for the reason the passes share one: its findings
 corroborate theirs only while it is their peer. On a split run its tier is the user's to name, in the same
 exchange that ordered the split, like the falsifier's. Where the host offers no subagents, run it yourself
-after both passes, as the run sheet says.
+after both passes, as the run sheet says — it still finds what the passes miss. The page's warning about a
+sequential run then names it too, because a hint finding you link to a pass's is your one window agreeing
+with itself.
 
 Nothing records that you started it but its own files, as for a pass. A hint check that died leaves no
 envelope, and `merge.py` warns that its findings were left out; one never started, when `scope.py` had
-handed it leads, draws a warning too. Pass either on.
+handed it leads, draws a warning too. Pass either on. The report says it as well: the artifact records how
+many leads the hint check was handed, so a page whose leads nobody checked says so.
 
 ### The docs check
 
@@ -430,8 +436,9 @@ was recorded.
   self-check file, or a doc note. The message names it; fix that input and merge again.
 - **Exit 2** is a malformed command, or a link or flag it refuses by name. Fix it and run it again.
 - **A warning on stderr** — a contest naming a finding that does not exist, a check whose answer could
-  not be read, a pass or hint check that left findings but no envelope, leads no hint check read — does
-  not stop the merge. Pass it on when you report.
+  not be read, a pass or hint check that left findings but no envelope, leads no hint check read, a hint
+  step that handed on nothing because no linter could run or every one found too much — does not stop
+  the merge. Pass it on when you report.
 
 **Model and effort go in as flags**, because you are the only party that knows what you asked each pass
 to run on — a pass cannot see what served it. `--model` and `--effort` record one value for both passes
@@ -440,16 +447,18 @@ Leave them all out when you did not choose and the host does not tell you: the p
 provenance, and a blank there says less than a guess but nothing false.
 
 What `merge.py` writes is schema version 5, `kind` `"merged"` — the version where the hint check exists:
-its findings, under producer `hints`, and its envelope beside the passes'. Version 4 is where
-falsification contests instead of withdrawing: `falsified` does not exist there, `contested_md` does, and
-the verdict reads dispositions alone. Version 3 added the docs check, version 2 added falsification;
-every older shape stays valid so old artifacts re-render — a v2 or v3 page still shows its withdrawals —
-and none of them is what a new merge writes. The verdict is **derived, never authored**: any finding
-tagged `blocking` makes it `"blocked"`, contested or not, otherwise `"clear"`. `clear` means nothing
-blocks, not that nothing was found — and a contested blocking finding still blocks, because un-blocking
-on the check's word would hand a one-in-five-wrong checker the verdict. `generated_at` is the `now` that
-`scope.py` printed: the moment the scope was pinned, which is the review's own duration before the merge.
-No reader decides anything on that difference, and `base` and `head` are what actually date a report.
+its findings, under producer `hints`, its envelope beside the passes', and `run.hints`, the `status` and
+the number of `leads` the hint step recorded, so the page can say when leads went unchecked. Version 4 is
+where falsification contests instead of withdrawing: `falsified` does not exist there, `contested_md`
+does, and the verdict reads dispositions alone. Version 3 added the docs check, version 2 added
+falsification; every older shape stays valid so old artifacts re-render — a v2 or v3 page still shows its
+withdrawals — and none of them is what a new merge writes. The verdict is **derived, never authored**:
+any finding tagged `blocking` makes it `"blocked"`, contested or not, otherwise `"clear"`. `clear` means
+nothing blocks, not that nothing was found — and a contested blocking finding still blocks, because
+un-blocking on the check's word would hand a one-in-five-wrong checker the verdict. `generated_at` is the
+`now` that `scope.py` printed: the moment the scope was pinned, which is the review's own duration before
+the merge. No reader decides anything on that difference, and `base` and `head` are what actually date a
+report.
 
 Then render:
 
@@ -495,6 +504,10 @@ You are the error handler. There is no status field, no retry protocol and no de
   died, and offer to re-run just that one — each pass is independently re-runnable against the same
   pinned `context.diff`. A hint check without an envelope is merged the same way, without it, and so is
   offered again on its own.
+- **A pass or hint check re-run after the falsification check is one the falsifier never read.** When
+  the re-run writes findings, start the falsification check again once it has finished — it reads every
+  producer's findings afresh — and merge after it. Merged without that, the page says the falsifier read
+  findings it never saw.
 - **A run that ends early still releases its review tree** — step 9 is not conditional on a report,
   and `scope.py --release <run_dir>` is safe whether or not a worktree was made.
 

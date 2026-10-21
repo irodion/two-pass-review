@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """The mechanical floor: the two non-negotiable constraints, plus drift a clone would trip on.
 
-Link rot, the committed symlink, build artifacts in the tree, flags the
-documents name that no script takes, the two output contracts' shared
-paragraphs drifting apart, and a change to either forked rubric.
+Link rot, the committed symlink, build artifacts in the tree, an output
+entry-points.sh keeps and never reads, a map naming producers that leaves one
+out, flags the documents name that no script takes, the two output contracts'
+shared paragraphs drifting apart, and a change to either forked rubric.
 
 Usage:
     python3 .github/checks.py
@@ -21,6 +22,7 @@ compile on 3.10, which is a separate job.
 
 import ast
 import hashlib
+import importlib
 import json
 import os
 import re
@@ -41,6 +43,17 @@ SCRIPTS = os.path.join(SKILL, "scripts")
 # reliably points at their siblings. Read off the directory rather than kept by
 # hand: a new script is a sibling the moment it exists, with no list to update.
 SIBLINGS = {name[: -len(".py")] for name in os.listdir(SCRIPTS) if name.endswith(".py")}
+
+
+def _import_scripts() -> None:
+    """Make the scripts importable by bare name, the way they import each other.
+
+    Without writing bytecode: an import writes __pycache__/ next to the scripts,
+    and a check has no business leaving anything behind in the working copy --
+    a .pyc from one got committed once."""
+    sys.dont_write_bytecode = True
+    if SCRIPTS not in sys.path:
+        sys.path.insert(0, SCRIPTS)
 
 
 def stdlib_only(problems: list[str]) -> None:
@@ -489,11 +502,7 @@ def page_escapes_everything(problems: list[str]) -> None:
     looked for verbatim as well, independently, and the agent block has to hold
     that payload unaltered between tags it cannot close. What a click makes of
     the attributes is copy_script_copies' question."""
-    # The one check that imports from the tree it is checking, and an import
-    # writes __pycache__/ next to the scripts. A check has no business leaving
-    # anything behind in the working copy -- a .pyc from one got committed once.
-    sys.dont_write_bytecode = True
-    sys.path.insert(0, SCRIPTS)
+    _import_scripts()
     try:
         import page
         import validate
@@ -707,9 +716,7 @@ def copy_script_copies(problems: list[str]) -> None:
     if node_bin is None:
         sys.stdout.write("  skipped: no node on PATH, so the copy handler was not run\n")
         return
-    sys.dont_write_bytecode = True
-    if SCRIPTS not in sys.path:
-        sys.path.insert(0, SCRIPTS)
+    _import_scripts()
     import page
 
     found = re.search(r"\n  function textOf\(button\) \{\n.*?\n  \}\n", page.SCRIPT, re.DOTALL)
@@ -841,6 +848,187 @@ def no_build_artifacts(problems: list[str]) -> None:
             continue
         if "__pycache__" in path or path.endswith((".pyc", ".pyo")):
             problems.append(f"{path}: build artifact is tracked")
+
+
+# A command's output entry-points.sh keeps in a file -- stdout or stderr, by `>`, `>>`,
+# `&>` or `tee` -- has to be read again, or the command is checked for its exit status
+# alone: whatever it printed passed. `merge.py --candidates` was one until a review
+# found it. Only a literal path is held to this. One built from a variable is a run
+# directory's or a temporary tree's, whose files the scripts read by name.
+REDIRECT = re.compile(r"&>>?|>>?[&|]?")
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1")
+
+
+def _shell_text(line: str) -> str:
+    """A shell line as the shell acts on it, at the same offsets: what quotes
+    protect blanked to `x`, and a comment cut off. A `$( )` inside double quotes
+    is shell again, so a redirection written there is still found."""
+    out: list[str] = []
+    opened: list[str] = []  # each quote and `$(` still open, innermost last
+    index = 0
+    while index < len(line):
+        top = opened[-1] if opened else ""
+        char = line[index]
+        if top == "'":
+            if char == "'":
+                opened.pop()
+            else:
+                char = "x"
+        elif char == "\\":
+            char = "x" * len(line[index : index + 2])
+        elif top == '"' and char == '"':
+            opened.pop()
+        elif line.startswith("$(", index):
+            opened.append("(")
+            char = "$("
+        elif top == '"':
+            char = "x"
+        elif char == "#" and (index == 0 or line[index - 1] in " \t;|&("):
+            break
+        elif char in "'\"(":
+            opened.append(char)
+        elif char == ")" and top == "(":
+            opened.pop()
+        out.append(char)
+        index += len(char)
+    return "".join(out)
+
+
+def _word(shell: str, start: int) -> tuple[int, int]:
+    """Where the shell word after `start` begins and ends, past any blanks before it."""
+    while start < len(shell) and shell[start] in " \t":
+        start += 1
+    end = start
+    while end < len(shell) and shell[end] not in " \t;|&<>()":
+        end += 1
+    return start, end
+
+
+def _writes(line: str, shell: str) -> list[tuple[int, int, str]]:
+    """Each file a shell line writes to a literal path: where the path stands, and the path."""
+    spans: list[tuple[int, int]] = []
+    for operator in REDIRECT.finditer(shell):
+        if shell.startswith("(", operator.end()):  # >( ) is a process, not a file
+            continue
+        start, end = _word(shell, operator.end())
+        # 2>&1 and >&2 point one stream at another.
+        if operator.group().endswith("&") and re.fullmatch(r"\d+|-", line[start:end]):
+            continue
+        spans.append((start, end))
+    for tee in re.finditer(r"(?:^|[|;&(])[ \t]*tee(?![\w.-])", shell):
+        start, end = _word(shell, tee.end())
+        while start < end:
+            if not line.startswith("-", start):
+                spans.append((start, end))
+            start, end = _word(shell, end)
+    found: list[tuple[int, int, str]] = []
+    for start, end in spans:
+        path = re.sub(r"[\"'\\]", "", line[start:end]).removeprefix("./")
+        if path and "$" not in path and "`" not in path and not path.startswith("/dev/"):
+            found.append((start, end, path))
+    return found
+
+
+def captures_read(problems: list[str]) -> None:
+    """Every output entry-points.sh keeps under a literal path is read after it is written.
+
+    A read is the whole path again -- `hints-candidates.json` is no read of
+    `candidates.json` -- later on the same line or on any line after it: a
+    command's argument, a path quoted in a `python -c`, a line of a heredoc.
+    Writing the path again is no read, and neither is a comment. A heredoc's
+    lines are searched for reads and never for writes, since a `>` there is
+    Python's or JSON's, not the shell's."""
+    path = os.path.join(ROOT, ".github", "entry-points.sh")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    except OSError as error:
+        problems.append(f"entry-points.sh cannot be read: {error}")
+        return
+    texts: list[str] = []  # what each line says, without its comment
+    writes: list[list[tuple[int, int, str]]] = []
+    bodies: list[tuple[str, bool]] = []  # heredocs opened and not yet ended
+    for line in lines:
+        if bodies:
+            texts.append(line)
+            writes.append([])
+            tag, tabbed = bodies[0]
+            if (line.lstrip("\t") if tabbed else line) == tag:
+                bodies.pop(0)
+            continue
+        shell = _shell_text(line)
+        texts.append(line[: len(shell)])
+        writes.append(_writes(line, shell))
+        for opener in re.finditer(r"<<(?!<)", shell):
+            if (heredoc := HEREDOC.match(line, opener.start())) is not None:
+                bodies.append((heredoc.group(2), heredoc.group(0).startswith("<<-")))
+    for number, written in enumerate(writes):
+        for _, end, name in written:
+            read = re.compile(rf"(?<![\w./-])(?:\./)?{re.escape(name)}(?![\w/-]|\.\w)")
+            if not any(
+                not any(start <= match.start() < stop for start, stop, _ in writes[later])
+                for later in range(number, len(texts))
+                for match in read.finditer(texts[later], end if later == number else 0)
+            ):
+                problems.append(
+                    f"entry-points.sh:{number + 1}: {name} keeps a command's output and "
+                    "nothing after it reads it -- assert on what it holds, or, when the exit "
+                    "status is the whole check, send the output to /dev/null"
+                )
+
+
+# A map that names some producers and not all on purpose, by module and name, with
+# why. Empty: every map naming two producers today names all three. An entry that no
+# longer names such a map fails, so this cannot outlive the reason it was written.
+PRODUCER_SUBSETS: dict[str, str] = {}
+
+
+def producer_maps_complete(problems: list[str]) -> None:
+    """Every map that names two producers names them all.
+
+    Found rather than listed: a module-level dict in any script whose keys and
+    string values together name two producers or more, so a map added later is
+    held too -- keyed by producer, like page.PRODUCER_LABEL, or pointing at
+    one, like prompts.RUN_SECTIONS. One missing a producer renders its raw key
+    -- 'hints' where 'Hint check' belongs -- or raises on the first artifact
+    that has one, and nothing else would notice before a run did. One name
+    alone makes no map of producers: runs.FIELD_KINDS keys the run's `hints`
+    field. A map meant for some producers is listed in PRODUCER_SUBSETS. What
+    no dict holds is validate.PRODUCERS' comment's to list."""
+    _import_scripts()
+    try:
+        import validate
+
+        modules = [importlib.import_module(name) for name in sorted(SIBLINGS)]
+    except ImportError as error:  # pragma: no cover - a broken import is the floor job's problem
+        problems.append(f"cannot import the scripts: {error}")
+        return
+    producers = set(validate.PRODUCERS)
+    partial: set[str] = set()
+    for module in modules:
+        for name, value in sorted(vars(module).items()):
+            if not isinstance(value, dict):
+                continue
+            named = {
+                item
+                for pair in value.items()
+                for item in pair
+                if isinstance(item, str) and item in producers
+            }
+            where = f"{module.__name__}.{name}"
+            if len(named) < 2 or named == producers:
+                continue
+            partial.add(where)
+            if where not in PRODUCER_SUBSETS:
+                problems.append(
+                    f"{where} names {', '.join(sorted(named))} and not "
+                    f"{', '.join(sorted(producers - named))} -- give every producer an entry, "
+                    "or list it in checks.PRODUCER_SUBSETS with why it leaves one out"
+                )
+    for where in sorted(PRODUCER_SUBSETS.keys() - partial):
+        problems.append(
+            f"checks.PRODUCER_SUBSETS: {where} is no longer a map that leaves a producer out"
+        )
 
 
 def links_resolve(problems: list[str]) -> None:
@@ -1334,6 +1522,8 @@ def main() -> int:
         copy_script_copies,
         committed_symlink,
         no_build_artifacts,
+        captures_read,
+        producer_maps_complete,
         links_resolve,
         docs_name_real_flags,
         contracts_mirror,
@@ -1354,6 +1544,8 @@ def main() -> int:
         "stdlib-only; page SCRIPT parses; a hostile payload in each text field renders "
         "as text and no unsafe link; the copy handler joins what page.py states; "
         "symlink relative; no build artifacts tracked; "
+        "entry-points.sh reads every output it keeps under a literal path; "
+        "every map naming two producers names them all; "
         "links resolve; documented flags exist; mirrored contract paragraphs agree; "
         "forked rubric text matches NOTICE.md's pins.\n"
     )

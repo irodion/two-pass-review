@@ -163,10 +163,12 @@ anything about reviewing code:
   JavaScript; a page rendered from an artifact with a hostile payload in every text field plants no tag,
   attribute or unsafe link — `javascript:`, `data:` and `vbscript:` included; the page's copy handler,
   run, copies what `page.py` says each button copies; the committed
-  `.claude/skills/` symlink is relative and resolves; every relative link in the docs points at a file a
-  clone has; every flag the docs hand an orchestrator is one a script takes; the paragraphs the two
-  output contracts share still read the same in both; and each rubric's forked text is the bytes NOTICE.md
-  pins.
+  `.claude/skills/` symlink is relative and resolves; every output `entry-points.sh` keeps under a
+  literal path is read again after it is written; every map in the scripts that names two producers names
+  all of them, or is listed in `checks.py` as one that leaves some out; every relative link in the docs
+  points at a file a clone has; every flag the docs hand an orchestrator is one a script takes; the
+  paragraphs the two output contracts share still read the same in both; and each rubric's forked text
+  is the bytes NOTICE.md pins.
 
   The `SCRIPT` check exists because the page's one script lives inside a Python string, where neither
   `py_compile` nor the 3.10 and 3.13 jobs can see it — a typo would ship a page that renders perfectly and

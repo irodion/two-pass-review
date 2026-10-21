@@ -340,9 +340,16 @@ def layout(ordered: list[dict[str, Any]], plan: RowPlan, band: Band | None) -> G
     """
     left = [f for producer in LEFT for f in [g for g in ordered if g["producer"] == producer][::-1]]
     right = [f for f in ordered if f["producer"] not in LEFT]
-    path_col = len(left) + 2
+    # A side's heading does not wrap, and over a lane or two "Security · Hint
+    # check" is wider than the lanes it heads. With the hint check's lanes on
+    # the map, an empty first track sized to its content takes the difference,
+    # outside the lanes, so the heading's rule runs the length of its words and
+    # the lanes keep their place beside the files. Only then: a map from before
+    # the hint check keeps the grid it always had.
+    spacer = 1 if any(f["producer"] == "hints" for f in left) else 0
+    path_col = spacer + len(left) + 2
     right_col = path_col + 3
-    column = {f["id"]: index + 1 for index, f in enumerate(left)}
+    column = {f["id"]: spacer + index + 1 for index, f in enumerate(left)}
     column.update({f["id"]: right_col + index for index, f in enumerate(right)})
     # The files as wide as their names and no wider, so both sides' lines arrive
     # beside them; what width is left over goes to the last track, after the
@@ -350,6 +357,7 @@ def layout(ordered: list[dict[str, Any]], plan: RowPlan, band: Band | None) -> G
     # whether the run recorded churn or not: with nothing in it, a max-content
     # track is no width at all, so every run lays out with one grid.
     tracks = [
+        *(["auto"] * spacer),
         *(["var(--lane)"] * len(left)),
         "14px",
         "minmax(12rem, max-content)",

@@ -478,31 +478,53 @@ assert run["hints"]["file"] in text and "findings.hints.jsonl" in text, text
 falsifier = open(os.path.join(run["run_dir"], "prompt.falsification.md")).read()
 assert "findings.hints.jsonl" in falsifier, falsifier
 PY
-# A hint check that confirmed the B034 lead, beside two passes that found
-# nothing: its files validate as a pass's do, the merge writes them into a
-# version-5 artifact whose verdict they decide, and the page renders.
+# A hint check that confirmed the B034 lead, beside a security pass that
+# found the same defect and a quality pass that found nothing: its files
+# validate as a pass's do, --candidates pairs its finding with the security
+# pass's across producers, and the merge links the two into a version-5
+# artifact whose verdict they decide, which records the two leads handed
+# over, and whose page renders.
 hrun=$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['run_dir'])" hints-on.json)
-for pass in security quality; do
-    : > "$hrun/findings.$pass.jsonl"
-    printf '{"schema_version": 1, "kind": "pass", "producer": "%s", "empty_reason_md": "Constructed by CI; no review ran."}\n' \
-        "$pass" > "$hrun/pass.$pass.json"
-done
+: > "$hrun/findings.quality.jsonl"
+printf '%s\n' '{"schema_version": 1, "kind": "pass", "producer": "quality", "empty_reason_md": "Constructed by CI; no review ran."}' \
+    > "$hrun/pass.quality.json"
+printf '%s\n' '{"id": "sec-1", "producer": "security", "disposition": "blocking", "severity": "high", "title": "The flags are the count", "locations": [{"path": "a.py", "start_line": 6, "end_line": 7}], "body_md": "```python\n    return re.sub(\"a\", \"b\", t, flags)\n```\n\nConstructed by CI."}' \
+    > "$hrun/findings.security.jsonl"
+printf '%s\n' '{"schema_version": 1, "kind": "pass", "producer": "security"}' > "$hrun/pass.security.json"
 printf '%s\n' '{"id": "hint-1", "producer": "hints", "disposition": "blocking", "severity": "high", "title": "The flags land in count", "locations": [{"path": "a.py", "start_line": 7, "end_line": 7}], "body_md": "```python\n    return re.sub(\"a\", \"b\", t, flags)\n```\n\nConstructed by CI."}' \
     > "$hrun/findings.hints.jsonl"
 printf '%s\n' '{"schema_version": 1, "kind": "pass", "producer": "hints", "what_holds_up_md": "- `a.py:18` ruff B006: constructed by CI."}' \
     > "$hrun/pass.hints.json"
 python "$S/validate.py" --repo "$hint" "$hrun/findings.hints.jsonl" "$hrun/pass.hints.json"
 echo '[]' > "$hrun/falsification.json"
+python "$S/merge.py" --candidates "$hrun" > hints-candidates.json
+python - hints-candidates.json <<'PY'
+import json, sys
+pairs = json.load(open(sys.argv[1]))["candidates"]
+assert [(p["ids"], p["lines"]) for p in pairs] == [(["sec-1", "hint-1"], "7")], pairs
+PY
 python "$S/merge.py" --run-dir "$hrun" --passes parallel --falsification ran \
-       --docs-check skipped > hints-merged.json
+       --docs-check skipped --link sec-1,hint-1 > hints-merged.json
 python - hints-merged.json "$hrun/findings.json" <<'PY'
 import json, sys
 summary, artifact = json.load(open(sys.argv[1])), json.load(open(sys.argv[2]))
 assert summary["verdict"] == "blocked" and summary["findings"]["hints"] == 1, summary
 assert artifact["schema_version"] == 5, artifact["schema_version"]
+assert artifact["run"]["hints"] == {"status": "given", "leads": 2}, artifact["run"]
+linked = {f["id"]: f.get("corroborated_by") for f in artifact["findings"]}
+assert linked == {"sec-1": ["hint-1"], "hint-1": ["sec-1"]}, linked
 PY
-python "$S/merge.py" --candidates "$hrun" > hints-candidates.json
 python "$S/render.py" --repo "$hint" "$hrun/findings.json" --no-open
+# The same run with the hint check's files gone, as if it had died before
+# writing either: the merge says no lead was checked, and the page, from
+# run.hints, says so too.
+mkdir "$hrun.gone"
+mv "$hrun/findings.hints.jsonl" "$hrun/pass.hints.json" "$hrun.gone/"
+python "$S/merge.py" --run-dir "$hrun" --passes parallel --falsification ran \
+       --docs-check skipped > /dev/null 2> hints-unchecked.err
+grep -qF "handed the hint check 2 lead(s)" hints-unchecked.err
+python "$S/render.py" --repo "$hint" "$hrun/findings.json" --no-open > /dev/null
+grep -qF "was handed 2 lead(s) from the linters" "$(dirname "$hrun/findings.json")/report.html"
 # Turned off, it says so, and lints nothing.
 python "$S/scope.py" --repo "$hint" --base HEAD~1 --mode revisions --head HEAD --no-hints \
     > hints-off.json

@@ -75,7 +75,10 @@ SCHEMA_VERSION = 1
 # near one in five at the weak tier, so its word became an annotation the
 # reader adjudicates rather than a verdict-moving act. Version 5 is where the
 # hint check exists: its findings and its envelope, under producer 'hints',
-# beside the passes'; nothing else changed. Older versions are the shapes from
+# beside the passes', and 'run.hints', what scope.py's hint step handed it --
+# required, for the reason 'run.falsification' is: without it, a report with
+# no hint check reads the same whether the linters found nothing or nobody
+# checked what they found. Older versions are the shapes from
 # before each change, kept so every artifact already on disk validates and
 # re-renders exactly as it always did.
 MERGED_SCHEMA_VERSIONS = (1, 2, 3, 4, 5)
@@ -118,6 +121,11 @@ FALSIFICATIONS = ("ran", "failed", "skipped")
 # The docs check records the same three states at the same bar: 'ran' is a
 # claim its reply was read, not that anything came of it.
 DOCS_CHECKS = FALSIFICATIONS
+# How the hint step ended, as hints.summary and hints.disabled record it:
+# 'given' handed on leads; 'none' found nothing new, or no linter applied;
+# 'over-cap' found more than it hands on from every linter that found any;
+# 'skipped' had no linter that could run; 'disabled' was --no-hints.
+HINT_STATUSES = ("given", "none", "over-cap", "skipped", "disabled")
 DOC_NOTE_KINDS = ("stale", "missing")
 VERDICTS = ("blocked", "clear")
 
@@ -182,7 +190,11 @@ EMBEDDED_PASS_FIELDS = PASS_FIELDS - frozenset(["schema_version", "kind"])
 MERGED_FIELDS = frozenset(
     ["schema_version", "kind", "run", "verdict", "passes", "findings", "self_check", "docs_check"]
 )
-RUN_FIELDS = frozenset(["mode", "falsification", "docs_check", "generated_at", "scope"])
+RUN_FIELDS = frozenset(["mode", "falsification", "docs_check", "hints", "generated_at", "scope"])
+# What the hint step recorded, as far as the report needs it: how it ended and
+# how many leads it handed on. Which linters ran, and why one did not, stay in
+# scope.json, where merge.py reads them to warn.
+RUN_HINTS_FIELDS = frozenset(["status", "leads"])
 DOCS_CHECK_FIELDS = frozenset(["examined", "skipped", "notes"])
 DOC_NOTE_FIELDS = frozenset(["path", "kind", "claim_md", "why_md", "owed_md"])
 DOC_SKIP_FIELDS = frozenset(["path", "reason"])
@@ -1249,6 +1261,19 @@ def validate_merged(report: Report, path: str, repo: str | None = None) -> None:
 
     check_verdict(report, where, merged.get("verdict"), findings, marks)
     check_passes(report, where, merged.get("passes"), findings, version)
+    # A hint check is started only with leads, so its envelope beside a hint
+    # step that handed on none is a record of a check of nothing.
+    hinted = run.get("hints") if isinstance(run, dict) else None
+    passes = merged.get("passes")
+    if (
+        isinstance(hinted, dict)
+        and hinted.get("leads") == 0
+        and isinstance(passes, list)
+        and any(isinstance(p, dict) and p.get("producer") == "hints" for p in passes)
+    ):
+        report.add(
+            where, "'passes' holds the hint check's envelope, but run.hints records no leads for it"
+        )
     if "self_check" in merged:
         check_self_check(report, where, merged["self_check"], by_id, marks_active=marks == "active")
 
@@ -1349,6 +1374,11 @@ def check_run(report: Report, where: str, run: object, version: int) -> None:
         _enum(report, at, run, "docs_check", DOCS_CHECKS)
     elif "docs_check" in run:
         report.add(at, "'docs_check' does not exist before schema version 3")
+    # And again at version 5, for the hint step.
+    if version >= HINTS_FROM:
+        check_run_hints(report, at, run)
+    elif "hints" in run:
+        report.add(at, f"'hints' does not exist before schema version {HINTS_FROM}")
     generated_at = _nonempty_str(report, at, run, "generated_at")
     if generated_at and not TIMESTAMP_RE.match(generated_at):
         report.add(at, "'generated_at' must look like 2026-08-08T14:02:11Z")
@@ -1412,6 +1442,28 @@ def check_run(report: Report, where: str, run: object, version: int) -> None:
             report.add(at, "'untracked' belongs only to scope mode 'local-patch'")
         else:
             _int(report, at, scope, "untracked")
+
+
+def check_run_hints(report: Report, where: str, run: dict[str, Any]) -> None:
+    if "hints" not in run:
+        report.add(where, "missing required field 'hints'")
+        return
+    hinted = run["hints"]
+    at = f"{where}.hints"
+    if not isinstance(hinted, dict):
+        report.add(at, "'run.hints' must be a JSON object")
+        return
+    _check_unknown(report, at, hinted, RUN_HINTS_FIELDS, "hints")
+    status = _enum(report, at, hinted, "status", HINT_STATUSES)
+    leads = _int(report, at, hinted, "leads")
+    # 'given' is the one status that hands anything on, so the two fields say
+    # one thing twice, and a record where they disagree is two records.
+    if status is not None and leads is not None and (status == "given") != (leads > 0):
+        report.add(
+            at,
+            f"'status' is {status!r} beside {leads} lead(s) -- 'given' is the status of a hint "
+            "step that handed on leads, and only of one",
+        )
 
 
 def link_problems(first: dict[str, Any], second: dict[str, Any]) -> list[str]:

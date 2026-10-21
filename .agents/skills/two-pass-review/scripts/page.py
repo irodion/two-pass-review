@@ -783,6 +783,29 @@ def provenance_state(passes: list[dict[str, Any]]) -> tuple[bool, bool, bool]:
     return recorded, agreed, differ
 
 
+# The run facts' words for a hint step that handed nothing on, by how it ended.
+# No hint check ran on any of them, so none of them names one.
+HINT_STEP_FACT = {
+    "none": "no leads",
+    "over-cap": "no leads: too many found",
+    "skipped": "no leads: no linter could run",
+    "disabled": "turned off",
+}
+
+
+def hint_check_fact(hinted: dict[str, Any], passes: list[dict[str, Any]]) -> str:
+    """The run facts' line for the hint check: what it was handed, and whether its
+    result is in the report -- the envelope is the one record that it is."""
+    leads = hinted["leads"]
+    if not leads:
+        # Never 'given': the validator holds that status to a record with leads.
+        return HINT_STEP_FACT[hinted["status"]]
+    noun = "lead" if leads == 1 else "leads"
+    if any(e["producer"] == "hints" for e in passes):
+        return f"ran on {leads} {noun}"
+    return f"{leads} {noun}, not checked"
+
+
 def render_run_facts(run: dict[str, Any], passes: list[dict[str, Any]]) -> str:
     """The run's facts, last on the page, as a document's colophon is.
 
@@ -832,6 +855,8 @@ def render_run_facts(run: dict[str, Any], passes: list[dict[str, Any]]) -> str:
         rows.append(("Falsification", esc(run["falsification"]), False))
     if run.get("docs_check"):
         rows.append(("Docs check", esc(run["docs_check"]), False))
+    if run.get("hints"):
+        rows.append(("Hint check", esc(hint_check_fact(run["hints"], passes)), False))
 
     recorded, agreed, _ = provenance_state(passes)
     if recorded and agreed:
@@ -899,15 +924,35 @@ def masthead_warnings(
     """
     scope = run["scope"]
     warnings: list[str] = []
+    rubric_passes = [e for e in passes if e["producer"] in validate.PASSES]
+    hint_check = [e for e in passes if e["producer"] == "hints"]
     if scope.get("untracked"):
         warnings.append(
             "{} file(s) in this working tree are untracked and were not reviewed. Git can only "
             "diff what it has been told about.".format(scope["untracked"])
         )
     if run["mode"] == "sequential":
-        warnings.append(
+        sequential = (
             "Both rubrics ran in one context window rather than side by side, and the second pass "
             "reviewed with whatever window the first left it. A sequential run is the weaker run."
+        )
+        # Without subagents the hint check runs in that window too, after both
+        # passes and with their findings in it. Said only where it ran, so a
+        # page from before it reads as it always did.
+        if hint_check:
+            sequential += (
+                " The hint check ran in that window too, after both passes, so where it agrees "
+                "with a pass, that is one window agreeing with itself."
+            )
+        warnings.append(sequential)
+    # Leads with no hint check's result beside them: it died or was never
+    # started. Without this the page reads like a change the linters had
+    # nothing to say about.
+    hinted = run.get("hints") or {}
+    if hinted.get("leads") and not hint_check:
+        warnings.append(
+            "The hint check was handed {} lead(s) from the linters, and no result from it is in "
+            "this report, so none of them was checked.".format(hinted["leads"])
         )
     # Both falsification warnings qualify findings the reader is about to
     # believe. With none on the page there is nothing a missed contradiction
@@ -926,15 +971,18 @@ def masthead_warnings(
     # The passes are compared with each other, and the hint check with each pass,
     # never all three as one set: a hint check on another tier weakens only the
     # links it is part of, and blaming the passes for it would discount theirs.
-    rubric_passes = [e for e in passes if e["producer"] in validate.PASSES]
+    # Its warning waits for a hint finding, for the falsification warnings'
+    # reason: with none, it has no link to weaken, and the run facts still
+    # list each producer's tier.
     if provenance_state(rubric_passes)[2]:
         warnings.append(
             "The passes were not asked for the same model and effort. Corroboration between them "
             "carries less than it appears to: two passes reaching one defect is evidence because "
             "they were peers."
         )
-    hint_check = [e for e in passes if e["producer"] == "hints"]
-    if hint_check and any(provenance_state([*hint_check, e])[2] for e in rubric_passes):
+    if any(f["producer"] == "hints" for f in findings) and any(
+        provenance_state([*hint_check, e])[2] for e in rubric_passes
+    ):
         warnings.append(
             "The hint check was not asked for the same model and effort as the passes. "
             "Corroboration between it and a pass carries less than it appears to: the two "

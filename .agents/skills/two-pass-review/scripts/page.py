@@ -923,11 +923,22 @@ def masthead_warnings(
             "The falsification check ran but its reply could not be read, so every finding was kept "
             "unexamined — a finding the diff contradicts would still be standing."
         )
-    if provenance_state(passes)[2]:
+    # The passes are compared with each other, and the hint check with each pass,
+    # never all three as one set: a hint check on another tier weakens only the
+    # links it is part of, and blaming the passes for it would discount theirs.
+    rubric_passes = [e for e in passes if e["producer"] in validate.PASSES]
+    if provenance_state(rubric_passes)[2]:
         warnings.append(
             "The passes were not asked for the same model and effort. Corroboration between them "
             "carries less than it appears to: two passes reaching one defect is evidence because "
             "they were peers."
+        )
+    hint_check = [e for e in passes if e["producer"] == "hints"]
+    if hint_check and any(provenance_state([*hint_check, e])[2] for e in rubric_passes):
+        warnings.append(
+            "The hint check was not asked for the same model and effort as the passes. "
+            "Corroboration between it and a pass carries less than it appears to: the two "
+            "reaching one defect is evidence because they were peers."
         )
     return warnings
 

@@ -959,7 +959,7 @@ def captures_read(problems: list[str]) -> None:
         shell = _shell_text(line)
         texts.append(line[: len(shell)])
         writes.append(_writes(line, shell))
-        for opener in re.finditer(r"<<(?!<)", shell):
+        for opener in re.finditer(r"(?<!<)<<(?!<)", shell):
             if (heredoc := HEREDOC.match(line, opener.start())) is not None:
                 bodies.append((heredoc.group(2), heredoc.group(0).startswith("<<-")))
     for number, written in enumerate(writes):

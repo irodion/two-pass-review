@@ -312,11 +312,13 @@ category tiers do not answer it either.
 
 **Choose the disposition by asking these questions in order. The first one you answer yes decides it.**
 
-1. **Does the change work as intended, and would your remedy add a branch to a shared helper — a flag
-   or mode it tests to tell two callers apart — or wrap a line or two the callers already write in a new
-   function?** Then it is a `note`. That remedy moves the complexity instead of deleting it: the refactor
-   the rubric says "merely spread[s] the same complexity around". A change that breaks something goes on
-   to the questions below, whatever its remedy.
+1. **Does the change work as intended, and is the only remedy you can find one that adds a branch to a
+   shared helper — a flag or mode it tests to tell two callers apart — or wraps a line or two the callers
+   already write in a new function?** Then it is a `note`. That remedy moves the complexity instead of
+   deleting it: the refactor the rubric says "merely spread[s] the same complexity around". Before you
+   answer, look for a remedy that deletes the complexity, the path the rubric says to "push hard for". If
+   you find one, it is your remedy: write it, and go on to question 2. A change that breaks something goes
+   on to the questions below, whatever its remedy.
 2. **Is it a presumptive blocker the author has not clearly justified, and does the body name what the
    right-hand column asks for?** Then it is `blocking`.
 

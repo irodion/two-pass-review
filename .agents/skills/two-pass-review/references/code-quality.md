@@ -317,17 +317,17 @@ category tiers do not answer it either.
    function?** Then it is a `note`. That remedy moves the complexity instead of deleting it: the refactor
    the rubric says "merely spread[s] the same complexity around". A change that breaks something goes on
    to the questions below, whatever its remedy.
-2. **Is it a presumptive blocker the author has not justified, and does the body name what the
+2. **Is it a presumptive blocker the author has not clearly justified, and does the body name what the
    right-hand column asks for?** Then it is `blocking`.
 
    | presumptive blocker | the body names |
    |---|---|
-   | incidental complexity a code-judo move would delete | what the remedy deletes |
+   | a lot of incidental complexity a plausible code-judo move would delete | what the remedy deletes |
    | ad-hoc branching that makes an existing flow more tangled | that flow |
    | feature checks scattered across shared code | that shared code |
-   | an abstraction, wrapper or cast-heavy contract that makes the design more indirect | the indirection |
+   | an unnecessary abstraction, wrapper or cast-heavy contract that makes the design more indirect | the indirection |
    | a duplicated helper with a clear canonical home | the existing function to call instead, by path |
-   | logic in the wrong layer with a clear canonical home | the layer, by path, and the code already there that does this job — sharing more than a line or two with the new code |
+   | logic in the wrong layer with a clear canonical home | the layer that already owns the concept, by path, and what the layer it sits in now should not need to know |
 
    A canonical home exists already: a function your remedy would write first is not one. Nothing else is
    on this list. A file that now holds two modules is not on it: decomposition is on the Approval Bar,

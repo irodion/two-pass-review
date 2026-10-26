@@ -326,7 +326,8 @@ category tiers do not answer it either.
    | ad-hoc branching that makes an existing flow more tangled | that flow |
    | feature checks scattered across shared code | that shared code |
    | an abstraction, wrapper or cast-heavy contract that makes the design more indirect | the indirection |
-   | a duplicated helper, or logic in the wrong layer, with a clear canonical home | the existing function to call, or the layer the logic belongs in, by path |
+   | a duplicated helper with a clear canonical home | the existing function to call instead, by path |
+   | logic in the wrong layer with a clear canonical home | the layer, by path, and the code already there that does this job — sharing more than a line or two with the new code |
 
    A canonical home exists already: a function your remedy would write first is not one. Nothing else is
    on this list. A file that now holds two modules is not on it: decomposition is on the Approval Bar,

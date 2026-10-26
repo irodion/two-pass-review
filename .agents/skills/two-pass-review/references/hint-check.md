@@ -103,7 +103,7 @@ all of them.
 One line, one object, no trailing commas, no wrapping array.
 
 ```json
-{"id": "hint-1", "producer": "hints", "disposition": "blocking", "severity": "high", "title": "Redaction stops after the first secret: the flags land in re.sub's count", "locations": [{"path": "src/redact.py", "start_line": 18, "end_line": 18}], "body_md": "The diff passes the flags positionally:\n\n```python\nreturn re.sub(SECRET, \"[x]\", line, re.IGNORECASE)\n```\n\n`re.sub`'s fourth parameter is `count`, so `re.IGNORECASE` (2) caps the replacements at two and the match stays case-sensitive. A log line with a third secret, or one in upper case, ships it unredacted. Pass `flags=re.IGNORECASE` by name. If this waits a week, a week of logs holds the secrets this line was written to hide."}
+{"id": "hint-1", "producer": "hints", "disposition": "blocking", "severity": "high", "title": "Redaction stops after two secrets: the flags land in re.sub's count", "locations": [{"path": "src/redact.py", "start_line": 18, "end_line": 18}], "body_md": "The diff passes the flags positionally:\n\n```python\nreturn re.sub(SECRET, \"[x]\", line, re.IGNORECASE)\n```\n\n`re.sub`'s fourth parameter is `count`, so `re.IGNORECASE` (2) caps the replacements at two and the match stays case-sensitive. A log line with a third secret, or one in upper case, ships it unredacted. Pass `flags=re.IGNORECASE` by name. If this waits a week, a week of logs holds the secrets this line was written to hide."}
 ```
 
 That example is complete, and it is **one physical line**. `body_md` holds markdown, and markdown is

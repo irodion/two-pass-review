@@ -317,8 +317,8 @@ category tiers do not answer it either.
    function?** Then it is a `note`. That remedy moves the complexity instead of deleting it: the refactor
    the rubric says "merely spread[s] the same complexity around". A change that breaks something goes on
    to the questions below, whatever its remedy.
-2. **Is it a presumptive blocker, and does the body name what the right-hand column asks for?** Then it
-   is `blocking`, unless the author has justified it.
+2. **Is it a presumptive blocker the author has not justified, and does the body name what the
+   right-hand column asks for?** Then it is `blocking`.
 
    | presumptive blocker | the body names |
    |---|---|

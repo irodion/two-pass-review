@@ -1267,11 +1267,12 @@ def docs_name_real_flags(problems: list[str]) -> None:
 # paragraphs are the same paragraph twice -- and an edit that reaches one copy
 # is a rule the passes now disagree about. It happened: 2815638 had to put one
 # fix into both by hand. So every paragraph is paired across the contracts by
-# how it opens, once each file's own pass name is taken out, and a pair must
-# read the same. The three lists are the exceptions, each a deliberate choice:
-# a pair that differs on purpose, and a paragraph only one pass is told. One
-# added to a contract without being added to the other or to its list fails,
-# and so does a list entry that no longer names anything.
+# how it opens, once each file's own pass name and the numbers of its list
+# steps are taken out, and a pair must read the same. The three lists are the
+# exceptions, each a deliberate choice: a pair that differs on purpose, and a
+# paragraph only one pass is told. One added to a contract without being added
+# to the other or to its list fails, and so does a list entry that no longer
+# names anything.
 OPENING = 40
 DIFFERS: tuple[str, ...] = (
     "You are the **PASS** pass. The orchestra",
@@ -1303,7 +1304,7 @@ QUALITY_ONLY: tuple[str, ...] = (
     "`category` is the **Output Expectations*",
     "| tier | slug | |---|---| | 1 | `structu",
     "You emit no severity. Rank is what the t",
-    "1. **Would your remedy add a branch to a",
+    "1. **Does the change work as intended, a",
     "| presumptive blocker | the body names |",
     "A canonical home exists already: a funct",
 )

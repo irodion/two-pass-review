@@ -1279,7 +1279,6 @@ DIFFERS: tuple[str, ...] = (
     "| field | required | value | |---|---|--",
     "**Cross-reference your own findings by i",
     "The merged report is **one list ordered ",
-    "- `blocking` — this change should not me",
     "Argue the finding and say what to do abo",
     "**Open with the evidence.** The body's f",
     "**Write for a reader who is skimming.** ",
@@ -1304,7 +1303,9 @@ QUALITY_ONLY: tuple[str, ...] = (
     "`category` is the **Output Expectations*",
     "| tier | slug | |---|---| | 1 | `structu",
     "You emit no severity. Rank is what the t",
-    "Choose by naming the cost: who pays if t",
+    "1. **Would your remedy add a branch to a",
+    "| presumptive blocker | the body names |",
+    "A canonical home exists already: a funct",
 )
 # Each file has only its own pass name taken out: a paragraph copied from the
 # other contract and not renamed -- the security pass told to write
@@ -1359,6 +1360,10 @@ def _contract_paragraphs(name: str, own: str, prefix: str) -> dict[str, str] | s
     text = split[1].decode("utf-8", "replace")
     text = re.sub(rf"\b{own}\b", "PASS", text)
     text = re.sub(rf"\b{prefix}-(\d+|<n>)", r"ID-\1", text)
+    # A step's number says where it sits in its own contract's list, not what it
+    # tells the pass: the quality pass asks two questions before the disposition
+    # questions every producer asks, and those must still read the same.
+    text = re.sub(r"(?m)^\d+\. ", "1. ", text)
     paragraphs: dict[str, str] = {}
     for block in re.split(r"\n\s*\n", text):
         paragraph = " ".join(line.strip() for line in block.strip().split("\n"))

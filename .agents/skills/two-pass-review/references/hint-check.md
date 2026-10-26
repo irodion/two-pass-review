@@ -103,7 +103,7 @@ all of them.
 One line, one object, no trailing commas, no wrapping array.
 
 ```json
-{"id": "hint-1", "producer": "hints", "disposition": "blocking", "severity": "high", "title": "Redaction stops after the first secret: the flags land in re.sub's count", "locations": [{"path": "src/redact.py", "start_line": 18, "end_line": 18}], "body_md": "The diff passes the flags positionally:\n\n```python\nreturn re.sub(SECRET, \"[x]\", line, re.IGNORECASE)\n```\n\n`re.sub`'s fourth parameter is `count`, so `re.IGNORECASE` (2) caps the replacements at two and the match stays case-sensitive. A log line with a third secret, or one in upper case, ships it unredacted. Pass `flags=re.IGNORECASE` by name."}
+{"id": "hint-1", "producer": "hints", "disposition": "blocking", "severity": "high", "title": "Redaction stops after the first secret: the flags land in re.sub's count", "locations": [{"path": "src/redact.py", "start_line": 18, "end_line": 18}], "body_md": "The diff passes the flags positionally:\n\n```python\nreturn re.sub(SECRET, \"[x]\", line, re.IGNORECASE)\n```\n\n`re.sub`'s fourth parameter is `count`, so `re.IGNORECASE` (2) caps the replacements at two and the match stays case-sensitive. A log line with a third secret, or one in upper case, ships it unredacted. Pass `flags=re.IGNORECASE` by name. If this waits a week, a week of logs holds the secrets this line was written to hide."}
 ```
 
 That example is complete, and it is **one physical line**. `body_md` holds markdown, and markdown is
@@ -145,6 +145,21 @@ merge* or *worth doing next week*, and severity does not answer it either.
 - `blocking` — this change should not merge until it is addressed.
 - `follow-up` — real, worth fixing, and it does not block this merge.
 - `note` — you looked, it is real, and it does not deserve the author's afternoon.
+
+**Choose the disposition by asking these questions in order. The first one you answer yes decides it.**
+
+1. **Can you finish this sentence: "If this waits a week, …"?** Then it is `blocking`, and the body ends
+   with that sentence. Only two kinds of ending count:
+   - someone meets the cost during that week — users or developers hit a break, a hole is reachable as
+     shipped, a gate leaks, data is written wrong. *If this waits a week, every backup taken that week
+     skips the new table.*
+   - the fix is bigger by then — data is already stored in the new shape, or callers outside this
+     repository have started to use a new name or API. *If this waits a week, a week of uploads is stored
+     under the new keys, and the fix has to migrate them.*
+2. **Can you name who pays later, and when?** The next reader of code that works but is hard to follow,
+   the next caller of an awkward interface, the user a rare, bounded defect reaches, whatever first
+   reaches a hardening gap nothing reaches yet. Then it is `follow-up`.
+3. **Otherwise it is a `note`.** A familiar pattern that costs nobody anything is still a `note`.
 
 A `note` carries **no severity**. `note` is not "low severity" — it is the claim that the thing does not
 warrant attention, which is exactly what a severity label would deny.

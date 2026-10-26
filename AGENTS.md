@@ -226,12 +226,15 @@ anything about reviewing code:
   a command document (`COMMAND_DOCS` in `checks.py`) to some script's. A rule fixed in one contract and
   not the other is two passes told different things, and `2815638` had to put one fix into both by
   hand. So the contracts are compared paragraph by paragraph, paired by how each opens once the file's
-  own pass name is taken out: a pair must read the same, and a paragraph in only one contract fails.
-  The exceptions are three short lists in `checks.py` — `DIFFERS`, `SECURITY_ONLY`, `QUALITY_ONLY` — so
-  a difference is always a choice someone wrote down, and an entry that no longer names anything fails
-  too. The hint check's contract is held to the core the two share: every paragraph that reads the same
-  in both reads the same in `hint-check.md`, but for the few `HINTS_REWORDS` lists, because a rule fixed
-  for the passes must not miss the third subagent that writes findings.
+  own pass name and the numbers of its list steps are taken out: a pair must read the same, and a
+  paragraph in only one contract fails. The exceptions are three short lists in `checks.py` —
+  `DIFFERS`, `SECURITY_ONLY`, `QUALITY_ONLY` — so a difference is always a choice someone wrote down,
+  and an entry that no longer names anything fails too. The step numbers are left out because the
+  quality pass asks two disposition questions before the three every producer asks, and those three
+  must still read the same. The hint check's contract is held to the core the two share: every
+  paragraph that reads the same in both reads the same in `hint-check.md`, but for the few
+  `HINTS_REWORDS` lists, because a rule fixed for the passes must not miss the third subagent that
+  writes findings.
 - **`lint and types`** — ruff's configured rule set, the formatter, and `mypy --strict`, pinned.
   The rule set and its exclusions are argued in `pyproject.toml`'s comments; the job only runs what
   that file declares.

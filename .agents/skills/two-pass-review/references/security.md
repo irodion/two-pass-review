@@ -130,7 +130,7 @@ all of them.
 One line, one object, no trailing commas, no wrapping array.
 
 ```json
-{"id": "sec-1", "producer": "security", "disposition": "blocking", "severity": "high", "title": "Session cookie loses Secure when HOST_ENV is unset", "locations": [{"path": "src/session.py", "start_line": 41, "end_line": 44}], "body_md": "The diff derives the cookie flag from the deployment environment:\n\n```python\nsecure = os.environ.get(\"HOST_ENV\") == \"production\"\n```\n\nStaging leaves `HOST_ENV` unset, so every staging session cookie ships without `Secure` and survives a downgrade to plain HTTP. Derive the flag from the request scheme instead, or default it to `True` and opt out explicitly where TLS genuinely is not terminated."}
+{"id": "sec-1", "producer": "security", "disposition": "blocking", "severity": "high", "title": "Session cookie loses Secure when HOST_ENV is unset", "locations": [{"path": "src/session.py", "start_line": 41, "end_line": 44}], "body_md": "The diff derives the cookie flag from the deployment environment:\n\n```python\nsecure = os.environ.get(\"HOST_ENV\") == \"production\"\n```\n\nStaging leaves `HOST_ENV` unset, so every staging session cookie ships without `Secure` and survives a downgrade to plain HTTP. Derive the flag from the request scheme instead, or default it to `True` and opt out explicitly where TLS genuinely is not terminated. If this waits a week, every staging session started that week rides on a cookie a downgrade to HTTP exposes."}
 ```
 
 That example is complete, and it is **one physical line**. `body_md` holds markdown, and markdown is
@@ -172,6 +172,21 @@ severity does not answer it either.
 - `blocking` — this change should not merge until it is addressed.
 - `follow-up` — real, worth fixing, and it does not block this merge.
 - `note` — you looked, it is real, and it does not deserve the author's afternoon.
+
+**Choose the disposition by asking these questions in order. The first one you answer yes decides it.**
+
+1. **Can you finish this sentence: "If this waits a week, …"?** Then it is `blocking`, and the body ends
+   with that sentence. Only two kinds of ending count:
+   - someone meets the cost during that week — users or developers hit a break, a hole is reachable as
+     shipped, a gate leaks, data is written wrong. *If this waits a week, every backup taken that week
+     skips the new table.*
+   - the fix is bigger by then — data is already stored in the new shape, or callers outside this
+     repository have started to use a new name or API. *If this waits a week, a week of uploads is stored
+     under the new keys, and the fix has to migrate them.*
+2. **Can you name who pays later, and when?** The next reader of code that works but is hard to follow,
+   the next caller of an awkward interface, the user a rare, bounded defect reaches, whatever first
+   reaches a hardening gap nothing reaches yet. Then it is `follow-up`.
+3. **Otherwise it is a `note`.** A familiar pattern that costs nobody anything is still a `note`.
 
 A `note` carries **no severity**. `note` is not "low severity" — it is the claim that the thing does not
 warrant attention, which is exactly what a severity label would deny.

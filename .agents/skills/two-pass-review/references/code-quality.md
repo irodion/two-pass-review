@@ -254,7 +254,7 @@ all of them.
 One line, one object, no trailing commas, no wrapping array.
 
 ```json
-{"id": "qa-1", "producer": "quality", "disposition": "follow-up", "category": "branching-complexity", "title": "Retry logic branches on caller identity instead of taking a policy", "locations": [{"path": "src/fetch.py", "start_line": 88, "end_line": 117}], "body_md": "The diff threads a `from_cron` flag through three call sites so `fetch()` can pick a retry count:\n\n```python\nretries = 5 if from_cron else 2\n```\n\nEvery new caller will grow this branch. Make the retry count a parameter with a default of 2 — callers that need more say so, `from_cron` disappears from `fetch()` entirely, and the cron-specific knowledge stays in the cron module where it started."}
+{"id": "qa-1", "producer": "quality", "disposition": "blocking", "category": "branching-complexity", "title": "Retry logic branches on caller identity instead of taking a policy", "locations": [{"path": "src/fetch.py", "start_line": 88, "end_line": 117}], "body_md": "The diff threads a `from_cron` flag through three call sites so `fetch()` can pick a retry count:\n\n```python\nretries = 5 if from_cron else 2\n```\n\nEvery new caller will grow this branch. Make the retry count a parameter with a default of 2 — callers that need more say so, `from_cron` disappears from `fetch()` entirely, and the cron-specific knowledge stays in the cron module where it started."}
 ```
 
 That example is complete, and it is **one physical line**. `body_md` holds markdown, and markdown is
@@ -306,14 +306,43 @@ The merged report is **one list ordered by disposition**. Nobody can reconstruct
 cannot tell from a finding's text whether you meant *stop the merge* or *worth doing next week*, and the
 category tiers do not answer it either.
 
-- `blocking` — this change should not merge until it is addressed. The Approval Bar above is what this
-  means; a presumptive blocker the author has not justified is `blocking`.
+- `blocking` — this change should not merge until it is addressed.
 - `follow-up` — real, worth fixing, and it does not block this merge.
 - `note` — you looked, it is real, and it does not deserve the author's afternoon.
 
-Choose by naming the cost: who pays if this merges as-is — the next reader, the next caller, the next
-feature — and when the bill comes due. That named cost is what makes a comment high-conviction rather
-than cosmetic; a cost you cannot name is a `note`, however familiar the pattern looks.
+**Choose the disposition by asking these questions in order. The first one you answer yes decides it.**
+
+1. **Would your remedy add a branch to a shared helper — a flag or mode it tests to tell two callers
+   apart — or wrap a line or two the callers already write in a new function?** Then it is a `note`. That
+   remedy moves the complexity instead of deleting it: the refactor the rubric says "merely spread[s] the
+   same complexity around".
+2. **Is it a presumptive blocker, and does the body name what the right-hand column asks for?** Then it
+   is `blocking`, unless the author has justified it.
+
+   | presumptive blocker | the body names |
+   |---|---|
+   | incidental complexity a code-judo move would delete | what the remedy deletes |
+   | ad-hoc branching that makes an existing flow more tangled | that flow |
+   | feature checks scattered across shared code | that shared code |
+   | an abstraction, wrapper or cast-heavy contract that makes the design more indirect | the indirection |
+   | a duplicated helper, or logic in the wrong layer, with a clear canonical home | the existing function to call, or the layer the logic belongs in, by path |
+
+   A canonical home exists already: a function your remedy would write first is not one. Nothing else is
+   on this list. A file that now holds two modules is not on it: decomposition is on the Approval Bar,
+   and off this list on purpose.
+
+3. **Can you finish this sentence: "If this waits a week, …"?** Then it is `blocking`, and the body ends
+   with that sentence. Only two kinds of ending count:
+   - someone meets the cost during that week — users or developers hit a break, a hole is reachable as
+     shipped, a gate leaks, data is written wrong. *If this waits a week, every backup taken that week
+     skips the new table.*
+   - the fix is bigger by then — data is already stored in the new shape, or callers outside this
+     repository have started to use a new name or API. *If this waits a week, a week of uploads is stored
+     under the new keys, and the fix has to migrate them.*
+4. **Can you name who pays later, and when?** The next reader of code that works but is hard to follow,
+   the next caller of an awkward interface, the user a rare, bounded defect reaches, whatever first
+   reaches a hardening gap nothing reaches yet. Then it is `follow-up`.
+5. **Otherwise it is a `note`.** A familiar pattern that costs nobody anything is still a `note`.
 
 ## `body_md` — claim and remedy in one block
 

@@ -41,6 +41,8 @@ separate checkout of the reviewed commit, and every `--repo` after step 1 takes 
    is the line step 1 printed under `prompts` — `prompts.security`, `prompts.quality`, `prompts.hints`,
    `prompts.docs` — sent exactly as printed, with nothing added. Leave out the hint check when step 1
    printed no `prompts.hints`, and the docs check when step 2 listed no documents.
+   Their results reach you without your asking: **never schedule a wakeup, a timer or a loop** to come
+   back for them.
 4. **When both passes and the hint check have finished, start the falsification check** —
    [§3](#3-falsification) — with `prompts.falsification` as its whole prompt, unless none of them wrote
    a finding.
@@ -151,6 +153,13 @@ one after the other — **security and correctness first, then code quality** �
 hold the second to the same depth as the first. The order is fixed because the second seat is the weaker
 one — "Record which way they ran", below, says why — and the fresh window belongs to the pass whose
 findings block.
+
+**Wait for the subagents without scheduling anything.** Each one's result reaches you by itself — as its
+call's return, or as a notice when a background subagent finishes — so a wakeup, a timer or a loop set to
+come back for them does nothing but outlive the run. It keeps the session open after the report is
+delivered, and when it fires, its prompt arrives as though the user had sent it: given the request's own
+words, a model starts the whole run again, at full cost, and nobody asked for it. If you scheduled one
+anyway, cancel it once you have told the user the verdict.
 
 **Which model, and at what effort, is the user's to say.** If the request named either, spawn the passes
 with it. If it did not, they inherit the session's, and you do not raise or lower that on your own

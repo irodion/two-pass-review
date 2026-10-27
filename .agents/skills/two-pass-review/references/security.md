@@ -109,7 +109,8 @@ Answer each by looking, never by recalling:
 ## Sweep the callers before you close
 
 The breakage this rubric weights most heavily rarely sits in the hunks — it sits in the code the hunks
-forgot. Tracing side effects is a procedure, not a mood, so run this before you write your envelope:
+forgot, and in the code they lean on without reading it. Tracing side effects is a procedure, not a
+mood, so run this before you write your envelope:
 
 1. **List what the diff changed the shape or meaning of** — every function whose signature, return
    shape, or behaviour changed; every name renamed or removed; every environment variable or config
@@ -120,6 +121,15 @@ forgot. Tracing side effects is a procedure, not a mood, so run this before you 
    unpacking the old shape, a script still exporting the old variable name — report these, and locate
    them where the victim lives: the defect is caused by code this diff modifies, so the scope rule is
    satisfied however untouched the breaking file is.
+4. **Then trace the other way: find the far end of every name the diff newly relies on.** A call it
+   adds into code it did not write, an option it passes by keyword, and above all a string that has to
+   match a string somewhere else — an event or queue name, a cache or config key, an environment
+   variable, a route, a file path. `git grep` each one and open where it is defined, emitted or created:
+   the function's signature and what it does with its options, the code that publishes the event or
+   writes the key, the script or build step that makes the path. The two ends must spell it alike and
+   mean the same thing. A mismatch here raises nothing — the code runs and the new behaviour never
+   happens, and a test the diff wrote against its own spelling passes all the same — so the far end is
+   the only place it shows. Report it located at the diff's line that names it.
 
 ## Emit each finding the moment you have argued it
 

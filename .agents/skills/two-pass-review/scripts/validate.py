@@ -806,10 +806,12 @@ FENCE_LINE = re.compile(r"^(?P<prefix>[ \t]*(?:>[ \t]?)*)(?P<fence>`{3,})(?P<inf
 COMMENT_START = re.compile(r"^\s*(?:<!--|/\*+|\*+/|//+|#+|--|;+)")
 COMMENT_END = re.compile(r"(?:\*+/|-->)\s*$")
 ELISION = re.compile(r"^(?:\.\.\.|…|\[\.\.\.\]|\[…\])$")
-FILE_LABEL = re.compile(
-    r"^(?P<path>[\w./\\-]*\.[A-Za-z0-9]+)"
-    r"(?P<where>(?::\s*|,\s*|\s+\(?)(?:lines?\s*)?\d+(?:\s*[-\u2013]\s*\d+)?\)?)?$"
-)
+LABEL_WHERE = r"(?P<where>(?::\s*|,\s*|\s+\(?)(?:lines?\s*)?\d+(?:\s*[-\u2013]\s*\d+)?\)?)?$"
+FILE_LABEL = re.compile(r"^(?P<path>[\w./\\-]*\.[A-Za-z0-9]+)" + LABEL_WHERE)
+# A file the finding cites is a label by its own name, extension or none: a
+# Dockerfile or a Makefile is where a path or a build step is made, and a quote
+# of one that a pass labels `# Dockerfile` is no less a quote of that file.
+CITED_LABEL = re.compile(r"^(?P<path>[\w./\\-]+)" + LABEL_WHERE)
 
 # The contract's mark for a secret taken out of an excerpt. A piece holding it
 # cannot match the file, and must never be told to: the fix for "not as
@@ -821,7 +823,7 @@ REDACTED = "[redacted]"
 EXCERPT_FILE_CEILING = 8 * 1024 * 1024
 
 
-def _is_break(line: str) -> bool:
+def _is_break(line: str, cited: frozenset[str]) -> bool:
     """Whether an excerpt line separates quotes rather than quoting one.
 
     Wider than the contracts' own `...` and `# path/to/file.ext`, on purpose:
@@ -829,7 +831,8 @@ def _is_break(line: str) -> bool:
     warning costs more than a missed one -- a pass told its honest quote is
     wrong will change it. A bare `name.ext` with no comment marker, no path
     separator and no line number is code, `self.run` and the like, and stays
-    a quote.
+    a quote. A name with no extension is code however it is marked, unless it
+    names a file the finding cites.
     """
     core = line.strip()
     marked = False
@@ -842,11 +845,16 @@ def _is_break(line: str) -> bool:
         return True
     label = FILE_LABEL.match(core)
     if label is None:
-        return False
+        label = CITED_LABEL.match(core)
+        if label is None:
+            return False
+        named = label.group("path").removeprefix("./")
+        if not any(named in (path, path.rsplit("/", 1)[-1]) for path in cited):
+            return False
     return bool(marked or label.group("where") or "/" in label.group("path"))
 
 
-def _opening_excerpt(body: str) -> list[list[str]] | None:
+def _opening_excerpt(body: str, cited: frozenset[str]) -> list[list[str]] | None:
     """The quoted pieces of the fenced block a body opens with; None when it opens with none.
 
     "Opens with" is the contract's: the excerpt comes first, after at most one
@@ -901,7 +909,7 @@ def _opening_excerpt(body: str) -> list[list[str]] | None:
     pieces: list[list[str]] = []
     current: list[str] = []
     for line in content:
-        if _is_break(line):
+        if _is_break(line, cited):
             if current:
                 pieces.append(current)
                 current = []
@@ -987,7 +995,7 @@ def check_excerpt(
 
     raw_id = finding.get("id")
     name = raw_id if isinstance(raw_id, str) and ID_RE.match(raw_id) else "this finding"
-    pieces = _opening_excerpt(body)
+    pieces = _opening_excerpt(body, frozenset(files))
     if pieces is None:
         report.warn(
             where,

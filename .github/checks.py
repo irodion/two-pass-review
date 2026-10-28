@@ -1287,7 +1287,7 @@ DIFFERS: tuple[str, ...] = (
 SECURITY_ONLY: tuple[str, ...] = (
     "**The pull request's discussion is evide",
     "1. **Is the defect in code this diff add",
-    "## Sweep the callers before you close",
+    "## Sweep both ends before you close",
     "The breakage this rubric weights most he",
     "1. **List what the diff changed the shap",
     "A `note` carries **no severity**. `note`",

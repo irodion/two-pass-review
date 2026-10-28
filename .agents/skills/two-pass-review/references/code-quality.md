@@ -244,6 +244,14 @@ mood. Run this before you write your envelope:
    boundary — and often the finding.
 3. **For every file the diff meaningfully grows**, open the whole file and ask the two-modules
    question of what it now holds, not of the hunks alone.
+4. **For every copy you report, set it beside what it copies, line by line, before you write the
+   remedy.** A merge that keeps behaviour has to know every way the two differ. Name each difference
+   by what it does when the code runs — what a caller or a user gets from one and not the other — and
+   say whether the change's purpose explains it. One that nothing explains is usually the copy's
+   mistake: a guard, filter, fallback or cleanup it dropped, or a value it kept where its own purpose
+   needs another. Say in the finding what goes wrong while the copy stands, and which behaviour the
+   merged code keeps. Two arms of a new branch that do the same thing get the same question: either
+   the branch is pointless, or one arm was meant to differ.
 
 ## Emit each finding the moment you have argued it
 

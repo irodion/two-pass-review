@@ -127,15 +127,18 @@ not a mood, so run this before you write your envelope:
    or queue name, a cache or config key, an environment variable, a route, a file path. `git grep` each
    one and open where it is defined, emitted or created: the function's signature and what it does with
    its options, the code that publishes the event or writes the key, the script or build step that makes
-   the path. The two ends must spell it alike and mean the same thing. **A search that finds only the
-   diff's own lines is the signal, not the end of the step:** search again for a looser form — the
-   name's stem, another separator (`_`, `-`, `.`), another case or spelling — and read the build, deploy
-   and config files that would create it. Where the far end accepts anything — `**kwargs`, a lookup with
-   a default, an existence check — a mismatch raises nothing: the code runs, the new behaviour never
-   happens, and a test the diff wrote against its own spelling passes all the same. Locate the finding
-   at the diff's line that names it, and add the far end you found as a second location, so the lines
-   you quote from it are checked against their own file. The defect is the new reference, which this
-   diff adds; a weakness the far end already had is not yours to report.
+   the path. Put every option before the pattern, as in `git grep -n -A12 'def name' -- path`: git reads
+   an option written after the pattern as a revision, and the search fails. A search that errors has not
+   looked, so correct the command and run it rather than repeat it or move on. The two ends must spell
+   it alike and mean the same thing. **A search that finds only the diff's own lines is the signal, not
+   the end of the step:** search again for a looser form — the name's stem, another separator (`_`, `-`,
+   `.`), another case or spelling — and read the build, deploy and config files that would create it.
+   Where the far end accepts anything — `**kwargs`, a lookup with a default, an existence check — a
+   mismatch raises nothing: the code runs, the new behaviour never happens, and a test the diff wrote
+   against its own spelling passes all the same. Locate the finding at the diff's line that names it,
+   and add the far end you found as a second location, so the lines you quote from it are checked
+   against their own file. The defect is the new reference, which this diff adds; a weakness the far end
+   already had is not yours to report.
 
 ## Emit each finding the moment you have argued it
 

@@ -106,11 +106,11 @@ Answer each by looking, never by recalling:
    the finding either carries `confidence` with the missing evidence named in `confidence_rationale`,
    or it is not a finding yet.
 
-## Sweep the callers before you close
+## Sweep both ends before you close
 
-The breakage this rubric weights most heavily rarely sits in the hunks — it sits in the code the hunks
-forgot, and in the code they lean on without reading it. Tracing side effects is a procedure, not a
-mood, so run this before you write your envelope:
+The breakage this rubric weights most heavily rarely shows in the hunks — it shows in the code the
+hunks forgot, and at the far end of the names they newly rely on. Tracing side effects is a procedure,
+not a mood, so run this before you write your envelope:
 
 1. **List what the diff changed the shape or meaning of** — every function whose signature, return
    shape, or behaviour changed; every name renamed or removed; every environment variable or config
@@ -121,15 +121,21 @@ mood, so run this before you write your envelope:
    unpacking the old shape, a script still exporting the old variable name — report these, and locate
    them where the victim lives: the defect is caused by code this diff modifies, so the scope rule is
    satisfied however untouched the breaking file is.
-4. **Then trace the other way: find the far end of every name the diff newly relies on.** A call it
-   adds into code it did not write, an option it passes by keyword, and above all a string that has to
-   match a string somewhere else — an event or queue name, a cache or config key, an environment
-   variable, a route, a file path. `git grep` each one and open where it is defined, emitted or created:
-   the function's signature and what it does with its options, the code that publishes the event or
-   writes the key, the script or build step that makes the path. The two ends must spell it alike and
-   mean the same thing. A mismatch here raises nothing — the code runs and the new behaviour never
-   happens, and a test the diff wrote against its own spelling passes all the same — so the far end is
-   the only place it shows. Report it located at the diff's line that names it.
+4. **Then trace the other way: find the far end of every name the diff newly relies on**, wherever that
+   end lives in this repository — a function it calls, one defined elsewhere in the same diff included;
+   an option it passes by keyword; a string that has to match a string somewhere else, such as an event
+   or queue name, a cache or config key, an environment variable, a route, a file path. `git grep` each
+   one and open where it is defined, emitted or created: the function's signature and what it does with
+   its options, the code that publishes the event or writes the key, the script or build step that makes
+   the path. The two ends must spell it alike and mean the same thing. **A search that finds only the
+   diff's own lines is the signal, not the end of the step:** search again for a looser form — the
+   name's stem, another separator (`_`, `-`, `.`), another case or spelling — and read the build, deploy
+   and config files that would create it. Where the far end accepts anything — `**kwargs`, a lookup with
+   a default, an existence check — a mismatch raises nothing: the code runs, the new behaviour never
+   happens, and a test the diff wrote against its own spelling passes all the same. Locate the finding
+   at the diff's line that names it, and add the far end you found as a second location, so the lines
+   you quote from it are checked against their own file. The defect is the new reference, which this
+   diff adds; a weakness the far end already had is not yours to report.
 
 ## Emit each finding the moment you have argued it
 

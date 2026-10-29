@@ -135,10 +135,14 @@ not a mood, so run this before you write your envelope:
    `.`), another case or spelling — and read the build, deploy and config files that would create it.
    Where the far end accepts anything — `**kwargs`, a lookup with a default, an existence check — a
    mismatch raises nothing: the code runs, the new behaviour never happens, and a test the diff wrote
-   against its own spelling passes all the same. Locate the finding at the diff's line that names it,
-   and add the far end you found as a second location, so the lines you quote from it are checked
-   against their own file. The defect is the new reference, which this diff adds; a weakness the far end
-   already had is not yours to report.
+   against its own spelling passes all the same. A value a test builds by hand — a path, a key, a URL,
+   a message — stands for one the code makes, so it has a far end too: open the code that makes the
+   real one, such as a validator, a constructor or a serialiser, and check that the test's value has the
+   shape that code gives it. A test fed a shape the code never makes passes without exercising the case
+   it is named for, and can hide a check that shares its mistake. Locate the finding at the diff's line
+   that names it, and add the far end you found as a second location, so the lines you quote from it are
+   checked against their own file. The defect is the new reference, which this diff adds; a weakness the
+   far end already had is not yours to report.
 
 ## Emit each finding the moment you have argued it
 

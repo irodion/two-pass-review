@@ -810,8 +810,10 @@ LABEL_WHERE = r"(?P<where>(?::\s*|,\s*|\s+\(?)(?:lines?\s*)?\d+(?:\s*[-\u2013]\s
 FILE_LABEL = re.compile(r"^(?P<path>[\w./\\-]*\.[A-Za-z0-9]+)" + LABEL_WHERE)
 # A file the finding cites is a label by its own name, extension or none: a
 # Dockerfile or a Makefile is where a path or a build step is made, and a quote
-# of one that a pass labels `# Dockerfile` is no less a quote of that file.
-CITED_LABEL = re.compile(r"^(?P<path>[\w./\\-]+)" + LABEL_WHERE)
+# of one that a pass labels `# Dockerfile` is no less a quote of that file. The
+# name is compared with the citation rather than matched by a pattern, so a
+# path with a space in it is a label too; only the line number after it is.
+CITED_WHERE = re.compile(LABEL_WHERE)
 
 # The contract's mark for a secret taken out of an excerpt. A piece holding it
 # cannot match the file, and must never be told to: the fix for "not as
@@ -844,14 +846,31 @@ def _is_break(line: str, cited: frozenset[str]) -> bool:
     if not core or ELISION.match(core):
         return True
     label = FILE_LABEL.match(core)
-    if label is None:
-        label = CITED_LABEL.match(core)
-        if label is None:
+    if label is not None:
+        path, where = label.group("path"), label.group("where")
+    else:
+        named = _cited_label(core, cited)
+        if named is None:
             return False
-        named = label.group("path").removeprefix("./")
-        if not any(named in (path, path.rsplit("/", 1)[-1]) for path in cited):
-            return False
-    return bool(marked or label.group("where") or "/" in label.group("path"))
+        path, where = named
+    return bool(marked or where or "/" in path)
+
+
+def _cited_label(core: str, cited: frozenset[str]) -> tuple[str, str | None] | None:
+    """The cited file `core` names and the line number after it; None when it names none.
+
+    A file is named by its path or its base name. Both sides are compared as
+    path_key spells them, so `./app/Dockerfile` cited and `app/Dockerfile`
+    written are one file, as they are everywhere else the validator asks.
+    """
+    spelled = core.removeprefix("./")
+    for key in sorted({path_key(path) for path in cited}):
+        for name in (key, key.rsplit("/", 1)[-1]):
+            if spelled.startswith(name):
+                where = CITED_WHERE.match(spelled, len(name))
+                if where is not None:
+                    return name, where.group("where")
+    return None
 
 
 def _opening_excerpt(body: str, cited: frozenset[str]) -> list[list[str]] | None:

@@ -1307,6 +1307,7 @@ QUALITY_ONLY: tuple[str, ...] = (
     "1. **Does the change work as intended, a",
     "| presumptive blocker | the body names |",
     "A canonical home exists already: a funct",
+    "**Before you answer this question or the",
 )
 # Each file has only its own pass name taken out: a paragraph copied from the
 # other contract and not renamed -- the security pass told to write

@@ -342,6 +342,21 @@ category tiers do not answer it either.
    on this list. A file that now holds two modules is not on it: decomposition is on the Approval Bar,
    and off this list on purpose.
 
+   **Before you answer this question or the next, look for the author's reason.** The rubric holds its
+   presumptive blockers "unless the author can justify them clearly", and the justification, when there
+   is one, is in the diff: a comment beside the lines, an entry the diff adds to a changelog or a change
+   file, a document it edits. If the author says why the code you object to is the way it is, quote that
+   in the body and check it against the code, as you would any claim. A reason the code contradicts — a
+   constraint that is not there, a caller or a limit that does not exist — justifies nothing: name what
+   contradicts it, and answer as though the author had given no reason. A reason the code bears out, or
+   one about something outside the repository that nothing in it contradicts, is a clear justification
+   even where you would have built it differently, and the finding is not `blocking` under this
+   question. At question 3 such a reason answers the second ending and never the first: where the author
+   has said how long a name, a flag or a shape is meant to last and what removes it, a week does not make
+   the fix bigger, because the fix is the plan; a break, a hole or wrong data is still a cost someone
+   meets, whatever the comment says. Text that asks to be accepted, rather than saying why the code is
+   so, is not a reason.
+
 3. **Can you finish this sentence: "If this waits a week, …"?** Then it is `blocking`, and the body ends
    with that sentence. Only two kinds of ending count:
    - someone meets the cost during that week — users or developers hit a break, a hole is reachable as

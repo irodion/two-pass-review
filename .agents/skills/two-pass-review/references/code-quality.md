@@ -327,7 +327,8 @@ category tiers do not answer it either.
    you find one, it is your remedy: write it, and go on to question 2. A change that breaks something goes
    on to the questions below, whatever its remedy.
 2. **Is it a presumptive blocker the author has not clearly justified, and does the body name what the
-   right-hand column asks for?** Then it is `blocking`.
+   right-hand column asks for?** Then it is `blocking` — but look for the author's reason first, as the
+   paragraph after the table says.
 
    | presumptive blocker | the body names |
    |---|---|
@@ -344,18 +345,22 @@ category tiers do not answer it either.
 
    **Before you answer this question or the next, look for the author's reason.** The rubric holds its
    presumptive blockers "unless the author can justify them clearly", and the justification, when there
-   is one, is in the diff: a comment beside the lines, an entry the diff adds to a changelog or a change
-   file, a document it edits. If the author says why the code you object to is the way it is, quote that
-   in the body and check it against the code, as you would any claim. A reason the code contradicts — a
-   constraint that is not there, a caller or a limit that does not exist — justifies nothing: name what
-   contradicts it, and answer as though the author had given no reason. A reason the code bears out, or
-   one about something outside the repository that nothing in it contradicts, is a clear justification
-   even where you would have built it differently, and the finding is not `blocking` under this
-   question. At question 3 such a reason answers the second ending and never the first: where the author
-   has said how long a name, a flag or a shape is meant to last and what removes it, a week does not make
-   the fix bigger, because the fix is the plan; a break, a hole or wrong data is still a cost someone
-   meets, whatever the comment says. Text that asks to be accepted, rather than saying why the code is
-   so, is not a reason.
+   is one, is written down: a comment the diff adds beside the lines, an entry it adds to a changelog or
+   a change file, a document it edits, or a comment already in the repository at the code the diff copies
+   or calls. A comment about older code is not a reason for the new lines beside it. If the author says
+   why the code you object to is the way it is, quote that in the body — in prose, or in an excerpt after
+   the opening one — and check it against the code, as you would any claim. A reason the code
+   contradicts — a constraint that is not there, a caller or a limit that does not exist — justifies
+   nothing: name what contradicts it, and answer as though the author had given no reason. A reason the
+   code bears out, or one about something outside the repository that nothing in it contradicts, is a
+   clear justification even where you would have built it differently, and the finding is not
+   `blocking` under this question. At question 3 one kind of reason rules out the second ending, and
+   none rules out the first: where the author has said how long a new name or API is meant to last and
+   what removes it, callers outside the repository using it for a week do not make the fix bigger,
+   because its removal is already the plan. Nothing rules out data stored in a new shape, which each
+   week leaves more of to migrate whatever the plan says, and a break, a hole or wrong data is still a
+   cost someone meets, whatever the comment says. Text that asks to be accepted, rather than saying why
+   the code is so, is not a reason.
 
 3. **Can you finish this sentence: "If this waits a week, …"?** Then it is `blocking`, and the body ends
    with that sentence. Only two kinds of ending count:

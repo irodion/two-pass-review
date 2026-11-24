@@ -1495,8 +1495,8 @@ FILTERS = """<div class="filters">
       <label for="f-block-all" class="pill pill-block-all">Everything</label>
       <label for="f-block-only" class="pill pill-block-only">Blocking only</label></span>
     <span class="dism-link" hidden>
-      <label for="f-dism-hide" class="dism-hide">Hide <span class="dism-count">0</span> dismissed</label>
-      <label for="f-dism-keep" class="dism-show">Show dismissed (<span class="dism-count">0</span>)</label>
+      <label for="f-dism-hide" class="dism-hide">Hide <span class="dism-count">0</span> dealt with</label>
+      <label for="f-dism-keep" class="dism-show">Show <span class="dism-count">0</span> dealt with</label>
     </span>
     <span class="sev-note">Quality findings aren&rsquo;t rated by severity, so they stay visible.</span>
   </div>"""
@@ -1825,7 +1825,7 @@ SCRIPT = """
   }
 
   // The map's links -- each id at the top of a line, each contest's diamond --
-  // point at cards and at a card's dispute, and the filters and `Hide dismissed`
+  // point at cards and at a card's dispute, and the filters and `Hide dealt with`
   // take cards off the page while the map only dims their lines. A link to
   // nothing on screen goes inert: out of the pointer's reach and the tab order,
   // and announced as unavailable. A dismissed card folds its dispute away
@@ -1864,7 +1864,7 @@ SCRIPT = """
     // The finding's lane on the map -- its id, its line, its mark in the
     // falsification band -- found by the same id under a data- attribute.
     // Ids are the validator's sec-N and qa-N, so they quote safely in a selector.
-    // A class of the map's own, not `dismissed`: `Hide dismissed` takes whatever
+    // A class of the map's own, not `dismissed`: `Hide dealt with` takes whatever
     // carries that one out of the page, and the map fades a finding instead of
     // dropping its line.
     var lane = document.querySelectorAll(
@@ -2334,7 +2334,7 @@ h2 .counts { color: var(--muted); font-weight: 400; }
    the sheet than the three disposition colours, which is what makes it win. */
 .finding.dismissed { border-left-color: var(--line); }
 .finding.dismissed .finding-head h3 { text-decoration: line-through; opacity: .45; }
-/* `Hide dismissed` stays a radio and a sibling selector, like the two filters
+/* `Hide dealt with` stays a radio and a sibling selector, like the two filters
    above it: the script owns the state, CSS filters on it. `.all-dismissed` is
    set on the <section> and on its contents entry together, so a disposition
    nobody has anything left to read retires its heading and its entry at once.

@@ -214,8 +214,8 @@ quality ones.
   button goes when nothing is left.
 - **Every finding can be marked dealt with.** `✓ Mark dealt with` folds the card to its title, strikes
   the title through and fades its line on the map, so the page compacts as you read. Once anything is
-  marked, the filters offer `Hide N dismissed`, which takes those findings out of the flow entirely, and
-  a disposition whose findings are all dismissed takes its heading and its contents entry with it. Undo
+  marked, the filters offer `Hide N dealt with`, which takes those findings out of the flow entirely, and
+  a disposition whose findings are all dealt with takes its heading and its contents entry with it. Undo
   is where the card is. A heading counts what is left beside what the passes found — `Blocking · 3 of 7`
   — so your progress never overwrites the run's own number. It is a mark on your reading, not on the
   finding: it does not touch the verdict, and none of it survives a reload — a report is a snapshot of

@@ -38,10 +38,11 @@ No dependencies, no network, no build step: the scripts want a `python3` of 3.10
 else. The report is one self-contained file — no sibling assets, no embedded JSON, nothing fetched —
 which is why it works over `file://` and still works after you email it to someone. Its whole script is a
 clipboard handler behind the copy buttons, a class toggle behind `Mark dealt with`, the counting that
-keeps the headings honest as you filter and mark, the upkeep that keeps the map's links pointed at cards
-still on screen, a watch that shows the verdict in the filter bar once the masthead's has scrolled away,
-a measure of the bar so that links land clear of it, and a note in the browser's storage of whether you
-folded the map away.
+keeps the headings and the rail's count honest as you filter and mark, the upkeep that keeps the map's
+links pointed at cards still on screen, a watch that rings the card you are reading on the rail, the
+scroll behind its `Next open`, a watch that shows the verdict in the filter bar once the masthead's has
+scrolled away, a measure of the bar so that links land clear of it, and a note in the browser's storage
+of whether you folded the map away.
 
 ## Installing it somewhere else
 
@@ -220,6 +221,14 @@ quality ones.
   — so your progress never overwrites the run's own number. It is a mark on your reading, not on the
   finding: it does not touch the verdict, and none of it survives a reload — a report is a snapshot of
   one diff, and a stale mark against a regenerated one would mislead.
+- **A rail beside the cards says how much is left.** At its head, how many findings are still open —
+  `10 of 12 open` once you have marked two — and `Next open`, which takes you to the next card after
+  the one you are reading that you have not dealt with, and back to one you skipped once there is none
+  after it. Under them, the title of the card you are reading, and a station for every finding, in page
+  order, on its disposition's line, drawn as the map draws one; the station for the card you are
+  reading is ringed, and each links to its card. It follows the filters as the cards do: a station goes
+  when its card does, `Hide N dealt with` included, and the count with it. It stays in view from the
+  first finding to the foot of the page, and windows too narrow for it, and printouts, go without it.
 - **A `Documentation` section may follow the findings.** An advisory docs check reads the diff against
   the agent-facing documents — `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, a README, `CONTRIBUTING.md` and
   `GUIDE.md` at the root, plus nested `AGENTS.md`, `CLAUDE.md` and READMEs on the changed paths — and
@@ -241,7 +250,8 @@ quality ones.
   findings only — a quality finding is rated by category and a security or hint-check note by nothing at
   all, so both stay visible, and the filters say so while one is on. The script counts: a heading above a
   filtered list has to agree with what is under it. That, the clipboard handler, the dismissal toggle,
-  the map's links and its fold, and the bar's verdict and height are the whole of it — none of them
+  the map's links and its fold, the rail's count, its ring and `Next open`, and the bar's verdict and
+  height are the whole of it — none of them
   parses, renders or evaluates anything a pass wrote, and everything a pass wrote is escaped before it
   reaches the page, script or no script.
 

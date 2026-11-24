@@ -620,24 +620,28 @@ def bulk_controls(merged: dict[str, Any]) -> str:
     return f'<div class="bulk">{agent}{report}</div>'
 
 
+def filter_attrs(finding: dict[str, Any]) -> str:
+    """The attributes the filters read, for a finding's card and its rail stop.
+
+    One statement for both, so a filter that hides one card hides one station:
+    every filter rule matches these attributes, and the rail is the card's
+    shadow. `data-severity` only where there is one. Its absence is what the
+    severity filter reads to leave a card alone: a quality finding is not rated
+    on this axis and a security note is not either, and both stay on screen
+    whatever the filter says. An empty attribute would be a rating of "".
+    """
+    return ' data-producer="{}" data-disposition="{}"{}'.format(
+        esc(finding["producer"]),
+        esc(finding["disposition"]),
+        ' data-severity="{}"'.format(esc(finding["severity"])) if finding.get("severity") else "",
+    )
+
+
 def render_finding(
     finding: dict[str, Any], markdown: Markdown, partners: list[dict[str, Any]]
 ) -> str:
     finding_id = finding["id"]
-    # `data-severity` only where there is one. Its absence is what the severity
-    # filter reads to leave a card alone: a quality finding is not rated on this
-    # axis and a security note is not either, and both stay on screen whatever the
-    # filter says. An empty attribute would be a rating of "".
-    bits = [
-        '<article class="finding" id="finding-{}" data-producer="{}" data-disposition="{}"{}>'.format(
-            esc(finding_id),
-            esc(finding["producer"]),
-            esc(finding["disposition"]),
-            ' data-severity="{}"'.format(esc(finding["severity"]))
-            if finding.get("severity")
-            else "",
-        )
-    ]
+    bits = [f'<article class="finding" id="finding-{esc(finding_id)}"{filter_attrs(finding)}>']
 
     # One pill per card at most, and it is the severity: it is the only one of
     # these that says how loud the finding is. A category names a kind, a producer
@@ -1350,6 +1354,64 @@ def render_contents(
     return "".join(entries)
 
 
+def render_rail(groups: list[tuple[str, list[dict[str, Any]]]], producers: tuple[str, ...]) -> str:
+    """The rail: how many findings are still open, and which, pinned beside the
+    cards in the side track that is otherwise empty there.
+
+    The sidebar this page used to have answered that, with a list of every
+    finding, and the filter bar that replaced it does not: its link counts what
+    is dealt with, not what is left. The rail is the map turned upright rather
+    than that list come back -- each finding a station on its disposition's
+    line, drawn in the line's colour, weight and dash -- because a list of
+    titles beside the map was the redundancy the sidebar went for. In page
+    order, not the map's: it follows the reading, and the map follows the files.
+
+    Python draws every part of it; the script counts what is open, marks the
+    station whose card is being read, and moves on to the next open card. A
+    station takes its card's filter attributes, so the filters hide the two
+    together, and its finding's `data-lane`, so a dismissal marks it as it marks
+    the map's lane -- and `Hide dealt with` hides what that mark is on in the
+    rail, so what the rail shows is what is on screen. Each group is a `.group`,
+    like the heading it shadows, so the recount writes its counts and retires it
+    with the heading.
+
+    The title under the count is the card at the reading line's, one of a list
+    that ships whole and that CSS shows one item of, so the script toggles a
+    class and never writes a title. A station's height is the stylesheet's,
+    from the window's height and the two numbers on the track: see `.rail`.
+    """
+    titles: list[str] = []
+    blocks: list[str] = []
+    for disposition, flat in groups:
+        classes, counts = disposition_marks(flat, producers)
+        stops: list[str] = []
+        for finding in flat:
+            fid = esc(finding["id"])
+            title = esc(Markdown.plain(finding["title"]))
+            marks = filter_attrs(finding) + linemap.lane_attr(finding)
+            stops.append(
+                f'<li class="rail-stop"{marks}><a href="#finding-{fid}" title="{title}">'
+                f'<i class="rail-ring"></i>{fid}</a></li>'
+            )
+            titles.append(f"<li{marks}><b>{fid}</b> {title}</li>")
+        blocks.append(
+            f'<li class="{classes} rail-group" data-disposition="{disposition}">'
+            f'<p class="rail-label">{DISPOSITION_LABEL[disposition]} '
+            f'<span class="counts">&middot; {counts}</span></p>'
+            f'<ol class="rail-stops">{"".join(stops)}</ol></li>'
+        )
+    total = sum(len(flat) for _, flat in groups)
+    return (
+        '<nav class="rail" aria-label="Findings left to read">'
+        '<div class="rail-head"><p class="rail-count"><b class="rail-n">{total}</b>'
+        '<span class="rail-of" hidden> of <span class="rail-total">{total}</span></span> open</p>'
+        '<button type="button" class="rail-next" hidden>Next open '
+        '<span aria-hidden="true">&darr;</span></button></div>'
+        '<ol class="rail-now" aria-hidden="true">{titles}</ol>'
+        '<ol class="rail-track" style="--n:{total};--g:{g}">{blocks}</ol></nav>'
+    ).format(total=total, g=len(groups), titles="".join(titles), blocks="".join(blocks))
+
+
 def masthead_sentence(merged: dict[str, Any]) -> str:
     """The masthead's one-sentence account of the run, as plain text.
 
@@ -1442,6 +1504,29 @@ def render_page(merged: dict[str, Any]) -> str:
     scope = merged["run"]["scope"]
     ordered = [f for _, flat in groups for f in flat]
 
+    # Everything after the map, one block to a line. With findings, in a
+    # `.tracks` of its own with the rail in its side track, so the rail stays
+    # pinned from the first heading to the foot of the page: held to the cards
+    # alone, it was pushed up under the filter bar while the last of them were
+    # read, which is where `Next open` brings a reader back to one skipped.
+    # Without, as it always was.
+    sections = "\n    ".join(
+        (
+            "\n".join(main),
+            render_withdrawn(withdrawn, markdown),
+            render_pass_prose(merged["passes"], markdown),
+            render_docs_check(docs_check, merged["run"].get("docs_check"), markdown),
+            render_self_check(self_check, markdown),
+            render_run_facts(merged["run"], merged["passes"]),
+        )
+    )
+    reading = sections
+    if main:
+        rail = render_rail(groups, producers)
+        reading = (
+            f'<div class="reading tracks"><div class="reading-main">{sections}</div>{rail}</div>'
+        )
+
     return PAGE.format(
         title=esc("Two-Pass Review — {}".format(scope["repo"])),
         # The map's rules after the page's own: they name only the map's
@@ -1463,18 +1548,13 @@ def render_page(merged: dict[str, Any]) -> str:
             groups, producers, withdrawn, merged["passes"], docs_check, merged["run"], self_check
         ),
         warnings=render_warnings(merged["run"], merged["passes"], merged["findings"]),
-        run=render_run_facts(merged["run"], merged["passes"]),
         # No bar when no finding stands: the filters reach only standing cards
         # and the map's lines, and a page with nothing to filter showed nine lit
         # pills. The root says which, for the stylesheet's scroll-padding.
         root=' class="has-bar"' if ordered else "",
         filterbar=render_filter_bar(verdict, producers) if ordered else "",
         linemap=linemap.render_line_map(merged, ordered),
-        groups="\n".join(main),
-        withdrawn=render_withdrawn(withdrawn, markdown),
-        prose=render_pass_prose(merged["passes"], markdown),
-        docscheck=render_docs_check(docs_check, merged["run"].get("docs_check"), markdown),
-        selfcheck=render_self_check(self_check, markdown),
+        reading=reading,
         radios=producer_radios(producers),
         script=page_script(producers),
     )
@@ -1594,12 +1674,7 @@ PAGE = """<!doctype html>
   {filterbar}
   <main>
     {linemap}
-    {groups}
-    {withdrawn}
-    {prose}
-    {docscheck}
-    {selfcheck}
-    {run}
+    {reading}
   </main>
 </div>
 <script>{script}</script>
@@ -1608,16 +1683,18 @@ PAGE = """<!doctype html>
 """
 
 # The page's whole script: the clipboard handler, dismissal, keeping the map's
-# links pointed at something on screen, showing the filter bar's verdict once
-# the masthead's has scrolled away, measuring the bar for the stylesheet, and
+# links pointed at something on screen, the rail's count, its mark on the card
+# being read and its `Next open`, showing the filter bar's verdict once the
+# masthead's has scrolled away, measuring the bar for the stylesheet, and
 # remembering whether the reader folded the map away.
 #
 # None of it parses, renders or evaluates anything a pass wrote. The copy handler
 # joins strings from data- attributes and moves the result to the clipboard --
 # a button's own data-copy between its data-head and data-tail when it has them,
 # or for the bulk button the cards' agent blocks; dismissal only ever toggles a class
-# and writes digits it counted itself; the map's links get attributes built from
-# validated ids; the bar's verdict is a `hidden` attribute set and cleared, and
+# and writes digits it counted itself, and so does the rail; the map's links get
+# attributes built from validated ids; `Next open` scrolls to a card that is
+# already there; the bar's verdict is a `hidden` attribute set and cleared, and
 # its height a number of pixels read off the bar itself. A hostile `body_md`
 # reaching any of it is inert -- escaping still does the security work, exactly as it
 # does everywhere else here.
@@ -1831,7 +1908,8 @@ SCRIPT = """
   // and announced as unavailable. A dismissed card folds its dispute away
   // while the card stays, so its diamond points at the card instead. Read off
   // what is displayed, like openBlocking, so no filter needs stating twice.
-  // Writes attributes it composed from validated ids, never markup.
+  // Writes attributes it composed from validated ids, never markup. The rail's
+  // stations need none of this: the filters hide each with its card.
   function refreshMapLinks() {
     var links = document.querySelectorAll('.lm .lm-label, .lm a.lm-contest');
     for (var i = 0; i < links.length; i++) {
@@ -1854,6 +1932,33 @@ SCRIPT = """
     }
   }
 
+  // The rail's count: the cards on screen, and how many of them are not dealt
+  // with. Off the cards, like openBlocking, so every filter reaches it through
+  // the stylesheet with no second statement here -- and the cards, not the
+  // stations, because they are displayed at every width and the rail is not:
+  // counted off a rail the narrow layout hides, a window widened later showed
+  // `0 open`. The filters hide a station exactly when they hide its card, so
+  // the two counts are one. Digits it counted itself, and two `hidden`
+  // attributes: the `of` only while something is dealt with, as the headings
+  // say `3 of 7`, and `Next open` only while something is.
+  var rail = document.querySelector('.rail');
+
+  function refreshRail() {
+    if (!rail) { return; }
+    var cards = document.querySelectorAll('section.group .finding');
+    var shown = 0;
+    var open = 0;
+    for (var i = 0; i < cards.length; i++) {
+      if (!cards[i].getClientRects().length) { continue; }
+      shown += 1;
+      if (!cards[i].classList.contains('dismissed')) { open += 1; }
+    }
+    rail.querySelector('.rail-n').textContent = String(open);
+    rail.querySelector('.rail-total').textContent = String(shown);
+    rail.querySelector('.rail-of').hidden = open === shown;
+    rail.querySelector('.rail-next').hidden = open === 0;
+  }
+
   document.addEventListener('click', function (event) {
     var button = event.target.closest ? event.target.closest('.dismiss') : null;
     if (!button) { return; }
@@ -1870,11 +1975,14 @@ SCRIPT = """
     var lane = document.querySelectorAll(
       '[data-lane="' + card.id.replace('finding-', '') + '"]'
     );
+    // The rail's station and its title carry the lane's attribute as well, so
+    // the same toggle fades the station; see `.rail` for why it hides too.
     for (var l = 0; l < lane.length; l++) { lane[l].classList.toggle('lm-dismissed', dismissed); }
     retally(card.getAttribute('data-disposition'));
     refreshDismissedLink();
     refreshBulk();
     refreshMapLinks();
+    refreshRail();
   });
 
   // The severity pills hide cards in CSS, like the two filters beside them, but a
@@ -1882,7 +1990,7 @@ SCRIPT = """
   // the one thing the script does here is count again: every disposition, because
   // the filter is global, and on change, because nothing else moves it.
   // Every filter can take blocking cards off screen, so every one recounts the
-  // bulk button and the map's links. All of it once at load too: a browser that
+  // bulk button, the map's links and the rail. All of it once at load too: a browser that
   // restores radio state on reload can open the page already filtered, and a
   // restored `High` left the headings and the contents line counting cards it
   // had hidden.
@@ -1896,6 +2004,7 @@ SCRIPT = """
   for (var f = 0; f < filters.length; f++) {
     filters[f].addEventListener('change', refreshBulk);
     filters[f].addEventListener('change', refreshMapLinks);
+    filters[f].addEventListener('change', refreshRail);
   }
   var severityRadios = document.querySelectorAll('input[name="sev"]');
   for (var s = 0; s < severityRadios.length; s++) {
@@ -1904,17 +2013,26 @@ SCRIPT = """
   retallyAll();
   refreshBulk();
   refreshMapLinks();
+  refreshRail();
 
   // The filter bar's height, for the stylesheet's scroll-padding: see
   // `html.has-bar`. Measured, because how many rows the pills wrap to is the
-  // face's call as much as the window's. The browser says when it changes.
+  // face's call as much as the window's. The browser says when it changes,
+  // and the rail's reading line, which sits on that padding, moves with it.
+  // Once now as well, not only when the browser first reports: by then it may
+  // have landed the card a page was opened at, under a bar of the
+  // stylesheet's guessed height and lower than a click on the card's link
+  // puts it. Chromium did once the page carried the rail, which then marked
+  // the card above.
   var bar = document.querySelector('.filterbar');
-  if (bar && window.ResizeObserver) {
-    new ResizeObserver(function () {
-      document.documentElement.style.setProperty(
-        '--bar-h', bar.getBoundingClientRect().height + 'px'
-      );
-    }).observe(bar);
+  function measureBar() {
+    document.documentElement.style.setProperty('--bar-h', bar.getBoundingClientRect().height + 'px');
+  }
+  if (bar) {
+    measureBar();
+    if (window.ResizeObserver) {
+      new ResizeObserver(function () { measureBar(); watchReading(); }).observe(bar);
+    }
   }
 
   // The map's fold, remembered across reports: a reader who folded the map
@@ -1964,6 +2082,148 @@ SCRIPT = """
     new IntersectionObserver(function (entries) {
       chip.hidden = entries[entries.length - 1].isIntersecting;
     }).observe(badge);
+  }
+
+  // The rail's mark on the card being read: the card across the line where a
+  // jump lands a card's top -- the root's scroll padding, the bar's height and
+  // 24px -- so a card a jump brought up crosses it however short it is.
+  // Measured off the padding, not a share of the window: at 30% down, a folded
+  // card landed above the line and its neighbour was marked, and on a short
+  // window a jump landed below it. A band 2px tall, 4px under the landing,
+  // which some browsers need to report a crossing at all; a band in the gap
+  // between two cards marks nothing new, so the last card read stays marked.
+  // The browser says when a card crosses, and the band is rebuilt only when
+  // the bar or the window changes height; nothing runs on scroll. Toggles a
+  // class, on the station and on its title under the count, and
+  // `aria-current` on the station's link.
+  var reading = null;
+  var jumped = null;
+  var line = 0;
+
+  function markReading(card) {
+    reading = card;
+    var marked = rail.querySelectorAll('.rail-cur');
+    for (var i = 0; i < marked.length; i++) { marked[i].classList.remove('rail-cur'); }
+    var link = rail.querySelector('[aria-current]');
+    if (link) { link.removeAttribute('aria-current'); }
+    if (!card) { return; }
+    var marks = rail.querySelectorAll('[data-lane="' + card.id.replace('finding-', '') + '"]');
+    for (var m = 0; m < marks.length; m++) { marks[m].classList.add('rail-cur'); }
+    var stop = rail.querySelector('.rail-stop.rail-cur');
+    if (!stop) { return; }
+    stop.querySelector('a').setAttribute('aria-current', 'location');
+    // A long run's track scrolls inside the rail, and the station being read
+    // is kept in it.
+    var track = rail.querySelector('.rail-track');
+    var inner = stop.getBoundingClientRect();
+    var outer = track.getBoundingClientRect();
+    if (inner.top < outer.top) { track.scrollTop -= outer.top - inner.top; }
+    else if (inner.bottom > outer.bottom) { track.scrollTop += inner.bottom - outer.bottom; }
+  }
+
+  // Every jump to a card marks that card -- a station, the map, the contents
+  // line, a cross-reference, `Next open`, and the card the page opened at.
+  // Most would cross the line anyway, but one near the foot of the page may
+  // never reach it, which then crosses a card above it that the reader has
+  // passed; and on a page no taller than the window nothing crosses at all.
+  // So at the foot, the card jumped to stays marked over one above it; and
+  // otherwise a crossing is the reader's own position, and the jump's is
+  // forgotten.
+  function land(card) {
+    if (!card || !card.matches('section.group .finding') || !card.getClientRects().length) { return; }
+    jumped = card;
+    markReading(card);
+  }
+
+  function atFoot() {
+    var root = document.documentElement;
+    return window.innerHeight + window.pageYOffset >= root.scrollHeight - 2;
+  }
+
+  // Back above the card being read, the reader is on the last card whose top
+  // is still above the line -- above the first card, on none, so `Next open`
+  // starts from the first rather than skipping it. Not for a card jumped to
+  // and not yet crossed: at the foot it sits below the line where the reader
+  // put it, and a band rebuilt there reports it so.
+  function lastAbove() {
+    var cards = document.querySelectorAll('section.group .finding');
+    var last = null;
+    for (var i = 0; i < cards.length; i++) {
+      var shown = cards[i].getClientRects().length > 0;
+      if (shown && cards[i].getBoundingClientRect().top < line + 2) { last = cards[i]; }
+    }
+    return last;
+  }
+
+  function crossed(entries) {
+    for (var e = 0; e < entries.length; e++) {
+      var card = entries[e].target;
+      if (!entries[e].isIntersecting) {
+        if (card === reading && card !== jumped && entries[e].boundingClientRect.top > line) {
+          markReading(lastAbove());
+        }
+        continue;
+      }
+      if (jumped && atFoot()
+          && (card.compareDocumentPosition(jumped) & Node.DOCUMENT_POSITION_FOLLOWING)) { continue; }
+      jumped = null;
+      markReading(card);
+    }
+  }
+
+  var spy = null;
+  function watchReading() {
+    if (!rail || !window.IntersectionObserver) { return; }
+    if (spy) { spy.disconnect(); }
+    line = (parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 0) + 4;
+    spy = new IntersectionObserver(crossed, {
+      rootMargin: -line + 'px 0px ' + (line + 2 - window.innerHeight) + 'px 0px'
+    });
+    var cards = document.querySelectorAll('section.group .finding');
+    for (var i = 0; i < cards.length; i++) { spy.observe(cards[i]); }
+    rail.classList.add('rail-live');
+  }
+  watchReading();
+  window.addEventListener('resize', watchReading);
+  if (rail) {
+    document.addEventListener('click', function (event) {
+      if (event.button || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) { return; }
+      var link = event.target.closest ? event.target.closest('a[href^="#finding-"]') : null;
+      if (link) { land(document.getElementById(link.getAttribute('href').slice(1))); }
+    });
+    land(window.location.hash ? document.getElementById(window.location.hash.slice(1)) : null);
+  }
+
+  // `Next open`: the first card after the one the rail marks that is on screen
+  // and not dealt with, or once there is none after it, the first -- a reader
+  // who skipped one is brought back to it. From the mark rather than from
+  // where cards sit, because the mark is where the reader is: a card whose top
+  // has risen past some line is still being read until its foot has, and one
+  // the page cannot scroll up to the line is still reached once it is marked.
+  // A fragment link, as a station's is, so the card is the `:target` and the
+  // reader's next Tab starts from it.
+  function nextOpen() {
+    var cards = document.querySelectorAll('section.group .finding');
+    var after = reading === null;
+    var first = null;
+    for (var i = 0; i < cards.length; i++) {
+      var card = cards[i];
+      var open = !card.classList.contains('dismissed') && card.getClientRects().length > 0;
+      if (open && after && card !== reading) { return card; }
+      if (open && !first) { first = card; }
+      if (card === reading) { after = true; }
+    }
+    return first;
+  }
+
+  if (rail) {
+    rail.querySelector('.rail-next').addEventListener('click', function () {
+      var card = nextOpen();
+      if (!card) { return; }
+      land(card);
+      if (window.location.hash === '#' + card.id) { card.scrollIntoView(); }
+      else { window.location.hash = '#' + card.id; }
+    });
   }
 })();
 """
@@ -2049,7 +2309,10 @@ body {
    has a place beside what it is about, so the column went, and the report got
    its width back. Its stickiness kept the filters, the verdict and the copies in
    reach from any card; the filter bar keeps the first two in one thin strip,
-   and its verdict is the way back up to the third. See render_filter_bar. */
+   and its verdict is the way back up to the third. See render_filter_bar. What
+   the list also did was say how many findings were left, and nothing else on
+   the page does that from beside a card, so everything after the map takes a
+   `.tracks` of its own and the rail stands in its side track: see render_rail. */
 .layout { --side: 17rem; --gutter: 36px;
   max-width: 1240px; margin: 0 auto; padding: 32px 28px 96px; }
 .tracks { display: grid; grid-template-columns: minmax(0, 1fr) var(--side); column-gap: var(--gutter); }
@@ -2342,9 +2605,81 @@ h2 .counts { color: var(--muted); font-weight: 400; }
    well: with `Security` selected, a disposition whose security findings are all
    dismissed is empty on screen whatever its quality findings are doing. */
 #f-dism-hide:checked ~ .layout .dismissed,
+#f-dism-hide:checked ~ .layout .rail .lm-dismissed,
 #f-dism-hide:checked ~ .layout .group.all-dismissed,
 #f-prod-security:checked ~ #f-dism-hide:checked ~ .layout .group.all-dismissed-security,
 #f-prod-quality:checked ~ #f-dism-hide:checked ~ .layout .group.all-dismissed-quality { display: none; }
+
+/* The rail: how many findings are still open, and a station for each beside
+   the cards, pinned under the filter bar from the first heading, which its top
+   is level with, to the foot of the page. No taller than the window less the
+   bar, its own 16px under the bar and the page's 96px of bottom padding, so
+   that at the foot it still fits above the end of its track: any taller and
+   the sticky rail is pushed up, head first, under the bar. See render_rail.
+
+   A station wears its disposition as the card's edge and the map's line do,
+   from the same tokens. Dealt with, it greys as the card's edge does -- and
+   under `Hide dealt with` it goes, with its card, where the map's line stays:
+   the map is a picture of what the run found, and the rail is a count of what
+   the reader still has, which that control has just narrowed, as every other
+   filter does. The count says so too: `3 open`, beside a bar link that says
+   how many are hidden. */
+.rail { position: sticky; top: calc(var(--bar-h, 72px) + 16px); align-self: start; margin-top: 42px;
+  display: flex; flex-direction: column; max-height: calc(100vh - var(--bar-h, 72px) - 112px);
+  font-family: var(--disp); --lx: 9px; --d: 11px; }
+.rail [data-disposition="blocking"] {
+  --c: var(--blocking-c); --w: var(--blocking-w); --s: var(--blocking-s); --t: var(--block); --d: 13px; }
+.rail [data-disposition="follow-up"] {
+  --c: var(--follow-up-c); --w: var(--follow-up-w); --s: var(--follow-up-s); --t: var(--follow); }
+.rail [data-disposition="note"] { --c: var(--note-c); --w: var(--note-w); --s: var(--note-s); --t: var(--note); }
+.rail-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
+.rail-count { margin: 0; font-size: 13.5px; color: var(--ink-2); }
+.rail-n { font-size: 24px; font-weight: 700; line-height: 1; color: var(--ink); }
+.rail-count, .rail-n { font-variant-numeric: tabular-nums; }
+/* Dressed as a copy button: a control, quiet until wanted. */
+.rail-next { margin-left: auto; font: 13px/1.4 var(--disp); color: var(--ink-2); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; cursor: pointer; }
+.rail-next:hover { color: var(--ink); border-color: var(--ink); }
+/* The title of the card being read, under the count, so the stations can stay
+   ids. Room for two lines whatever is marked, so the track below never moves
+   as the reader does; only with the script, which is what marks one. */
+.rail-now { display: none; list-style: none; margin: 10px 0 0; padding: 0; min-height: 38px; }
+.rail-live .rail-now { display: block; }
+.rail-now li { display: none; padding: 1px 0 1px 9px; border-left: 3px solid var(--c);
+  font-size: 12.5px; line-height: 1.4; color: var(--ink-2); overflow: hidden;
+  -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.rail-now li.rail-cur { display: -webkit-box; }
+.rail-now b { font: 700 11.5px/1 var(--mono); color: var(--t); }
+/* A station's height is the window's, shared out: what the rail may fill, as
+   above, less 90px for its head and the count's title and 30px for each
+   group's label and the gap under the group, over the number of stations --
+   the two numbers render_rail writes on the track.
+   Between 15px, where an id still clears the next, and 26px, where a short run
+   stops spreading out. A run too long for the floor scrolls inside the track. */
+.rail-track { min-height: 0; overflow-y: auto; list-style: none; margin: 12px 0 0; padding: 0;
+  --pitch: clamp(15px, calc((100vh - var(--bar-h, 72px) - 202px - var(--g) * 30px) / var(--n)), 26px); }
+.rail-group { margin-bottom: 10px; }
+.rail-label { margin: 0 0 2px; font-size: 12.5px; line-height: 18px; color: var(--muted); }
+/* One line per group, from its first visible station's centre to its last's:
+   the stations are all one height, so the filters that hide some move the
+   ends with them. */
+.rail-stops { position: relative; list-style: none; margin: 0; padding: 0; }
+.rail-stops::before { content: ""; position: absolute; left: var(--lx); top: calc(var(--pitch) / 2);
+  bottom: calc(var(--pitch) / 2); transform: translateX(-50%); border-left: var(--w) var(--s) var(--c); }
+.rail-stop { position: relative; height: var(--pitch); }
+.rail-stop a { display: flex; align-items: center; height: 100%; padding-left: calc(var(--lx) * 2 + 10px);
+  font: 600 11.5px/1 var(--mono); color: var(--t); text-decoration: none; }
+.rail-stop a:hover { color: var(--ink); text-decoration: underline; }
+.rail-ring { position: absolute; left: var(--lx); top: 50%; width: var(--d); height: var(--d);
+  transform: translate(-50%, -50%); border-radius: 50%; background: var(--bg); border: 2.5px solid var(--c); }
+.rail-stop.rail-cur a { color: var(--ink); font-weight: 700; }
+.rail-stop.rail-cur .rail-ring { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--c); }
+/* The ring goes to the hairline, as the card's edge does; faded instead, the
+   line showed through it. */
+.rail-stop.lm-dismissed .rail-ring { border-color: var(--line); }
+.rail-stop.lm-dismissed a { color: var(--muted); text-decoration: line-through; }
+/* Navigation for a reader at a screen: on paper there is nothing to scroll. */
+@media print { .rail { display: none; } }
 
 /* Withdrawn cards are quieter than everything above them and immune to the
    filters -- no data- attributes, so no selector reaches them. Not struck
@@ -2460,6 +2795,9 @@ CSS_NARROW = """
      answers to a strip that stays, never shows. */
   .filterbar { position: static; }
   .filterbar .bar-verdict { display: none; }
+  /* The rail has no track to stand in, and under the cards it would be one
+     more screen to scroll past. */
+  .rail { display: none; }
   html.has-bar { scroll-padding-top: 24px; }
   .masthead-main { flex-direction: column; gap: 14px; }
   .sentence { margin-top: 0; }

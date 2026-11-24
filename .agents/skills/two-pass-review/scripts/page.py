@@ -2000,15 +2000,20 @@ SCRIPT = """
       retally(sections[i].getAttribute('data-disposition'));
     }
   }
+  // The severity recount first: the radios are filters too, and listeners run
+  // in the order they were added. A group the recount brings back is hidden
+  // by its class until it runs, and counted after it, a disposition rated
+  // only Low, shown again under All, still counted none on the bar's button,
+  // left its map links inert and the rail at `0 open`.
+  var severityRadios = document.querySelectorAll('input[name="sev"]');
+  for (var s = 0; s < severityRadios.length; s++) {
+    severityRadios[s].addEventListener('change', retallyAll);
+  }
   var filters = document.querySelectorAll('input.filter');
   for (var f = 0; f < filters.length; f++) {
     filters[f].addEventListener('change', refreshBulk);
     filters[f].addEventListener('change', refreshMapLinks);
     filters[f].addEventListener('change', refreshRail);
-  }
-  var severityRadios = document.querySelectorAll('input[name="sev"]');
-  for (var s = 0; s < severityRadios.length; s++) {
-    severityRadios[s].addEventListener('change', retallyAll);
   }
   retallyAll();
   refreshBulk();
@@ -2142,11 +2147,14 @@ SCRIPT = """
     return window.innerHeight + window.pageYOffset >= root.scrollHeight - 2;
   }
 
-  // Back above the card being read, the reader is on the last card whose top
-  // is still above the line -- above the first card, on none, so `Next open`
-  // starts from the first rather than skipping it. Not for a card jumped to
-  // and not yet crossed: at the foot it sits below the line where the reader
-  // put it, and a band rebuilt there reports it so.
+  // Once a card leaves the band downwards, the reader has gone back above it,
+  // and is on the last card whose top is still above the line -- above the
+  // first card, on none, so `Next open` starts from the first rather than
+  // skipping it. Whichever card left, not only the one marked: a card jumped
+  // to at the foot was never on the band, and a link from there to the top
+  // of the page moves only the card that was. Not at the foot while a jump's
+  // mark stands, though: the card sits below the line where the reader put
+  // it, and a band rebuilt there reports every card under the line as gone.
   function lastAbove() {
     var cards = document.querySelectorAll('section.group .finding');
     var last = null;
@@ -2158,18 +2166,21 @@ SCRIPT = """
   }
 
   function crossed(entries) {
+    var rose = false;
     for (var e = 0; e < entries.length; e++) {
       var card = entries[e].target;
       if (!entries[e].isIntersecting) {
-        if (card === reading && card !== jumped && entries[e].boundingClientRect.top > line) {
-          markReading(lastAbove());
-        }
+        if (entries[e].boundingClientRect.top > line) { rose = true; }
         continue;
       }
       if (jumped && atFoot()
           && (card.compareDocumentPosition(jumped) & Node.DOCUMENT_POSITION_FOLLOWING)) { continue; }
       jumped = null;
       markReading(card);
+    }
+    if (rose && !(jumped && atFoot())) {
+      jumped = null;
+      markReading(lastAbove());
     }
   }
 

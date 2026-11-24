@@ -1306,7 +1306,8 @@ def render_contents(
     but for the passes' prose, which it groups by heading -- see below.
 
     The findings themselves are not listed -- each id on the map is the link to
-    its card.
+    its card. A reader who folded the map has those links one click away, on
+    the heading the contents line's `#map` lands on.
     """
     entries: list[str] = []
     for disposition, flat in groups:
@@ -1608,7 +1609,8 @@ PAGE = """<!doctype html>
 
 # The page's whole script: the clipboard handler, dismissal, keeping the map's
 # links pointed at something on screen, showing the filter bar's verdict once
-# the masthead's has scrolled away, and measuring the bar for the stylesheet.
+# the masthead's has scrolled away, measuring the bar for the stylesheet, and
+# remembering whether the reader folded the map away.
 #
 # None of it parses, renders or evaluates anything a pass wrote. The copy handler
 # joins strings from data- attributes and moves the result to the clipboard --
@@ -1915,6 +1917,42 @@ SCRIPT = """
     }).observe(bar);
   }
 
+  // The map's fold, remembered across reports: a reader who folded the map
+  // away once has said it is no help to them, and should not have to say so on
+  // every page. Storage can be missing or refuse -- a private window, a file://
+  // page some browsers give none -- and then the map simply opens, as it does
+  // without a script. Only ever the string 'closed', so nothing read back is
+  // more than a comparison.
+  //
+  // Written on a click on the heading -- which a key on it also fires -- and
+  // never on `toggle`: Chromium opens a folded <details> itself when find in
+  // page matches inside it, and printing opens it below, and neither is the
+  // reader changing their mind. The click runs before the fold moves, so the
+  // state it reads is the one being left.
+  var fold = document.querySelector('details.lm-fold');
+  if (fold) {
+    try {
+      if (window.localStorage.getItem('two-pass-review.map') === 'closed') { fold.open = false; }
+    } catch (error) { /* no storage: the map stays open */ }
+    fold.querySelector('summary').addEventListener('click', function () {
+      try {
+        if (fold.open) { window.localStorage.setItem('two-pass-review.map', 'closed'); }
+        else { window.localStorage.removeItem('two-pass-review.map'); }
+      } catch (error) { /* no storage: the choice lasts this page */ }
+    });
+    // A printout is the report as a document, and a fold remembered from some
+    // earlier report would print a heading with nothing under it. Open for the
+    // print, then back as the reader left it.
+    var foldedForPrint = false;
+    window.addEventListener('beforeprint', function () {
+      foldedForPrint = !fold.open;
+      fold.open = true;
+    });
+    window.addEventListener('afterprint', function () {
+      if (foldedForPrint) { fold.open = false; }
+    });
+  }
+
   // The filter bar's verdict: shown while the masthead's badge is out of view,
   // so the verdict is on every screen and never on one screen twice. The badge,
   // not the whole masthead: a run with warnings has a masthead tall enough to
@@ -2015,7 +2053,9 @@ body {
 .layout { --side: 17rem; --gutter: 36px;
   max-width: 1240px; margin: 0 auto; padding: 32px 28px 96px; }
 .tracks { display: grid; grid-template-columns: minmax(0, 1fr) var(--side); column-gap: var(--gutter); }
-main > :not(.tracks) { max-width: calc(100% - var(--side) - var(--gutter)); }
+/* The map's fold holds a `.tracks` of its own and holds its heading to the
+   reading track itself: see linemap.CSS. */
+main > :not(.tracks):not(.lm-fold) { max-width: calc(100% - var(--side) - var(--gutter)); }
 
 /* The top bar: the verdict and the sentence that accounts for it, read as one
    statement, and beside them what a reader checks before trusting it -- which

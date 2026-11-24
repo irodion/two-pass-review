@@ -2122,15 +2122,17 @@ SCRIPT = """
   }
 
   // Every jump to a card marks that card -- a station, the map, the contents
-  // line, a cross-reference, `Next open`, and the card the page opened at.
-  // Most would cross the line anyway, but one near the foot of the page may
-  // never reach it, which then crosses a card above it that the reader has
-  // passed; and on a page no taller than the window nothing crosses at all.
-  // So at the foot, the card jumped to stays marked over one above it; and
-  // otherwise a crossing is the reader's own position, and the jump's is
-  // forgotten.
-  function land(card) {
-    if (!card || !card.matches('section.group .finding') || !card.getClientRects().length) { return; }
+  // line, a cross-reference, `Next open`, and the card the page opened at --
+  // and so does a jump into one, such as the map's diamond to a card's
+  // dispute. Most would cross the line anyway, but one near the foot of the
+  // page may never reach it, which then crosses a card above it that the
+  // reader has passed; and on a page no taller than the window nothing
+  // crosses at all. So at the foot, the card jumped to stays marked over one
+  // above it; and otherwise a crossing is the reader's own position, and the
+  // jump's is forgotten.
+  function land(target) {
+    var card = target ? target.closest('section.group .finding') : null;
+    if (!card || !card.getClientRects().length) { return; }
     jumped = card;
     markReading(card);
   }
@@ -2188,7 +2190,7 @@ SCRIPT = """
   if (rail) {
     document.addEventListener('click', function (event) {
       if (event.button || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) { return; }
-      var link = event.target.closest ? event.target.closest('a[href^="#finding-"]') : null;
+      var link = event.target.closest ? event.target.closest('a[href^="#"]') : null;
       if (link) { land(document.getElementById(link.getAttribute('href').slice(1))); }
     });
     land(window.location.hash ? document.getElementById(window.location.hash.slice(1)) : null);

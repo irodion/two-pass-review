@@ -289,7 +289,8 @@ def cell(
 
 def lane_attr(finding: dict[str, Any]) -> str:
     """The data- attribute the dismissal script finds a finding's lane by: on its
-    id, its line and its band mark alike."""
+    id, its line and its band mark alike, and on page.py's rail, its station and
+    its title there."""
     return f' data-lane="{esc(finding["id"])}"'
 
 
@@ -756,7 +757,9 @@ CSS = """
 /* A dismissed finding fades, under `Hide dealt with` as without it. The page's
    `.dismissed` would be taken out of the flow by that control, and a map that
    lost lines would no longer say what the run found; so the script marks the
-   map's parts `.lm-dismissed`, which nothing hides. */
+   map's parts `.lm-dismissed`, which nothing hides on the map. The page's rail
+   carries the same lane attribute and so gets the same class, and there that
+   control does hide it: see page.py's `.rail`. */
 .lm .lm-dismissed { opacity: .3; }
 .lm-label.lm-dismissed { text-decoration: line-through; }
 """

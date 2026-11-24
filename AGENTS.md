@@ -194,11 +194,11 @@ anything about reviewing code:
 
   Two things keep it from passing on nothing. Each field's opening — its token, a tag and `&amp;&lt;` —
   has to appear in the page's *visible* text exactly as written, never just inside a copy button's
-  attribute, which carries every field whether the card shows it or not; that one string proves the
-  field rendered, its markup was escaped rather than deleted, and character references were not decoded
-  once too often. And every field set `validate.py` declares is compared, object by object, against
-  what `_hostile_artifact` carries, so a new field or a new kind of object fails the check until it
-  gets a payload.
+  attribute, which carries every field whether the card shows it or not, nor only in the rail, which
+  repeats every title beside the cards; that one string proves the field rendered, its markup was
+  escaped rather than deleted, and character references were not decoded once too often. And every field
+  set `validate.py` declares is compared, object by object, against what `_hostile_artifact` carries, so
+  a new field or a new kind of object fails the check until it gets a payload.
 
   The copy buttons are the one comparison with `page.py`: their `data-copy` has to decode back to exactly
   what `copy_pieces` returns — or `report_markdown`, for the report's own — the one statement of what each

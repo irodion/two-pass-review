@@ -446,6 +446,14 @@ COUNTED = (
 # verbatim whether or not the card renders it.
 VISIBLE_ATTRIBUTES = frozenset(["title"])
 
+# The class of the page's rail, whose text counts as markup like any other but
+# not as visible: it repeats every finding's title, in its list and in its
+# stations' tooltips, so a card heading that deleted a title's tag would still
+# find the title shown as written there. A field has to show where its card
+# renders it. A page with no rail fails the check, so a renamed class cannot
+# quietly hand the titles back to the rail.
+RAIL_CLASS = "rail"
+
 # How an agent block opens: a tag named for its key, then the finding's id.
 # Written here, never imported from page.py, for the reason the parser judges
 # markup: a guard that grades itself passes whatever it misses.
@@ -463,16 +471,31 @@ class _Collector(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.tags: list[tuple[str, list[tuple[str, str | None]]]] = []
         self.visible: list[str] = []
+        self.rail_seen = False
+        # How many <nav> elements are open from the rail's own down, while
+        # inside it: its end is the </nav> that brings this back to nothing.
+        self._in_rail = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.tags.append((tag, attrs))
-        self.visible.extend(v for k, v in attrs if k in VISIBLE_ATTRIBUTES and v)
+        if tag == "nav" and (
+            self._in_rail or RAIL_CLASS in (dict(attrs).get("class") or "").split()
+        ):
+            self.rail_seen = True
+            self._in_rail += 1
+        if not self._in_rail:
+            self.visible.extend(v for k, v in attrs if k in VISIBLE_ATTRIBUTES and v)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.handle_starttag(tag, attrs)
 
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "nav" and self._in_rail:
+            self._in_rail -= 1
+
     def handle_data(self, data: str) -> None:
-        self.visible.append(data)
+        if not self._in_rail:
+            self.visible.append(data)
 
 
 def _parse(page: str) -> _Collector:
@@ -490,7 +513,8 @@ def page_escapes_everything(problems: list[str]) -> None:
     attribute a payload planted, no inline event handler, no link to anything
     but an anchor or a safe scheme, and no more scripts, styles, images or
     frames than the same artifact renders with harmless text. Each field's
-    head has to be in the visible text, as written.
+    head has to be in the visible text, as written -- outside the rail, which
+    repeats every title.
 
     What counts as markup is the HTML parser's call, never a rule imported from
     page.py, so a page.py that stops escaping a field fails here whichever
@@ -589,6 +613,11 @@ def page_escapes_everything(problems: list[str]) -> None:
                     f"{where}: {planted} <{tag}> element(s) with payloads, {own} without"
                 )
 
+        if not hostile.rail_seen:
+            problems.append(
+                f"{where}: no <nav class={RAIL_CLASS!r}>, so the rail's copies of the titles "
+                "would count as shown -- update RAIL_CLASS in checks.py"
+            )
         visible = "\n".join(hostile.visible)
         for field in sorted(set(re.findall(r"tok-([a-z-]+)", json.dumps(artifact)))):
             if _head(field) not in visible:

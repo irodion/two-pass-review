@@ -609,13 +609,19 @@ def render_line_map(merged: dict[str, Any], ordered: list[dict[str, Any]]) -> st
         *file_cells(grid, plan),
         *lane_cells(grid, plan, ordered, cited),
     ]
+    # Folded under its heading, open by default: a reader who finds the map no
+    # help gets a page that starts at the cards, and SCRIPT remembers the choice
+    # for the next report. A `<details>`, so the switch works with no script at
+    # all; only the remembering needs one.
     return (
-        '<section class="linemap tracks"><div class="lm-main"><h2 id="map">Where the findings land</h2>'
+        '<details class="lm-fold" open><summary><h2 id="map">Where the findings land'
+        '<span class="lm-toggle" aria-hidden="true"></span></h2></summary>'
+        '<section class="linemap tracks"><div class="lm-main">'
         '<p class="lm-intro">Each finding is a line through the files it cites: the security '
         "pass&rsquo;s{hints} left of them, the quality pass&rsquo;s right.</p>"
         '<div class="lm-scroll"><div class="lm{narrow}" style="grid-template-columns:{cols};'
         'grid-template-rows:{rows}">{cells}</div></div></div>'
-        '<div class="lm-side"><ul class="lm-legend">{legend}</ul></div></section>'.format(
+        '<div class="lm-side"><ul class="lm-legend">{legend}</ul></div></section></details>'.format(
             hints=(
                 " and the hint check&rsquo;s"
                 if any(f["producer"] == "hints" for f in ordered)
@@ -637,11 +643,30 @@ CSS = """
    Positions arrive as numbers in each element's style; everything else is here. */
 /* The map in the page's reading track and its key in the side track -- the
    section takes the page's `.tracks` -- so the key stands under the copies in
-   the masthead and the map's heading rule ends where every other one does. The
-   side track starts at the heading rather than at the map's first row: the
-   heading has no room to the right of it to lose. */
-.linemap { align-items: start; margin-top: 30px; }
-.linemap h2 { margin-top: 0; }
+   the masthead. The heading stands above both, in the fold's summary, so the
+   switch stays on screen when the map is folded away; it is held to the reading
+   track, so its rule ends where every other heading's does. */
+.lm-fold { margin-top: 30px; }
+.lm-fold > summary { list-style: none; cursor: pointer;
+  max-width: calc(100% - var(--side) - var(--gutter)); }
+.lm-fold > summary::-webkit-details-marker { display: none; }
+.lm-fold h2 { margin-top: 0; display: flex; align-items: baseline; gap: 12px; }
+.lm-fold:not([open]) h2 { margin-bottom: 0; }
+/* The switch, said in words where a disclosure triangle would leave a reader
+   guessing that the whole map can go. Generated text, so it never reaches a
+   copy, a text extraction or a page read without its stylesheet. Dressed as
+   page.py's `.dismiss`, the page's other toggle: a borderless pill that takes
+   its border on hover -- here on the heading's hover, since all of it folds. */
+.lm-toggle { margin-left: auto; font: 13px/1.4 var(--disp); color: var(--muted);
+  background: var(--panel); border: 1px solid transparent; border-radius: 999px;
+  padding: 4px 12px; }
+.lm-fold[open] .lm-toggle::after { content: "Hide map"; }
+.lm-fold:not([open]) .lm-toggle::after { content: "Show map"; }
+.lm-fold > summary:hover .lm-toggle { color: var(--ink); border-color: var(--ink); }
+/* On paper there is nothing to click, so no switch; SCRIPT opens the fold for
+   the print. */
+@media print { .lm-toggle { display: none; } }
+.linemap { align-items: start; }
 .lm-main { min-width: 0; }
 .lm-side { padding-top: 4px; }
 /* `lm-intro`, never `lm-note`: lanes carry their disposition as `lm-<name>`, and

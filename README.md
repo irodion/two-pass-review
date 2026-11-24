@@ -40,7 +40,8 @@ which is why it works over `file://` and still works after you email it to someo
 clipboard handler behind the copy buttons, a class toggle behind `Mark dealt with`, the counting that
 keeps the headings honest as you filter and mark, the upkeep that keeps the map's links pointed at cards
 still on screen, a watch that shows the verdict in the filter bar once the masthead's has scrolled away,
-and a measure of the bar so that links land clear of it.
+a measure of the bar so that links land clear of it, and a note in the browser's storage of whether you
+folded the map away.
 
 ## Installing it somewhere else
 
@@ -163,6 +164,8 @@ quality ones.
   hatched band when the check was skipped or its reply was lost. The filters dim lines rather than hide
   them, and a finding marked dealt with fades there too. Reports from runs before the map recorded every
   changed file map only the files the findings cite and the documents the docs check has a note on.
+  `Hide map`, beside its heading, folds it away, and the browser remembers that for the next report you
+  open; `Show map` brings it back.
 - **A contested finding is still a finding.** Before the merge, a falsification check that sees only the
   diff — none of the passes' context — tries to disprove each finding, and one whose key claim the diff
   appears to contradict is marked *contested*: it keeps its place, its disposition and its force — a
@@ -238,9 +241,9 @@ quality ones.
   findings only — a quality finding is rated by category and a security or hint-check note by nothing at
   all, so both stay visible, and the filters say so while one is on. The script counts: a heading above a
   filtered list has to agree with what is under it. That, the clipboard handler, the dismissal toggle,
-  the map's links, and the bar's verdict and height are the whole of it — none of them parses, renders
-  or evaluates anything a pass wrote, and everything a pass wrote is escaped before it reaches the page,
-  script or no script.
+  the map's links and its fold, and the bar's verdict and height are the whole of it — none of them
+  parses, renders or evaluates anything a pass wrote, and everything a pass wrote is escaped before it
+  reaches the page, script or no script.
 
 ## Asking for rule suggestions
 

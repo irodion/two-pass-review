@@ -143,41 +143,38 @@ def extract_array(text: str) -> list[dict[str, Any]] | None:
     return found
 
 
-def read_answer(run_dir: str, name: str) -> list[dict[str, Any]] | None:
-    """A subagent's answer file, as an array, or None when there is none to read."""
+def read_answer(run_dir: str, name: str) -> tuple[list[dict[str, Any]] | None, str]:
+    """(answer, why): a subagent's answer file as an array, or None and why
+    there is none, in the words a warning needs. Read once: a second read to
+    find out why could see a file its subagent is still writing.
+    """
     try:
         with open(os.path.join(run_dir, name), encoding="utf-8", errors="replace") as handle:
             answer = extract_array(handle.read())
+    except FileNotFoundError:
+        return None, f"{name} was never written"
     except OSError:
-        return None
+        return None, f"{name} could not be read"
+    if answer is None:
+        return None, f"{name} held no readable JSON array"
     # An answer holding a lone surrogate escape is one the merge could not
     # write into findings.json, so it is read as no answer: the check is
     # recorded failed, as one whose reply was lost.
-    return answer if validate.encodable(answer) else None
+    if not validate.encodable(answer):
+        return None, f"{name} {validate.LONE_SURROGATE}"
+    return answer, ""
 
 
-def unread(run_dir: str, name: str) -> str:
-    """Why an answer file gave nothing, in the words a warning needs."""
-    path = os.path.join(run_dir, name)
-    if os.path.exists(path):
-        # Parsed, but refused by read_answer: say why, so a repair can find it.
-        try:
-            with open(path, encoding="utf-8", errors="replace") as handle:
-                if extract_array(handle.read()) is not None:
-                    return f"{name} {validate.LONE_SURROGATE}"
-        except OSError:
-            pass
-        return f"{name} held no readable JSON array"
-    return f"{name} was never written"
-
-
-def read_json(path: str) -> object:
+def read_json(path: str) -> tuple[object, str]:
+    """(value, why): the file's JSON, or None and why there is none."""
     try:
         with open(path, encoding="utf-8") as handle:
             value = json.load(handle)
     except (OSError, ValueError):
-        return None
-    return value if validate.encodable(value) else None
+        return None, "is not a readable JSON file"
+    if not validate.encodable(value):
+        return None, validate.LONE_SURROGATE
+    return value, ""
 
 
 def read_findings(path: str) -> list[dict[str, Any]]:
@@ -243,7 +240,9 @@ def links(pairs: list[str], known: dict[str, dict[str, Any]]) -> tuple[dict[str,
 def check_state(
     run_dir: str, requested: str, flag: str, answer_name: str, has_input: bool
 ) -> tuple[str, list[dict[str, Any]], str]:
-    """(state, answer, problem) for one subagent check -- falsification or docs.
+    """(state, answer, said) for one subagent check -- falsification or docs.
+
+    `said` is a refusal when state is empty, and why when state is 'failed'.
 
     The rules the two checks share, stated once:
 
@@ -270,9 +269,9 @@ def check_state(
         return "skipped", [], ""
     if not has_input:
         return "ran", [], ""
-    answer = read_answer(run_dir, answer_name)
+    answer, why = read_answer(run_dir, answer_name)
     if answer is None:
-        return "failed", [], ""
+        return "failed", [], why
     return "ran", answer, ""
 
 
@@ -284,7 +283,7 @@ def read_collection(run_dir: str) -> tuple[list[str], list[Any]] | None:
     entry under 'docs' is checked before its path is read, because a file of
     some other shape is not the collection, and a traceback is not a refusal.
     """
-    collected = read_json(os.path.join(run_dir, "docs.json"))
+    collected, _ = read_json(os.path.join(run_dir, "docs.json"))
     if (
         not isinstance(collected, dict)
         or not isinstance(collected.get("docs"), list)
@@ -359,7 +358,7 @@ def read_passes(
             for problem in problems:
                 sys.stderr.write(f"  {problem}\n")
             return 1
-        envelope = read_json(envelope_path)
+        envelope, _ = read_json(envelope_path)
         assert isinstance(envelope, dict)  # validated above
         envelopes.append(envelope)
         findings.extend(read_findings(findings_path))
@@ -575,14 +574,14 @@ def main(argv: list[str]) -> int:
     for finding_id, linked in partners.items():
         known[finding_id]["corroborated_by"] = sorted(linked, key=validate.id_sort_key)
 
-    falsification, answer, problem = check_state(
+    falsification, answer, said = check_state(
         run_dir, args.falsification, "--falsification", FALSIFIER_ANSWER, bool(findings)
     )
-    if problem:
-        return refuse(problem, 2)
+    if not falsification:
+        return refuse(said, 2)
     if falsification == "failed":
         warn(
-            f"{unread(run_dir, FALSIFIER_ANSWER)}, so the falsification check is recorded as "
+            f"{said}, so the falsification check is recorded as "
             "failed and every finding stands uncontested"
         )
     for finding_id, reasons in contests(answer, known).items():
@@ -599,34 +598,23 @@ def main(argv: list[str]) -> int:
                 "had no docs check -- merge with --docs-check skipped"
             )
         examined, refused = collection
-    docs_state, notes, problem = check_state(
+    docs_state, notes, said = check_state(
         run_dir, args.docs_check, "--docs-check", DOCS_ANSWER, bool(examined)
     )
-    if problem:
-        return refuse(problem, 2)
+    if not docs_state:
+        return refuse(said, 2)
     if docs_state == "failed":
-        warn(
-            f"{unread(run_dir, DOCS_ANSWER)}, so the docs check is recorded as failed and "
-            "carries no notes"
-        )
+        warn(f"{said}, so the docs check is recorded as failed and carries no notes")
     docs_check: dict[str, Any] | None = None
     if docs_state == "ran":
         docs_check = {"examined": examined, "skipped": refused, "notes": notes}
 
     self_check: object = None
     if args.self_check is not None:
-        self_check = read_json(os.path.abspath(os.path.expanduser(args.self_check)))
+        self_check, why = read_json(os.path.abspath(os.path.expanduser(args.self_check)))
         if self_check is None:
-            why = "is not a readable JSON file"
-            try:
-                with open(
-                    os.path.abspath(os.path.expanduser(args.self_check)), encoding="utf-8"
-                ) as f:
-                    loaded = json.load(f)
-                    if loaded is not None and not validate.encodable(loaded):
-                        why = validate.LONE_SURROGATE
-            except (OSError, ValueError):
-                pass
+            # A file holding `null` parses, and is no self-check either.
+            why = why or "is not a readable JSON file"
             return refuse(f"--self-check {args.self_check!r} {why}", 2)
 
     artifact: dict[str, Any] = {

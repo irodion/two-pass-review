@@ -40,6 +40,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gitrun  # sibling module, same directory
 import runs  # sibling module, same directory
+import terminal  # sibling module, same directory
 
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE = os.path.join(SKILL_DIR, "references", "prompts.md")
@@ -295,10 +296,10 @@ def main(argv: list[str]) -> int:
             return refuse(f"--checkout {named} is not inside a git repository")
         # scope.py's rule for the checkout it records, for the one it records
         # here: this path is written into the prompt and the record alike.
-        if not runs.printable_path(checkout):
+        if not terminal.printable_path(checkout):
             return refuse(
-                f"the checkout --checkout names, {checkout!r}, holds a line break, a control "
-                "character, a backtick or a byte that is not UTF-8, which the run's files cannot carry"
+                f"the checkout --checkout names, {checkout!r}, holds {terminal.UNPRINTABLE_PATH}, "
+                "which the run's files cannot carry"
             )
     if not checkout:
         return refuse(

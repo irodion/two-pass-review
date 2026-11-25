@@ -53,8 +53,9 @@ import diff_paths  # sibling module, same directory
 import hints
 import prompts
 import validate
-from gitrun import git, git_text, toplevel
-from runs import new_run, printable_path, release, reports_dir, write_record
+from gitrun import current_branch, git, git_text, toplevel
+from runs import new_run, release, reports_dir, write_record
+from terminal import UNPRINTABLE_PATH, printable_path
 from trees import HEAD_ADVICE, discard, filter_overrides, review_tree, snapshot
 
 LARGE_BYTES = 500_000
@@ -558,9 +559,8 @@ def main(argv: list[str]) -> int:
     # validator at the merge, after all of them.
     if not printable_path(root):
         return fail(
-            "the checkout's path holds a line break, a control character, a backtick or a byte "
-            "that is not UTF-8, which the report's "
-            f"path cannot carry: {root!r}"
+            f"the checkout's path holds {UNPRINTABLE_PATH}, which the report's path cannot "
+            f"carry: {root!r}"
         )
 
     # Refused here rather than left for the validator, which would only see it
@@ -667,12 +667,9 @@ def main(argv: list[str]) -> int:
         # so, and a base named by --since or --against may not be HEAD. The
         # branch is what that question asks of, because an amend or a rebase
         # keeps the branch and rewrites the commit; the commit is for a working
-        # tree on no branch. In full, refs/heads/..., because a short name
-        # depends on what else is named alike: a tag `feat` turns `feat` into
-        # `heads/feat`.
+        # tree on no branch.
         stood = resolve_commit(root, "HEAD")
-        code, out, _ = git_text(root, "symbolic-ref", "--quiet", "HEAD")
-        branch = out.removesuffix("\n") if code == 0 else None
+        branch = current_branch(root)
         held, problem = snapshot(root)
         if held is None:
             sys.stderr.write(

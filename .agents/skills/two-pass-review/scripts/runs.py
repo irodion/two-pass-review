@@ -26,6 +26,7 @@ imports, and no git runs.
 import contextlib
 import json
 import os
+import posixpath
 import re
 import shlex
 import shutil
@@ -480,8 +481,10 @@ def reviewed_code(run_dir: str, cited: list[str]) -> list[str]:
     lines = [f"Reviewed revision: {revision}, in {checkout}. `{show}` reads a file as reviewed."]
 
     # One file however a pass spelled it -- `./a.py` is `a.py` -- as the
-    # validator and merge.overlap count files.
-    cited = [os.path.normpath(path) for path in cited]
+    # validator and merge.overlap count files. posixpath, as validate.path_key
+    # uses: these become git tree names, which os.path on Windows would turn
+    # into backslashes that no tree holds.
+    cited = [posixpath.normpath(path) for path in cited]
     paths = list(dict.fromkeys(cited))
 
     def files(some: list[str]) -> str:

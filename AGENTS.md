@@ -141,28 +141,33 @@ anything about reviewing code:
   `prompts.py --rules` over each — the second rebuilding the review tree its run released — and over a
   local patch that retargets a tracked link, rebuilt once the working tree has moved on, each rebuilt
   tree released again, `try_rule.py` over a one-file tree with ruff installed for it, passing over a
-  `ruff` committed in that tree, refusing a shell script first on `PATH` as a version manager's shim
-  and starting a python script that hands its arguments to the real ruff, `scope.py`'s hint step over a
+  `ruff` committed in that tree, refusing a shell script first on `PATH` as a version manager's shim and
+  starting a python script that hands its arguments to the real ruff, `scope.py`'s hint step over a
   two-commit repository whose leads must be exactly the B034 and the B006 the change introduced — never
   the standing B006 on the line it edits, nor an F811 whose line number it moves — then with
-  `--no-hints`, recorded disabled, and with no linter on `PATH`, recorded skipped — with leads, the
-  hint check's prompt written and printed and the falsifier's naming its findings, without them no
-  hint prompt at all, and a hint check that confirmed the B034, which `merge.py --candidates` must pair
-  with a security finding on its line and the merge links to it, in a version-5 artifact that records
-  the two leads and renders, then merged again with the hint check's files gone, whose page says no
-  lead was checked —
-  `scope.py --since` and `--against` over a repository built with fixed
-  commit dates — a midnight commit, a side branch merged since, a local `main` behind origin's — whose
-  right bases are facts of its history, `collect_docs.py` over the first range's diff, `merge.py` and
-  `render.py` over a one-pass run assembled from it, `validate.py`'s excerpt warnings, and `validate.py`,
-  `render.py`, `prompts.py`, `collect_docs.py` and `try_rule.py` down their refusal paths. Importing alone was not
-  enough — a deprecation inside a `main()` is invisible to it, which is how `datetime.utcnow()` would have got
-  through. Those runs are `.github/entry-points.sh`, a script rather than the step's own text, so that
-  shellcheck can read it and a failure names its line. It edits tracked files, so run it in a clone.
+  `--no-hints`, recorded disabled, and with no linter on `PATH`, recorded skipped — with leads, the hint
+  check's prompt written and printed and the falsifier's naming its findings, without them no hint prompt
+  at all, and a hint check that confirmed the B034, which `merge.py --candidates` must pair with a
+  security finding on its line and the merge links to it, in a version-5 artifact that records the two
+  leads and renders — with `--agent`, the path first, then the ids and the `--show` command, never a
+  finding, and that command, its words run as printed but for the interpreter, printing each finding's
+  block and where its reviewed code is as the checkout is edited and moved off the head, and where a
+  local patch's is as its branch is left — then merged again with the hint check's files gone, whose page
+  says no lead was checked and whose `--show` no longer finds it — `scope.py --since` and `--against`
+  over a repository built with fixed commit dates — a midnight commit, a side branch merged since, a
+  local `main` behind origin's — whose right bases are facts of its history, `collect_docs.py` over the
+  first range's diff, `merge.py` and `render.py` over a one-pass run assembled from it, `validate.py`'s
+  excerpt warnings, and `validate.py`, `render.py`, `prompts.py`, `collect_docs.py` and `try_rule.py`
+  down their refusal paths, and `scope.py` refusing a checkout whose path holds a line break. Importing
+  alone was not enough — a deprecation inside a `main()` is invisible to it, which is how
+  `datetime.utcnow()` would have got through. Those runs are `.github/entry-points.sh`, a script rather
+  than the step's own text, so that shellcheck can read it and a failure names its line. It edits tracked
+  files, so run it in a clone.
 - **`constraints`** — `.github/checks.py`: every import is stdlib; `page.py`'s `SCRIPT` constant parses as
   JavaScript; a page rendered from an artifact with a hostile payload in every text field plants no tag,
   attribute or unsafe link — `javascript:`, `data:` and `vbscript:` included; the page's copy handler,
-  run, copies what `page.py` says each button copies; the committed
+  run, copies what `page.py` says each button copies; what `page.py` hands `render.py --agent` and
+  `--show` to print keeps everything a pass or the hint check wrote inside a block; the committed
   `.claude/skills/` symlink is relative and resolves; every output `entry-points.sh` keeps under a
   literal path is read again after it is written; every map in the scripts that names two producers names
   all of them, or is listed in `checks.py` as one that leaves some out; every relative link in the docs
@@ -200,11 +205,11 @@ anything about reviewing code:
   set `validate.py` declares is compared, object by object, against what `_hostile_artifact` carries, so
   a new field or a new kind of object fails the check until it gets a payload.
 
-  The copy buttons are the one comparison with `page.py`: their `data-copy` has to decode back to exactly
-  what `copy_pieces` returns — or `report_markdown`, for the report's own — the one statement of what each
-  button holds. That tests the escaping and nothing about the content, so a finding's body, paths,
-  rationale and contest are also looked for in what is copied, independently. An agent copy holds its
-  finding between two tags named for a key from the finding's own hash, and every payload carries
+  The copy buttons are compared with `page.py` as well as parsed: their `data-copy` has to decode back to
+  exactly what `copy_pieces` returns — or `report_markdown`, for the report's own — the one statement of
+  what each button holds. That tests the escaping and nothing about the content, so a finding's body,
+  paths, rationale and contest are also looked for in what is copied, independently. An agent copy holds
+  its finding between two tags named for a key from the finding's own hash, and every payload carries
   closers of its own, so the block must hold its payload verbatim, and a key that is a prefix of the
   payload's SHA-256 — a key its author could predict would let a quote close its block. The check was
   tested by breaking escaping on purpose, field by field, and any change to it should be tested the same
@@ -218,6 +223,15 @@ anything about reviewing code:
   stand-ins answer only the calls `textOf` makes, and a card answers a selector only for a class its own
   buttons carry, so a selector the markup no longer matches fails here too. Dismissal and filtering are
   out of its reach; clicking the report still settles those. It skips, loudly, where `node` is absent.
+
+  What `render.py --agent` and `--show` print reaches the orchestrator with no reader in between, so
+  what `page.py` gives them to print is held to the agent copies' boundary: no hostile field's token in
+  the index but the scope's, and each standing finding's `--show` holding its block exactly once, the
+  evidence rule before it — found by a phrase `checks.py` writes, never by `page.py`'s own constant —
+  and no producer's text outside it. A title in the index, a payload without its tags, the rule after
+  the block or emptied, a title before it and a withdrawn finding shown were each tried, and each fails
+  it. The lines `--show` adds after the block are `runs.reviewed_code`'s, which the check does not
+  reach: they name the cited files by count, never by path, and that is its docstring's rule to keep.
 
   The flag check and the contract check exist because the orchestrators this skill targets copy text
   exactly. A flag renamed in a script and not in SKILL.md is a run that dies on its first command, so

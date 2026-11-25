@@ -56,5 +56,9 @@ def toplevel(path: str) -> str | None:
     scope.py's --repo and prompts.py's --checkout both resolve here: two
     spellings could record two repositories for one run.
     """
-    code, out, _ = git_text(path, "rev-parse", "--show-toplevel")
-    return out.strip() if code == 0 else None
+    code, out, _ = git(path, "rev-parse", "--show-toplevel")
+    # Only the newline git ends its answer with: a path can itself end in a
+    # space or a line break, and stripping those would name another directory.
+    # Decoded as the filesystem encodes, so bytes that are not UTF-8 come back
+    # as the same bytes rather than as U+FFFD, which names nothing on disk.
+    return os.fsdecode(out.removesuffix(b"\n")) if code == 0 else None

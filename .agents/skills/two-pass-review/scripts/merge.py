@@ -147,14 +147,26 @@ def read_answer(run_dir: str, name: str) -> list[dict[str, Any]] | None:
     """A subagent's answer file, as an array, or None when there is none to read."""
     try:
         with open(os.path.join(run_dir, name), encoding="utf-8", errors="replace") as handle:
-            return extract_array(handle.read())
+            answer = extract_array(handle.read())
     except OSError:
         return None
+    # An answer holding a lone surrogate escape is one the merge could not
+    # write into findings.json, so it is read as no answer: the check is
+    # recorded failed, as one whose reply was lost.
+    return answer if validate.encodable(answer) else None
 
 
 def unread(run_dir: str, name: str) -> str:
     """Why an answer file gave nothing, in the words a warning needs."""
-    if os.path.exists(os.path.join(run_dir, name)):
+    path = os.path.join(run_dir, name)
+    if os.path.exists(path):
+        # Parsed, but refused by read_answer: say why, so a repair can find it.
+        try:
+            with open(path, encoding="utf-8", errors="replace") as handle:
+                if extract_array(handle.read()) is not None:
+                    return f"{name} {validate.LONE_SURROGATE}"
+        except OSError:
+            pass
         return f"{name} held no readable JSON array"
     return f"{name} was never written"
 
@@ -162,9 +174,10 @@ def unread(run_dir: str, name: str) -> str:
 def read_json(path: str) -> object:
     try:
         with open(path, encoding="utf-8") as handle:
-            return json.load(handle)
+            value = json.load(handle)
     except (OSError, ValueError):
         return None
+    return value if validate.encodable(value) else None
 
 
 def read_findings(path: str) -> list[dict[str, Any]]:
@@ -604,7 +617,17 @@ def main(argv: list[str]) -> int:
     if args.self_check is not None:
         self_check = read_json(os.path.abspath(os.path.expanduser(args.self_check)))
         if self_check is None:
-            return refuse(f"--self-check {args.self_check!r} is not a readable JSON file", 2)
+            why = "is not a readable JSON file"
+            try:
+                with open(
+                    os.path.abspath(os.path.expanduser(args.self_check)), encoding="utf-8"
+                ) as f:
+                    loaded = json.load(f)
+                    if loaded is not None and not validate.encodable(loaded):
+                        why = validate.LONE_SURROGATE
+            except (OSError, ValueError):
+                pass
+            return refuse(f"--self-check {args.self_check!r} {why}", 2)
 
     artifact: dict[str, Any] = {
         # The newest merged shape is the one a new merge writes. Named from

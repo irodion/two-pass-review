@@ -54,7 +54,7 @@ import hints
 import prompts
 import validate
 from gitrun import git, git_text, toplevel
-from runs import new_run, release, reports_dir, write_record
+from runs import new_run, printable_path, release, reports_dir, write_record
 from trees import HEAD_ADVICE, discard, filter_overrides, review_tree, snapshot
 
 LARGE_BYTES = 500_000
@@ -550,6 +550,18 @@ def main(argv: list[str]) -> int:
     root = toplevel(repo)
     if root is None:
         return fail(f"{repo} is not inside a git repository")
+    # Its path is the report's, and `render.py --agent` prints that path for the
+    # orchestrator outside every finding's block, where a line break could
+    # stand a forged block opener on a line of its own, and in commands to be
+    # copied, where a control character is spelled out and names another
+    # directory. Refused here, before any pass runs, rather than by the
+    # validator at the merge, after all of them.
+    if not printable_path(root):
+        return fail(
+            "the checkout's path holds a line break, a control character, a backtick or a byte "
+            "that is not UTF-8, which the report's "
+            f"path cannot carry: {root!r}"
+        )
 
     # Refused here rather than left for the validator, which would only see it
     # after both passes had run on a pinned diff: this is a bad invocation, and
@@ -648,8 +660,19 @@ def main(argv: list[str]) -> int:
     # working tree's own rather than this commit's: a commit cannot record a
     # dirty submodule, which the working-tree diff shows the passes as -dirty.
     # A commit that cannot be made costs the derivation, never the review.
-    held = None
+    held = stood = branch = None
     if args.mode == "local-patch":
+        # Where the working tree stands, for `render.py --show` to ask later
+        # whether the checkout still does: the snapshot has no parent to say
+        # so, and a base named by --since or --against may not be HEAD. The
+        # branch is what that question asks of, because an amend or a rebase
+        # keeps the branch and rewrites the commit; the commit is for a working
+        # tree on no branch. In full, refs/heads/..., because a short name
+        # depends on what else is named alike: a tag `feat` turns `feat` into
+        # `heads/feat`.
+        stood = resolve_commit(root, "HEAD")
+        code, out, _ = git_text(root, "symbolic-ref", "--quiet", "HEAD")
+        branch = out.removesuffix("\n") if code == 0 else None
         held, problem = snapshot(root)
         if held is None:
             sys.stderr.write(
@@ -846,6 +869,11 @@ def main(argv: list[str]) -> int:
                 # `now` is, because the validator closes that object and this
                 # is no fact about the range.
                 "snapshot": held,
+                # The commit HEAD named as a local patch was pinned; null under
+                # 'revisions', and where HEAD named none. See `stood` above.
+                "stood_on": stood,
+                # The branch HEAD named then, null on none. See `branch` above.
+                "branch": branch,
                 "run_dir": run_dir,
                 "report_dir": report_dir,
                 # The artifact's `generated_at`, so the merge has a clock without

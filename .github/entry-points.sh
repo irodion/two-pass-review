@@ -294,6 +294,13 @@ answers 1 "Refusing to render an invalid artifact" \
     python "$S/render.py" does-not-exist.json --no-open
 answers 1 "holds no scope.json" \
     python "$S/prompts.py" --rules does-not-exist
+# A checkout whose path holds a line break is refused before any pass
+# runs: render.py --agent prints its report's path for the orchestrator.
+# A control character is refused the same way; the message names both.
+broken="$(mktemp -d)/$(printf 'line\nbreak')"
+git init -q "$broken"
+answers 4 "holds a line break" \
+    python "$S/scope.py" --repo "$broken" --base HEAD --mode local-patch
 # And the collector's: it writes docs.json beside the diff, and a
 # directory it cannot write to has to stop the docs check rather than
 # leave a collection only on stdout, where nothing downstream reads.
@@ -514,7 +521,71 @@ assert artifact["run"]["hints"] == {"status": "given", "leads": 2}, artifact["ru
 linked = {f["id"]: f.get("corroborated_by") for f in artifact["findings"]}
 assert linked == {"sec-1": ["hint-1"], "hint-1": ["sec-1"]}, linked
 PY
-python "$S/render.py" --repo "$hint" "$hrun/findings.json" --no-open
+# With --agent the report's path is still the first line, then the ids
+# each disposition holds, and last the command that prints one finding --
+# never a finding itself, since a harness may cut long output. That
+# command, run with an id, prints the finding's block: here the blocking
+# security finding and the hint check's. It is run with this job's
+# interpreter rather than the python3 it names, so each job runs it on its
+# own; its other words are run as printed.
+python "$S/render.py" --repo "$hint" "$hrun/findings.json" --no-open --agent > hints-agent.txt
+test "$(head -n 1 hints-agent.txt)" = "$hrun/report.html"
+grep -qx 'Blocking: .*' hints-agent.txt
+if grep -q '<finding-' hints-agent.txt; then echo "a finding in the index" >&2; exit 1; fi
+read -r py script findings flag rest <<EOF_SHOW
+$(sed -n 's/^One finding in full: \(.*\)$/\1/p' hints-agent.txt)
+EOF_SHOW
+test "$py $findings $flag $rest" = "python3 $hrun/findings.json --show <id>"
+for id in sec-1 hint-1; do
+    python "$script" "$findings" --show "$id" > "show-$id.txt"
+    grep -qxE "<finding-[0-9a-f]+ id=\"$id\">" "show-$id.txt"
+done
+# After the block it says where the reviewed code is now: here the
+# checkout at the reviewed head, then with the cited file edited, then
+# moved to a commit that does not contain the head. A head was read in a
+# tree of its own, so a difference is never said to be one made since.
+grep -qxF "The same in the checkout: every file it cites." show-sec-1.txt
+echo '# edited' >> "$hint/a.py"
+python "$script" "$findings" --show sec-1 > show-edited.txt
+grep -q '^Different in the checkout: the one file it cites' show-edited.txt
+git -C "$hint" checkout -q -- a.py
+git -C "$hint" checkout -q --detach HEAD~1
+python "$script" "$findings" --show sec-1 > show-moved.txt
+grep -q '^Not checked out: ' show-moved.txt
+grep -q '^Different in the checkout: the one file it cites' show-moved.txt
+git -C "$hint" checkout -q main
+# A local patch's snapshot is the working tree as the review read it, so
+# there a difference is one made since -- until the checkout leaves the
+# branch that working tree was on.
+facts () {
+    python - "$S" "$1" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+import runs
+print("\n".join(runs.reviewed_code(sys.argv[2], ["a.py"])))
+PY
+}
+echo '# pending' >> "$hint/a.py"
+python "$S/scope.py" --repo "$hint" --base HEAD --mode local-patch --no-hints > hints-local.json
+lrun=$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['run_dir'])" hints-local.json)
+facts "$lrun" > local-same.txt
+grep -qxF "Unchanged in the checkout since the review: every file it cites." local-same.txt
+echo '# more' >> "$hint/a.py"
+facts "$lrun" > local-edited.txt
+grep -q '^Changed in the checkout since the review: the one file it cites' local-edited.txt
+git -C "$hint" stash -q
+git -C "$hint" switch -q -c elsewhere HEAD~1
+facts "$lrun" > local-moved.txt
+grep -q '^Not checked out: .* is not on the branch the reviewed working tree was on' local-moved.txt
+grep -q '^Different in the checkout: the one file it cites' local-moved.txt
+# On no branch, it is asked of the commit the working tree stood on.
+git -C "$hint" checkout -q --detach HEAD
+facts "$lrun" > local-detached.txt
+grep -q '^Not checked out: .*the commit the reviewed working tree stood on' local-detached.txt
+git -C "$hint" checkout -q main
+git -C "$hint" branch -q -D elsewhere
+git -C "$hint" stash drop -q
+answers 2 "No finding 'sec-9' stands" python "$S/render.py" "$hrun/findings.json" --show sec-9
 # The same run with the hint check's files gone, as if it had died before
 # writing either: the merge says no lead was checked, and the page, from
 # run.hints, says so too.
@@ -525,6 +596,9 @@ python "$S/merge.py" --run-dir "$hrun" --passes parallel --falsification ran \
 grep -qF "handed the hint check 2 lead(s)" hints-unchecked.err
 python "$S/render.py" --repo "$hint" "$hrun/findings.json" --no-open > /dev/null
 grep -qF "was handed 2 lead(s) from the linters" "$(dirname "$hrun/findings.json")/report.html"
+# --show reads the artifact as it stands now, so the hint check's finding
+# is no longer there to print.
+answers 2 "No finding 'hint-1' stands" python "$S/render.py" "$hrun/findings.json" --show hint-1
 # Turned off, it says so, and lints nothing.
 python "$S/scope.py" --repo "$hint" --base HEAD~1 --mode revisions --head HEAD --no-hints \
     > hints-off.json

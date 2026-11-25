@@ -28,8 +28,8 @@ import json
 import os
 import posixpath
 import re
-import shlex
 import shutil
+import stat
 import sys
 import tempfile
 from datetime import datetime
@@ -330,7 +330,7 @@ def reviewed_revision(
 
 
 # What a word can hold and stay unquoted for bash and PowerShell alike. Narrower
-# than shlex's: PowerShell splats a leading @ and reads a comma as an array.
+# than shlex.quote's: PowerShell splats a leading @ and reads a comma as an array.
 PLAIN_WORD = re.compile(r"[\w./:=+-]+", re.ASCII)
 # What ends PowerShell's single-quoted string, and what its double-quoted one
 # ends at or expands, beside bash's: it takes the typographic quotes for the
@@ -377,7 +377,7 @@ def printable_path(path: str) -> bool:
 OBJECT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 
 
-def quote_word(word: str) -> str:
+def quote_word(word: str) -> str | None:
     """`word` quoted so that bash and PowerShell read it alike, where any form does.
 
     Single quotes first: both take everything inside them literally. Neither
@@ -386,7 +386,8 @@ def quote_word(word: str) -> str:
     which both also read literally while the word holds none of what either
     expands inside them: $, a backtick, a double quote or a backslash. A word
     with an apostrophe and one of those has no form both read alike, and gets
-    bash's.
+    None: bash's form would hand PowerShell a typographic quote that ends its
+    string, and the $ after it would run.
     """
     if PLAIN_WORD.fullmatch(word):
         return word
@@ -394,10 +395,10 @@ def quote_word(word: str) -> str:
         return f"'{word}'"
     if not ENDS_DOUBLE.search(word):
         return f'"{word}"'
-    return shlex.quote(word)
+    return None
 
 
-def command_line(words: list[str], *rest: str) -> str:
+def command_line(words: list[str], *rest: str) -> str | None:
     """`words` as one command a harness's shell runs as copied, then `rest`
     unquoted: placeholders such as `<path>` for the reader to fill in.
 
@@ -406,13 +407,39 @@ def command_line(words: list[str], *rest: str) -> str:
     a path, so it is never quoted: PowerShell reads a quoted first word as a
     string, not a command. On Windows the separators become forward slashes,
     which git and Python both take, because Git Bash drops a backslash from an
-    unquoted word.
+    unquoted word. None where a word has no form both shells read alike: the
+    caller says what to run another way rather than print a command that runs
+    something else in one of them.
     """
     if not PLAIN_WORD.fullmatch(words[0]):
         raise ValueError(f"a command's first word is a program's name: {words[0]!r}")
     if os.name == "nt":
         words = [word.replace("\\", "/") for word in words]
-    return " ".join([*(quote_word(word) for word in words), *rest])
+    quoted = [quote_word(word) for word in words]
+    if None in quoted:
+        return None
+    return " ".join([*cast(list[str], quoted), *rest])
+
+
+def mode_on_disk(checkout: str, path: str, mode: str) -> bool:
+    """Whether `path` in `checkout` is, on disk, what git records as `mode`.
+
+    Where core.fileMode is off -- Windows, and filesystems without an execute
+    bit -- git keeps the executable bit it had and the disk cannot say, so
+    there any regular file is either regular mode.
+    """
+    try:
+        status = os.lstat(os.path.join(checkout, path))
+    except OSError:
+        return False
+    if stat.S_ISLNK(status.st_mode):
+        return mode == "120000"
+    if not stat.S_ISREG(status.st_mode) or mode not in ("100644", "100755"):
+        return False
+    code, out, _ = git_text(checkout, "config", "--type=bool", "core.fileMode")
+    if code == 0 and out.strip() == "false":
+        return True
+    return mode == ("100755" if status.st_mode & 0o111 else "100644")
 
 
 def reviewed_code(run_dir: str, cited: list[str]) -> list[str]:
@@ -477,8 +504,11 @@ def reviewed_code(run_dir: str, cited: list[str]) -> list[str]:
         return [f"Reviewed code gone: {revision} is not in {checkout}{pruned if local else ''}."]
     # Named on the first line, so that every answer below -- not only the
     # one that says the checkout is elsewhere -- has a way to read the code.
+    # Without -C where the checkout's path has no form every shell reads
+    # alike: the revision is an object id, so this one always prints.
     show = command_line(["git", "-C", checkout, "show"], f"{revision}:<path>")
-    lines = [f"Reviewed revision: {revision}, in {checkout}. `{show}` reads a file as reviewed."]
+    reads = f"`{show}`" if show else f"`git show {revision}:<path>`, run in it,"
+    lines = [f"Reviewed revision: {revision}, in {checkout}. {reads} reads a file as reviewed."]
 
     # One file however a pass spelled it -- `./a.py` is `a.py` -- as the
     # validator and merge.overlap count files. posixpath, as validate.path_key
@@ -565,10 +595,15 @@ def reviewed_code(run_dir: str, cited: list[str]) -> list[str]:
             if code != 1:
                 continue
             raw = git_text(checkout, *diff[:-3], "--raw", revision, "--", path)[1].split()
-            # A mode change is a change -- but not the all-zero mode of a path
-            # the index no longer tracks, which is how a new file staged for the
-            # review and unstaged since reads, with its bytes still on disk.
-            if len(raw) < 2 or (raw[0].lstrip(":") != raw[1] and raw[1] != "000000"):
+            # A mode change is a change. The all-zero mode is a path the index
+            # no longer tracks -- a new file staged for the review and unstaged
+            # since, its bytes still on disk -- so its mode is the disk's.
+            if len(raw) < 2:
+                continue
+            held_mode, now = raw[0].lstrip(":"), raw[1]
+            if now == "000000" and not mode_on_disk(checkout, path, held_mode):
+                continue
+            if now not in ("000000", held_mode):
                 continue
             held = git_text(checkout, "rev-parse", "--verify", "--quiet", f"{revision}:{path}")[1]
             # The second way runs the checkout's own clean filter, as `git add`
@@ -588,6 +623,18 @@ def reviewed_code(run_dir: str, cited: list[str]) -> list[str]:
         ["git", *overrides, "--literal-pathspecs", "-C", checkout, "diff", *plain, revision, "--"],
         "<path>",
     )
+    shows = f"`{how}` shows how"
+    if how is None:
+        # Without -C, as for `show` above; the overrides name drivers from the
+        # user's config, so even this can find no form, and then says less.
+        here = command_line(
+            ["git", *overrides, "--literal-pathspecs", "diff", *plain, revision, "--"], "<path>"
+        )
+        shows = (
+            f"`{here}`, run in the checkout, shows how"
+            if here
+            else "git diff in the checkout shows how"
+        )
     # Only a local patch's snapshot is the working tree as the review read it,
     # so only there is a difference one made since -- and only where the
     # checkout is known to stand where it stood, which a run recorded before
@@ -599,7 +646,7 @@ def reviewed_code(run_dir: str, cited: list[str]) -> list[str]:
         differs = (
             "Changed in the checkout since the review" if since else "Different in the checkout"
         )
-        lines.append(f"{differs}: {files(changed)} -- `{how}` shows how.")
+        lines.append(f"{differs}: {files(changed)} -- {shows}.")
     if failed:
         lines.append(f"Not compared: git could not diff {files(failed)}.")
     same = [p for p, code in answers.items() if code == 0]

@@ -318,8 +318,17 @@ def main(argv: list[str]) -> int:
     # report named in what already reached it. The index goes with it, for
     # the same reason, and after it, so the path stays the first line a
     # caller reads whether or not it asked for more.
-    sys.stdout.write(f"{target}\n")
-    sys.stdout.write(f"file://{target}\n")
+    # Not a path visible() would have to spell out, which names another
+    # directory: the run directory is the caller's own choice of argument, so
+    # it is told where to look rather than handed a wrong path or an escape.
+    if runs.printable_path(target):
+        sys.stdout.write(f"{target}\n")
+        sys.stdout.write(f"file://{target}\n")
+    else:
+        sys.stdout.write(
+            "report.html is written beside the artifact; its path holds characters "
+            "this will not print.\n"
+        )
     if args.agent:
         sys.stdout.write(visible(f"\n{agent_index(merged)}\n"))
         # The whole command, absolute, so it runs from wherever the skill is
@@ -330,9 +339,11 @@ def main(argv: list[str]) -> int:
         # as a string rather than a command.
         if standing(merged["findings"]):
             words = ["python3", os.path.abspath(__file__), source, "--show"]
-            line = f"\nOne finding in full: {runs.command_line(words, '<id>')}\n"
-            # A path visible() would spell out names another file once copied.
-            if not all(runs.printable_path(word) for word in words):
+            command = runs.command_line(words, "<id>")
+            line = f"\nOne finding in full: {command}\n"
+            # A path visible() would spell out names another file once copied,
+            # and one with no form every shell reads alike has no command.
+            if command is None or not all(runs.printable_path(word) for word in words):
                 line = "\nOne finding in full: no command can name this artifact's or this script's path as it is.\n"
             sys.stdout.write(visible(line))
     sys.stdout.flush()

@@ -39,6 +39,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import runs  # sibling script, same directory
+import terminal  # sibling script, same directory
 import validate  # sibling script, same directory
 from page import agent_finding, agent_index, render_page, standing
 
@@ -47,7 +48,7 @@ from page import agent_finding, agent_index, render_page, standing
 
 
 def visible(text: str) -> str:
-    """`text` with each runs.UNPRINTED character spelled out as `\\x1b` is, but for the
+    """`text` with each terminal.UNPRINTED character spelled out as `\\x1b` is, but for the
     carriage return of a CRLF pair, which becomes a plain newline: a quote from
     a file with Windows line endings should still read as the file's lines.
 
@@ -60,7 +61,7 @@ def visible(text: str) -> str:
         code = ord(match.group())
         return f"\\x{code:02x}" if code < 0x100 else f"\\u{code:04x}"
 
-    return runs.UNPRINTED.sub(spelled, text.replace("\r\n", "\n"))
+    return terminal.UNPRINTED.sub(spelled, text.replace("\r\n", "\n"))
 
 
 # Long enough for a cold powershell.exe start, short enough that a wedged
@@ -321,7 +322,7 @@ def main(argv: list[str]) -> int:
     # Not a path visible() would have to spell out, which names another
     # directory: the run directory is the caller's own choice of argument, so
     # it is told where to look rather than handed a wrong path or an escape.
-    if runs.printable_path(target):
+    if terminal.printable_path(target):
         sys.stdout.write(f"{target}\n")
         sys.stdout.write(f"file://{target}\n")
     else:
@@ -339,11 +340,11 @@ def main(argv: list[str]) -> int:
         # as a string rather than a command.
         if standing(merged["findings"]):
             words = ["python3", os.path.abspath(__file__), source, "--show"]
-            command = runs.command_line(words, "<id>")
+            command = terminal.command_line(words, "<id>")
             line = f"\nOne finding in full: {command}\n"
             # A path visible() would spell out names another file once copied,
             # and one with no form every shell reads alike has no command.
-            if command is None or not all(runs.printable_path(word) for word in words):
+            if command is None or not all(terminal.printable_path(word) for word in words):
                 line = "\nOne finding in full: no command can name this artifact's or this script's path as it is.\n"
             sys.stdout.write(visible(line))
     sys.stdout.flush()

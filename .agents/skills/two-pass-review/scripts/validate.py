@@ -523,7 +523,14 @@ def check_finding(
         "when confidence is medium or low",
         advice="name the evidence you could not get",
     ):
-        _nonempty_str(report, where, finding, "confidence_rationale")
+        rationale = _nonempty_str(report, where, finding, "confidence_rationale")
+        # One line, as the title is: the agent copy and `render.py --show`
+        # print it on the line before the locations, and SKILL.md has the
+        # orchestrator number those by counting the lines that hold only a
+        # path. A line break here could stand a path of its own there, and
+        # shift every number runs.reviewed_code names a file by.
+        if rationale and rationale.splitlines() != [rationale]:
+            report.add(where, "'confidence_rationale' must be a single line")
 
     if "corroborated_by" in finding and not in_merged:
         report.add(

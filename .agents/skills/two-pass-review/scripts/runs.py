@@ -36,7 +36,8 @@ from datetime import datetime
 from types import UnionType
 from typing import Any, TypedDict, Union, cast, get_args, get_origin, get_type_hints
 
-from gitrun import git, git_text, toplevel
+from gitrun import current_branch, git, git_text, toplevel
+from terminal import command_line, printable_path
 from trees import HEAD_ADVICE, discard, filter_overrides, is_run_tree, review_tree
 
 
@@ -329,96 +330,8 @@ def reviewed_revision(
     return (snapshot, advice), None
 
 
-# What a word can hold and stay unquoted for bash and PowerShell alike. Narrower
-# than shlex.quote's: PowerShell splats a leading @ and reads a comma as an array.
-PLAIN_WORD = re.compile(r"[\w./:=+-]+", re.ASCII)
-# What ends PowerShell's single-quoted string, and what its double-quoted one
-# ends at or expands, beside bash's: it takes the typographic quotes for the
-# ASCII ones.
-ENDS_SINGLE = re.compile("['\u2018-\u201b]")
-ENDS_DOUBLE = re.compile('[$`"\\\\\u201c-\u201e]')
-
-
-# What `render.py` spells out as text rather than print: every control
-# character but newline and tab -- C0, DEL and C1 -- and the characters that
-# reorder or break what a terminal shows without changing what is there: the
-# bidirectional marks, embeddings, overrides and isolates, and the Unicode line
-# and paragraph separators. A finding quotes the reviewed repository, which can
-# hold an escape sequence that sets a terminal's clipboard or erases a line;
-# the page never minded, being HTML, but `--agent` and `--show` write to a
-# terminal or a harness that shows one. Here because printable_path asks the
-# same question of a path, and two lists would drift.
-UNPRINTED = re.compile(
-    "[\x00-\x08\x0b-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]"
-)
-
-
-def printable_path(path: str) -> bool:
-    """Whether `path` can be printed for an orchestrator to copy as it is.
-
-    One line, so it cannot stand a forged block opener on a line of its own;
-    no backtick, which would end the code span a printed command sits in;
-    nothing UNPRINTED, which `render.py` would spell out as text and so name
-    another directory; and UTF-8, which every file a run writes a path into is,
-    where a byte that is not would be a crash halfway through making the run.
-    scope.py refuses a checkout that fails this before any pass runs, and
-    `render.py --show` will not print one a record holds.
-    """
-    try:
-        path.encode("utf-8")
-    except UnicodeEncodeError:
-        return False
-    # And no backtick: the commands printed for a reader sit in a code span,
-    # which a backtick inside one would end early.
-    return path.splitlines() == [path] and not UNPRINTED.search(path) and "`" not in path
-
-
 # A full object id, which is how scope.py records every revision.
 OBJECT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
-
-
-def quote_word(word: str) -> str | None:
-    """`word` quoted so that bash and PowerShell read it alike, where any form does.
-
-    Single quotes first: both take everything inside them literally. Neither
-    holds a single quote there the way the other does -- bash closes and
-    reopens, PowerShell doubles it -- so a word with one goes in double quotes,
-    which both also read literally while the word holds none of what either
-    expands inside them: $, a backtick, a double quote or a backslash. A word
-    with an apostrophe and one of those has no form both read alike, and gets
-    None: bash's form would hand PowerShell a typographic quote that ends its
-    string, and the $ after it would run.
-    """
-    if PLAIN_WORD.fullmatch(word):
-        return word
-    if not ENDS_SINGLE.search(word):
-        return f"'{word}'"
-    if not ENDS_DOUBLE.search(word):
-        return f'"{word}"'
-    return None
-
-
-def command_line(words: list[str], *rest: str) -> str | None:
-    """`words` as one command a harness's shell runs as copied, then `rest`
-    unquoted: placeholders such as `<path>` for the reader to fill in.
-
-    Quoted by quote_word, for the shells agent harnesses run -- bash and zsh,
-    Git Bash on Windows, PowerShell. The first word is a program's name, never
-    a path, so it is never quoted: PowerShell reads a quoted first word as a
-    string, not a command. On Windows the separators become forward slashes,
-    which git and Python both take, because Git Bash drops a backslash from an
-    unquoted word. None where a word has no form both shells read alike: the
-    caller says what to run another way rather than print a command that runs
-    something else in one of them.
-    """
-    if not PLAIN_WORD.fullmatch(words[0]):
-        raise ValueError(f"a command's first word is a program's name: {words[0]!r}")
-    if os.name == "nt":
-        words = [word.replace("\\", "/") for word in words]
-    quoted = [quote_word(word) for word in words]
-    if None in quoted:
-        return None
-    return " ".join([*cast(list[str], quoted), *rest])
 
 
 def mode_on_disk(checkout: str, path: str, mode: str) -> bool:
@@ -548,8 +461,7 @@ def reviewed_code(run_dir: str, cited: list[str]) -> list[str]:
     # recorded either, about the range's base, which a branch cut from the same
     # base still contains -- a weaker question, named as the one it is.
     branch = pinned.get("branch")
-    code, out, _ = git_text(checkout, "symbolic-ref", "--quiet", "HEAD")
-    current = out.removesuffix("\n") if code == 0 else None
+    current = current_branch(checkout)
     if local and isinstance(branch, str) and current is not None:
         on_history = current == branch
         where = f"{checkout} is not on the branch the reviewed working tree was on"

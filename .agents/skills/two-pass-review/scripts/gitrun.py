@@ -62,3 +62,16 @@ def toplevel(path: str) -> str | None:
     # Decoded as the filesystem encodes, so bytes that are not UTF-8 come back
     # as the same bytes rather than as U+FFFD, which names nothing on disk.
     return os.fsdecode(out.removesuffix(b"\n")) if code == 0 else None
+
+
+def current_branch(path: str) -> str | None:
+    """The branch checked out in `path`, as refs/heads/..., or None on none.
+
+    scope.py records it for a local patch and `render.py --show` compares the
+    checkout's against that record, so both read it here: the comparison is
+    only right while both sides are spelled alike. In full, because a short
+    name depends on what else is named alike: a tag `feat` turns `feat` into
+    `heads/feat`. Only git's own newline is taken off, as toplevel does.
+    """
+    code, out, _ = git_text(path, "symbolic-ref", "--quiet", "HEAD")
+    return out.removesuffix("\n") if code == 0 else None

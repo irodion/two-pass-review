@@ -293,6 +293,13 @@ def main(argv: list[str]) -> int:
         checkout = gitrun.toplevel(named)
         if checkout is None:
             return refuse(f"--checkout {named} is not inside a git repository")
+        # scope.py's rule for the checkout it records, for the one it records
+        # here: this path is written into the prompt and the record alike.
+        if not runs.printable_path(checkout):
+            return refuse(
+                f"the checkout --checkout names, {checkout!r}, holds a line break, a control "
+                "character, a backtick or a byte that is not UTF-8, which the run's files cannot carry"
+            )
     if not checkout:
         return refuse(
             f"{run_dir}/scope.json records no checkout -- pass --checkout with the user's repository"

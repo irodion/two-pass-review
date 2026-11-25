@@ -4,7 +4,7 @@
 The directory is made, named and pruned here, and its record is read and
 written here. scope.py writes the record when it pins a run, rule derivation
 when it makes the run's tree anew, and release when it removes that tree;
-prune, the merge and the rule-derivation prompt read it. All of them go
+prune, the merge, the rule-derivation prompt and `render.py --show` read it. All of them go
 through read_record and write_record, and the fields have one type, Record,
 so a field added or renamed is one change in one place, and a reader that
 spells it wrong is mypy's error.
@@ -27,6 +27,7 @@ import contextlib
 import json
 import os
 import re
+import shlex
 import shutil
 import sys
 import tempfile
@@ -34,8 +35,8 @@ from datetime import datetime
 from types import UnionType
 from typing import Any, TypedDict, Union, cast, get_args, get_origin, get_type_hints
 
-from gitrun import git, git_text
-from trees import HEAD_ADVICE, discard, is_run_tree, review_tree
+from gitrun import git, git_text, toplevel
+from trees import HEAD_ADVICE, discard, filter_overrides, is_run_tree, review_tree
 
 
 # Where runs are kept: one directory at the top of the user's checkout, holding
@@ -210,6 +211,8 @@ class Record(TypedDict, total=False):
     worktree: str | None
     checkout: str
     snapshot: str | None
+    stood_on: str | None
+    branch: str | None
     run_dir: str
     report_dir: str
     now: str
@@ -323,6 +326,287 @@ def reviewed_revision(
         "can stand in for: fix what stopped the checkout and ask again"
     )
     return (snapshot, advice), None
+
+
+# What a word can hold and stay unquoted for bash and PowerShell alike. Narrower
+# than shlex's: PowerShell splats a leading @ and reads a comma as an array.
+PLAIN_WORD = re.compile(r"[\w./:=+-]+", re.ASCII)
+# What ends PowerShell's single-quoted string, and what its double-quoted one
+# ends at or expands, beside bash's: it takes the typographic quotes for the
+# ASCII ones.
+ENDS_SINGLE = re.compile("['\u2018-\u201b]")
+ENDS_DOUBLE = re.compile('[$`"\\\\\u201c-\u201e]')
+
+
+# What `render.py` spells out as text rather than print: every control
+# character but newline and tab -- C0, DEL and C1 -- and the characters that
+# reorder or break what a terminal shows without changing what is there: the
+# bidirectional marks, embeddings, overrides and isolates, and the Unicode line
+# and paragraph separators. A finding quotes the reviewed repository, which can
+# hold an escape sequence that sets a terminal's clipboard or erases a line;
+# the page never minded, being HTML, but `--agent` and `--show` write to a
+# terminal or a harness that shows one. Here because printable_path asks the
+# same question of a path, and two lists would drift.
+UNPRINTED = re.compile(
+    "[\x00-\x08\x0b-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]"
+)
+
+
+def printable_path(path: str) -> bool:
+    """Whether `path` can be printed for an orchestrator to copy as it is.
+
+    One line, so it cannot stand a forged block opener on a line of its own;
+    no backtick, which would end the code span a printed command sits in;
+    nothing UNPRINTED, which `render.py` would spell out as text and so name
+    another directory; and UTF-8, which every file a run writes a path into is,
+    where a byte that is not would be a crash halfway through making the run.
+    scope.py refuses a checkout that fails this before any pass runs, and
+    `render.py --show` will not print one a record holds.
+    """
+    try:
+        path.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    # And no backtick: the commands printed for a reader sit in a code span,
+    # which a backtick inside one would end early.
+    return path.splitlines() == [path] and not UNPRINTED.search(path) and "`" not in path
+
+
+# A full object id, which is how scope.py records every revision.
+OBJECT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
+
+def quote_word(word: str) -> str:
+    """`word` quoted so that bash and PowerShell read it alike, where any form does.
+
+    Single quotes first: both take everything inside them literally. Neither
+    holds a single quote there the way the other does -- bash closes and
+    reopens, PowerShell doubles it -- so a word with one goes in double quotes,
+    which both also read literally while the word holds none of what either
+    expands inside them: $, a backtick, a double quote or a backslash. A word
+    with an apostrophe and one of those has no form both read alike, and gets
+    bash's.
+    """
+    if PLAIN_WORD.fullmatch(word):
+        return word
+    if not ENDS_SINGLE.search(word):
+        return f"'{word}'"
+    if not ENDS_DOUBLE.search(word):
+        return f'"{word}"'
+    return shlex.quote(word)
+
+
+def command_line(words: list[str], *rest: str) -> str:
+    """`words` as one command a harness's shell runs as copied, then `rest`
+    unquoted: placeholders such as `<path>` for the reader to fill in.
+
+    Quoted by quote_word, for the shells agent harnesses run -- bash and zsh,
+    Git Bash on Windows, PowerShell. The first word is a program's name, never
+    a path, so it is never quoted: PowerShell reads a quoted first word as a
+    string, not a command. On Windows the separators become forward slashes,
+    which git and Python both take, because Git Bash drops a backslash from an
+    unquoted word.
+    """
+    if not PLAIN_WORD.fullmatch(words[0]):
+        raise ValueError(f"a command's first word is a program's name: {words[0]!r}")
+    if os.name == "nt":
+        words = [word.replace("\\", "/") for word in words]
+    return " ".join([*(quote_word(word) for word in words), *rest])
+
+
+def reviewed_code(run_dir: str, cited: list[str]) -> list[str]:
+    """Where a finding's reviewed code is now, as sentences `render.py --show`
+    prints after the finding.
+
+    A finding's line numbers are the reviewed revision's, and the checkout the
+    orchestrator would fix may not hold it: a pull request reviewed without
+    checking it out, work edited since, a local patch's snapshot git has
+    pruned, a file the change deleted. Each of those was once a git command
+    SKILL.md described for a model to run and read -- and read wrong, where git
+    printed something other than what the prose named. So this asks git, and
+    SKILL.md says what to do about each answer. Each sentence opens with the
+    words SKILL.md matches on.
+
+    `cited` is the path of each of the finding's locations, in its order. Its
+    producer wrote them, and these lines sit outside the finding's block, so
+    no sentence repeats one: a file is named by the number of its location,
+    counted from one in the order the block lists them.
+
+    Worded here rather than taken from reviewed_revision, whose words are rule
+    derivation's: they end by advising a review to derive rules from.
+    """
+    pinned = read_record(run_dir)
+    if pinned is None:
+        return [f"Reviewed code unknown: {run_dir} {NO_RECORD}."]
+    # What the sentences below print beside the block comes from scope.json,
+    # which a hand or another program can edit, so each value is held to the
+    # shape scope.py writes before any of it is printed: a checkout that is a
+    # printable path and the top of its repository, as git says -- not any
+    # directory inside one, whose name could be a sentence -- and object ids.
+    # Until the checkout passes, no answer prints it.
+    record = f"{run_dir}/scope.json"
+    checkout = pinned.get("checkout")
+    if not isinstance(checkout, str):
+        return [f"Reviewed code unknown: {record} records no checkout."]
+    if not printable_path(checkout):
+        return [f"Reviewed code unknown: {record} records a checkout no script wrote."]
+    if not os.path.isdir(checkout):
+        return [f"Reviewed code unknown: the checkout {record} records is not there."]
+    # Asked before anything is read from it, so a checkout git will not work in
+    # -- no longer a repository, or refused by safe.directory -- is not taken
+    # for one that has lost the reviewed commit.
+    top = toplevel(checkout)
+    if top is None:
+        return [f"Reviewed code unknown: git cannot read the checkout {record} records."]
+    if top != checkout:
+        return [f"Reviewed code unknown: {record} records a checkout no script wrote."]
+    scope = pinned.get("scope") or {}
+    local = scope.get("mode") == "local-patch"
+    revision = pinned.get("snapshot") if local else scope.get("head")
+    if not isinstance(revision, str):
+        if local:
+            return ["Reviewed code gone: the run made no commit of the working tree it reviewed."]
+        return [f"Reviewed code unknown: {run_dir}/scope.json records no reviewed revision."]
+    stood = pinned.get("stood_on")
+    anchor = (stood or scope.get("base")) if local else revision
+    if not all(isinstance(v, str) and OBJECT_ID.fullmatch(v) for v in (revision, anchor)):
+        return [f"Reviewed code unknown: {run_dir}/scope.json records a revision no script wrote."]
+    if git_text(checkout, "cat-file", "-e", f"{revision}^{{commit}}")[0] != 0:
+        pruned = " -- git prunes the commit of a reviewed working tree about two weeks on"
+        return [f"Reviewed code gone: {revision} is not in {checkout}{pruned if local else ''}."]
+    # Named on the first line, so that every answer below -- not only the
+    # one that says the checkout is elsewhere -- has a way to read the code.
+    show = command_line(["git", "-C", checkout, "show"], f"{revision}:<path>")
+    lines = [f"Reviewed revision: {revision}, in {checkout}. `{show}` reads a file as reviewed."]
+
+    # One file however a pass spelled it -- `./a.py` is `a.py` -- as the
+    # validator and merge.overlap count files.
+    cited = [os.path.normpath(path) for path in cited]
+    paths = list(dict.fromkeys(cited))
+
+    def files(some: list[str]) -> str:
+        if len(paths) == 1:
+            return "the one file it cites"
+        places = [str(n) for n, path in enumerate(cited, 1) if path in some]
+        listed = places[0] if len(places) == 1 else ", ".join(places[:-1]) + " and " + places[-1]
+        return "the {} at location{} {}".format(
+            "file" if len(some) == 1 else "files", "s" if len(places) > 1 else "", listed
+        )
+
+    # Not found rather than deleted: a path the validator opened on a
+    # case-insensitive filesystem can be one git's tree spells otherwise.
+    missing = [p for p in paths if git_text(checkout, "cat-file", "-e", f"{revision}:{p}")[0]]
+    if missing:
+        lines.append(
+            f"Not found in the reviewed revision: {files(missing)} -- a file the change deleted, "
+            "one a remedy proposes, or a path git spells otherwise."
+        )
+    present = [p for p in paths if p not in missing]
+    # Whether the checkout stands where the review did. A head the checked-out
+    # branch does not contain is a pull request reviewed without checking it
+    # out, or a branch rebased since -- every branch here, once GitHub's rebase
+    # merge has minted new commits for it. A local patch's snapshot is never
+    # an ancestor, made of the working tree with no parent, so what is asked of
+    # it is the branch that working tree was on: on it, the checkout stands
+    # there however its commits were amended or rebased since; on any other,
+    # it does not, whatever that branch contains. The branch is only compared,
+    # never printed. Only a HEAD on no branch, then or now, is asked about the
+    # commit the working tree stood on; and a run pinned before scope.py
+    # recorded either, about the range's base, which a branch cut from the same
+    # base still contains -- a weaker question, named as the one it is.
+    branch = pinned.get("branch")
+    code, out, _ = git_text(checkout, "symbolic-ref", "--quiet", "HEAD")
+    current = out.removesuffix("\n") if code == 0 else None
+    if local and isinstance(branch, str) and current is not None:
+        on_history = current == branch
+        where = f"{checkout} is not on the branch the reviewed working tree was on"
+    else:
+        on_history = git_text(checkout, "merge-base", "--is-ancestor", str(anchor), "HEAD")[0] == 0
+        what = ""
+        if local:
+            what = (
+                ", the commit the reviewed working tree stood on"
+                if stood
+                else ", the base of the reviewed range"
+            )
+        where = f"HEAD in {checkout} does not contain {str(anchor)[:12]}{what}"
+    if not on_history:
+        lines.append(f"Not checked out: {where}.")
+    # Literal pathspecs, because a cited path is a file's name and not a
+    # pattern: `app/[id]/page.tsx` would otherwise match `app/i/page.tsx`.
+    # Against the working tree, so an uncommitted edit counts as a difference.
+    # A local patch's snapshot was committed with every filter driver emptied,
+    # and is compared the same way, or a file under git-lfs would read as
+    # changed by its own clean filter; a head was committed through the
+    # filters, and is compared through them.
+    overrides: list[str] = []
+    if local:
+        overrides, problem = filter_overrides(checkout)
+        if problem:
+            return [*lines, f"Not compared: {problem}."]
+    # And with no external driver, textconv or submodule setting to answer for
+    # git: an attribute the reviewed repository writes can select a driver
+    # whose exit code says "the same". The scope's own diff refuses them alike.
+    plain = ["--no-ext-diff", "--no-textconv", "--ignore-submodules=none"]
+    diff = ["--literal-pathspecs", *overrides, "diff", *plain, "--quiet", revision, "--"]
+    answers = {p: git_text(checkout, *diff, p)[0] for p in present}
+    # A local patch's file under a filter can read as different to that diff
+    # with its bytes untouched. The snapshot holds a file the review found
+    # modified as its own bytes, and any other as the index's blob, which went
+    # through the filter; the diff compares whichever the index has now. So
+    # where the mode is unchanged -- the raw diff says, and a mode change is a
+    # change -- the file is hashed both ways, and either matching the
+    # snapshot's blob means nothing changed.
+    if local:
+        for path, code in answers.items():
+            if code != 1:
+                continue
+            raw = git_text(checkout, *diff[:-3], "--raw", revision, "--", path)[1].split()
+            # A mode change is a change -- but not the all-zero mode of a path
+            # the index no longer tracks, which is how a new file staged for the
+            # review and unstaged since reads, with its bytes still on disk.
+            if len(raw) < 2 or (raw[0].lstrip(":") != raw[1] and raw[1] != "000000"):
+                continue
+            held = git_text(checkout, "rev-parse", "--verify", "--quiet", f"{revision}:{path}")[1]
+            # The second way runs the checkout's own clean filter, as `git add`
+            # would on this working tree: the user's configuration on the
+            # user's files, never the review tree's, and only once the
+            # filter-free answer has come back different.
+            for way in (["--no-filters"], []):
+                ours = git_text(checkout, "hash-object", *way, "--", path)
+                if ours[0] == 0 and held.strip() and ours[1].strip() == held.strip():
+                    answers[path] = 0
+                    break
+    changed = [p for p, code in answers.items() if code == 1]
+    failed = [p for p, code in answers.items() if code not in (0, 1)]
+    # With the overrides the comparison used, so that for a file under a filter
+    # the command shows the difference that was found, not the filter's form.
+    how = command_line(
+        ["git", *overrides, "--literal-pathspecs", "-C", checkout, "diff", *plain, revision, "--"],
+        "<path>",
+    )
+    # Only a local patch's snapshot is the working tree as the review read it,
+    # so only there is a difference one made since -- and only where the
+    # checkout is known to stand where it stood, which a run recorded before
+    # stood_on cannot say. A head was read in a tree of its own, beside
+    # whatever the working tree held then, so a difference from it may predate
+    # the review, and is said without saying when.
+    since = local and on_history and stood is not None
+    if changed:
+        differs = (
+            "Changed in the checkout since the review" if since else "Different in the checkout"
+        )
+        lines.append(f"{differs}: {files(changed)} -- `{how}` shows how.")
+    if failed:
+        lines.append(f"Not compared: git could not diff {files(failed)}.")
+    same = [p for p, code in answers.items() if code == 0]
+    if same:
+        rest = "every file it cites" if len(same) == len(paths) else files(same)
+        unchanged = (
+            "Unchanged in the checkout since the review" if since else "The same in the checkout"
+        )
+        lines.append(f"{unchanged}: {rest}.")
+    return lines
 
 
 def rules_tree(run_dir: str, pinned: Record, checkout: str) -> tuple[str | None, str | None]:

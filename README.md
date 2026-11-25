@@ -7,6 +7,10 @@ Two rubrics — security and correctness, then code quality — review one pinne
 findings as validated JSON. The two are merged into a single list ordered by whether a finding blocks the
 change, and rendered as one self-contained HTML file you open in your browser.
 
+The agent that ran the review gets the findings as well, as text, so you can ask it to act on them
+without opening the page. Each finding sits between the same tags `Copy for agent` uses, and the agent
+acts only on the findings you name, checking each one against the code before proposing a fix.
+
 A fork of Cursor's `thermos` plugin. See [`NOTICE.md`](.agents/skills/two-pass-review/NOTICE.md) for what
 was forked, what changed, and what was read but not copied.
 

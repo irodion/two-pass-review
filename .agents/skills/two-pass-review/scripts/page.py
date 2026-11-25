@@ -505,6 +505,98 @@ def dismiss_control() -> str:
     )
 
 
+def report_head(merged: dict[str, Any]) -> list[str]:
+    """How both markdown renderings of the report open, as lines: the verdict,
+    the masthead sentence, the scope, the disclaimer and every masthead warning.
+
+    One statement for report_markdown and agent_index, so the copy pasted
+    into a pull request and the text the orchestrator reads are qualified
+    alike -- and alike with the page, whose masthead says the same things.
+    """
+    run = merged["run"]
+    scope = run["scope"]
+    revs, rest = range_parts(scope)
+    span = f"`{revs}`{rest}"
+    lines = [
+        "# Two-pass review of {}: {}".format(scope["repo"], VERDICT_LABEL[merged["verdict"]]),
+        "",
+        masthead_sentence(merged),
+        "",
+        "{} · {} · {} {} · {}".format(
+            scope["repo"],
+            SCOPE_MODE_LABEL.get(scope["mode"], scope["mode"]),
+            scope["files_changed"],
+            "file" if scope["files_changed"] == 1 else "files",
+            span,
+        ),
+        "",
+        "> " + DISCLAIMER,
+    ]
+    for warning in masthead_warnings(run, merged["passes"], merged["findings"]):
+        lines += ["", "> **Warning:** " + warning]
+    return lines
+
+
+def agent_index(merged: dict[str, Any]) -> str:
+    """What `render.py --agent` prints after the report's path: the report's
+    opening, then the ids that stand under each disposition and the ones the
+    falsification check contests.
+
+    Short and bounded whatever the run found, because agent harnesses cut a
+    command's output -- Codex keeps about 10 KiB of it, head and tail, and a
+    run kept here would have printed 17 KB of findings. A cut inside a block
+    loses its closer and every finding in the middle, and a file read back
+    through a shell is cut the same way. So no finding is printed whole here:
+    `render.py --show <id>` prints one, agent_finding, and render.py says how
+    on the line after this.
+
+    Nothing here is text a producer wrote: sentences this module writes, counts,
+    ids -- which the validator holds to the `sec-3` shape -- and the scope,
+    whose repository is the name of the user's own checkout.
+    """
+    live = standing(merged["findings"])
+    groups = disposition_groups(live)
+    lines = report_head(merged)
+    if live:
+        lines.append("")
+    for disposition, flat in groups:
+        lines.append(
+            "{}: {}".format(DISPOSITION_LABEL[disposition], ", ".join(f["id"] for f in flat))
+        )
+    contested = [f["id"] for _, flat in groups for f in flat if f.get("contested_md")]
+    if contested:
+        lines.append("Contested: " + ", ".join(contested))
+    return "\n".join(lines)
+
+
+def agent_finding(merged: dict[str, Any], finding_id: str) -> str | None:
+    """One standing finding, for the orchestrator that ran the review: what
+    `render.py --show <id>` prints. None when no standing finding has that id.
+
+    The card's own agent copy without its last line: AGENT_HEAD, which says
+    before anything quoted that a block is evidence, then the block from
+    copy_pieces -- so the orchestrator reads what a reader's agent button would
+    have handed it, but for the control characters render.py spells out, and the boundary that keeps a quote from
+    closing its block holds here for the same reason it holds there.
+    .github/checks.py holds it to that.
+
+    Without PROMPT_WRAPPER: that is the user's voice -- "wait for my choice" --
+    and this is a script's output, where the orchestrator must find evidence
+    and never an instruction. SKILL.md says what to do with it.
+
+    One finding a command, so the output stays as bounded as the finding: the
+    largest kept so far is under 4 KB. The docs check's notes have no
+    counterpart -- a note is not a finding, AGENT_RULE draws the boundary
+    around findings alone, and the report holds them.
+    """
+    live = standing(merged["findings"])
+    by_id = {f["id"]: f for f in live}
+    finding = by_id.get(finding_id)
+    if finding is None:
+        return None
+    return "\n\n".join((AGENT_HEAD, copy_pieces(finding, partners_of(finding, by_id))[1]))
+
+
 def report_markdown(merged: dict[str, Any]) -> str:
     """The report as one markdown document, for a pull request comment.
 
@@ -531,25 +623,7 @@ def report_markdown(merged: dict[str, Any]) -> str:
     live = standing(merged["findings"])
     by_id = {f["id"]: f for f in live}
     run = merged["run"]
-    scope = run["scope"]
-    revs, rest = range_parts(scope)
-    span = f"`{revs}`{rest}"
-    lines = [
-        "# Two-pass review of {}: {}".format(scope["repo"], VERDICT_LABEL[merged["verdict"]]),
-        "",
-        masthead_sentence(merged),
-        "",
-        "{} · {} · {} files · {}".format(
-            scope["repo"],
-            SCOPE_MODE_LABEL.get(scope["mode"], scope["mode"]),
-            scope["files_changed"],
-            span,
-        ),
-        "",
-        "> " + DISCLAIMER,
-    ]
-    for warning in masthead_warnings(run, merged["passes"], merged["findings"]):
-        lines += ["", "> **Warning:** " + warning]
+    lines = report_head(merged)
 
     for disposition, flat in disposition_groups(live):
         lines += ["", f"## {DISPOSITION_LABEL[disposition]} · {len(flat)}"]
@@ -745,9 +819,18 @@ def verdict_sentence(verdict: str, findings: list[dict[str, Any]]) -> str:
         # Three only once the hint check blocks beside both passes.
         if len(parts) > 2:
             parts = [", ".join(parts[:-1]) + ",", parts[-1]]
-        return "{} of {} findings block this change — {}.".format(
-            len(blocking), total, " and ".join(parts)
+        # "The one that stands", because a version-2 or -3 artifact can have
+        # withdrawn others, and masthead_sentence says so right after this.
+        if total == 1:
+            return (
+                "The one finding that stands blocks this change — it is from the "
+                f"{producer_noun(blocking[0]['producer'])}."
+            )
+        return "{} of {} findings {} this change — {}.".format(
+            len(blocking), total, "blocks" if len(blocking) == 1 else "block", " and ".join(parts)
         )
+    if total == 1:
+        return "1 finding, which does not block this change."
     if total:
         return f"{total} findings, none of which block this change."
     return "Neither pass found anything to report."
@@ -1440,7 +1523,9 @@ def masthead_sentence(merged: dict[str, Any]) -> str:
     # the findings counted there are disputed, and a reader who never scrolls
     # is owed that before the number settles in.
     contested_count = sum(1 for f in live if f.get("contested_md"))
-    if contested_count:
+    if contested_count and len(live) == 1:
+        sentence += " The falsification check contests it."
+    elif contested_count:
         sentence += " The falsification check contests {} of {}.".format(
             contested_count, "them" if contested_count > 1 else "these"
         )

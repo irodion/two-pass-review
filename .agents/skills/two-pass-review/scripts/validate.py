@@ -139,7 +139,10 @@ VERDICTS = ("blocked", "clear")
 
 TIER_MAX = 64
 
-ID_RE = re.compile(r"^({})-([0-9]+)$".format("|".join(ID_PREFIX.values())))
+# `\Z`, not `$`: `$` also matches before a final newline, so "sec-1\n" passed,
+# and an id is printed outside every block in what `render.py --agent` hands
+# the orchestrator -- where that newline splits a block's opening tag in two.
+ID_RE = re.compile(r"^({})-([0-9]+)\Z".format("|".join(ID_PREFIX.values())))
 
 
 def id_sort_key(finding_id: str) -> tuple[str, int]:
@@ -770,6 +773,21 @@ def check_ids_contiguous(report: Report, where: str, ids_by_producer: dict[str, 
 # --- pass files --------------------------------------------------------------
 
 
+# Said of JSON that parses into a string UTF-8 cannot hold: a lone surrogate
+# escape such as \\ud800, which JSON allows and a pass quoting a hostile
+# repository can write. Refused here, where a pass can repair it, because the
+# page hashes and writes UTF-8 and would otherwise die with a traceback.
+LONE_SURROGATE = "holds a lone surrogate escape such as \\ud800, which no UTF-8 text can carry"
+
+
+def encodable(value: object) -> bool:
+    try:
+        json.dumps(value, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def load_jsonl(report: Report, path: str) -> list[tuple[int, Any]]:
     """Returns [(line_number, object)] for every line that parsed."""
     parsed: list[tuple[int, Any]] = []
@@ -778,19 +796,28 @@ def load_jsonl(report: Report, path: str) -> list[tuple[int, Any]]:
             if not raw.strip():
                 continue
             try:
-                parsed.append((number, json.loads(raw)))
+                value = json.loads(raw)
             except ValueError as error:
                 report.add(_where(path, number), f"not valid JSON -- {error}")
+                continue
+            if not encodable(value):
+                report.add(_where(path, number), LONE_SURROGATE)
+                continue
+            parsed.append((number, value))
     return parsed
 
 
 def load_json(report: Report, path: str) -> object:
     try:
         with open(path, encoding="utf-8") as handle:
-            return json.load(handle)
+            value = json.load(handle)
     except ValueError as error:
         report.add(_where(path), f"not valid JSON -- {error}")
         return None
+    if not encodable(value):
+        report.add(_where(path), LONE_SURROGATE)
+        return None
+    return value
 
 
 # --- excerpts ---------------------------------------------------------------
@@ -1454,6 +1481,15 @@ def check_run(report: Report, where: str, run: object, version: int) -> None:
         report.add(at, "'against' and 'since' are two ways to find one base; a scope has one")
 
     _nonempty_str(report, at, scope, "base")
+    # One line each, because `render.py --agent` prints all three outside every
+    # block, where a line break could stand a forged block opener on a line of
+    # its own. scope.py writes two resolved revisions and the name of a checkout
+    # whose path it refuses to hold a line break, so only a hand-made artifact
+    # is refused here, never a run at its merge.
+    for key in ("repo", "base", "head"):
+        value = scope.get(key)
+        if isinstance(value, str) and value and value.splitlines() != [value]:
+            report.add(at, f"'{key}' must be a single line")
     files_changed = _int(report, at, scope, "files_changed")
     _int(report, at, scope, "diff_bytes")
 
